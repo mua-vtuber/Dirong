@@ -1,6 +1,6 @@
 import process from "node:process";
+import { printCliError } from "../cli/error-output.js";
 import { loadPhase1Config } from "../config.js";
-import { safeErrorInfo, toKoreanErrorMessage } from "../errors.js";
 import { runHealthCheck } from "../health.js";
 import { runStartupRepair } from "../storage/repair-scan.js";
 import { SessionStore } from "../storage/session-store.js";
@@ -44,7 +44,6 @@ try {
     process.exit(1);
   }
 } catch (error) {
-  console.error(toKoreanErrorMessage(error));
-  console.error(JSON.stringify(safeErrorInfo(error), null, 2));
+  printCliError(error);
   process.exit(1);
 }

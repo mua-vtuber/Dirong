@@ -13,6 +13,7 @@ def main() -> int:
         description="Transcribe one audio file and print JSON to stdout."
     )
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--check-model", action="store_true")
     parser.add_argument("--input")
     parser.add_argument("--model", default="small")
     parser.add_argument("--language", default=None)
@@ -22,6 +23,9 @@ def main() -> int:
 
     if args.check:
         return check_dependencies()
+
+    if args.check_model:
+        return check_model(args.model, args.device, args.compute_type)
 
     if not args.input:
         print("--input is required", file=sys.stderr)
@@ -71,6 +75,42 @@ def check_dependencies() -> int:
     return 1
 
 
+def check_model(model_name: str, device: str, compute_type: str) -> int:
+    try:
+        engine = load_model_for_check(model_name, device, compute_type)
+    except Exception as error:
+        print(str(error), file=sys.stderr)
+        return 1
+
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "engine": engine,
+                "model": model_name,
+                "device": device,
+                "compute_type": compute_type,
+            },
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
+def load_model_for_check(model_name: str, device: str, compute_type: str) -> str:
+    if importlib.util.find_spec("faster_whisper") is not None:
+        load_faster_whisper_model(model_name, device, compute_type)
+        return "faster-whisper"
+
+    if importlib.util.find_spec("whisper") is not None:
+        load_openai_whisper_model(model_name, device)
+        return "whisper"
+
+    raise RuntimeError(
+        "Neither faster_whisper nor whisper is installed. No package installation was attempted."
+    )
+
+
 def transcribe(
     input_path: str,
     model_name: str,
@@ -107,6 +147,13 @@ def transcribe_with_faster_whisper(
     device: str,
     compute_type: str,
 ) -> str:
+    model = load_faster_whisper_model(model_name, device, compute_type)
+
+    segments, _info = model.transcribe(input_path, language=language)
+    return "".join(segment.text for segment in segments).strip()
+
+
+def load_faster_whisper_model(model_name: str, device: str, compute_type: str):
     from faster_whisper import WhisperModel
 
     init_kwargs = {
@@ -122,14 +169,11 @@ def transcribe_with_faster_whisper(
         )
 
     try:
-        model = WhisperModel(model_name, **init_kwargs)
+        return WhisperModel(model_name, **init_kwargs)
     except Exception as error:
         raise RuntimeError(
             f"Failed to load faster-whisper model locally: {model_name}. No automatic model download was attempted. {error}"
         ) from error
-
-    segments, _info = model.transcribe(input_path, language=language)
-    return "".join(segment.text for segment in segments).strip()
 
 
 def transcribe_with_openai_whisper(
@@ -138,6 +182,13 @@ def transcribe_with_openai_whisper(
     language: Optional[str],
     device: str,
 ) -> str:
+    model = load_openai_whisper_model(model_name, device)
+    result = model.transcribe(input_path, language=language, fp16=False)
+    text = result.get("text", "")
+    return str(text).strip()
+
+
+def load_openai_whisper_model(model_name: str, device: str):
     if not os.path.exists(model_name):
         raise RuntimeError(
             "openai-whisper fallback requires PHASE3_LOCAL_WHISPER_MODEL to be a local model file path. Named models are not loaded here because that may trigger an automatic download."
@@ -148,10 +199,7 @@ def transcribe_with_openai_whisper(
     load_kwargs = {}
     if device and device != "auto":
         load_kwargs["device"] = device
-    model = whisper.load_model(model_name, **load_kwargs)
-    result = model.transcribe(input_path, language=language, fp16=False)
-    text = result.get("text", "")
-    return str(text).strip()
+    return whisper.load_model(model_name, **load_kwargs)
 
 
 def normalize_language(language: Optional[str]) -> Optional[str]:

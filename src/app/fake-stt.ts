@@ -1,6 +1,6 @@
 import process from "node:process";
+import { printCliError } from "../cli/error-output.js";
 import { loadPhase1Config } from "../config.js";
-import { safeErrorInfo, toKoreanErrorMessage } from "../errors.js";
 import { runFakeSttBatch } from "../stt/fake-runner.js";
 import { SessionStore } from "../storage/session-store.js";
 import { DirongDatabase } from "../storage/sqlite.js";
@@ -12,6 +12,7 @@ type CliOptions = {
   dryRun: boolean;
   backup: boolean;
   leaseMs: number | null;
+  debug: boolean;
 };
 
 try {
@@ -57,8 +58,7 @@ try {
 
   store.close();
 } catch (error) {
-  console.error(toKoreanErrorMessage(error));
-  console.error(JSON.stringify(safeErrorInfo(error), null, 2));
+  printCliError(error);
   process.exit(1);
 }
 
@@ -69,6 +69,7 @@ function parseArgs(args: string[]): CliOptions {
     dryRun: false,
     backup: true,
     leaseMs: null,
+    debug: false,
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -76,6 +77,10 @@ function parseArgs(args: string[]): CliOptions {
 
     if (arg === "--dry-run") {
       options.dryRun = true;
+      continue;
+    }
+    if (arg === "--debug") {
+      options.debug = true;
       continue;
     }
     if (arg === "--no-backup") {

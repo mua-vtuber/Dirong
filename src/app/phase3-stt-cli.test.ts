@@ -11,6 +11,7 @@ test("parsePhase3SttArgs defaults to safe small batch", () => {
     provider: null,
     model: null,
     leaseMs: null,
+    debug: false,
   });
 });
 
@@ -29,6 +30,7 @@ test("parsePhase3SttArgs accepts local-whisper dry-run options", () => {
       "--lease-ms",
       "1000",
       "--no-backup",
+      "--debug",
     ]),
     {
       limit: 3,
@@ -38,6 +40,7 @@ test("parsePhase3SttArgs accepts local-whisper dry-run options", () => {
       provider: "local-whisper",
       model: "small",
       leaseMs: 1000,
+      debug: true,
     },
   );
 });

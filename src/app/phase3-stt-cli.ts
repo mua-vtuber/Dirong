@@ -8,6 +8,7 @@ export type Phase3SttCliOptions = {
   provider: SttProviderName | null;
   model: string | null;
   leaseMs: number | null;
+  debug: boolean;
 };
 
 export function parsePhase3SttArgs(args: string[]): Phase3SttCliOptions {
@@ -19,6 +20,7 @@ export function parsePhase3SttArgs(args: string[]): Phase3SttCliOptions {
     provider: null,
     model: null,
     leaseMs: null,
+    debug: false,
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -26,6 +28,10 @@ export function parsePhase3SttArgs(args: string[]): Phase3SttCliOptions {
 
     if (arg === "--dry-run") {
       options.dryRun = true;
+      continue;
+    }
+    if (arg === "--debug") {
+      options.debug = true;
       continue;
     }
     if (arg === "--no-backup") {

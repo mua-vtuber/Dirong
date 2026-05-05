@@ -322,14 +322,15 @@ function renderDashboardHtml(): string {
       ));
 
       setHtml('transcripts', table(
-        ['time', 'speaker', 'source/provider/model', 'chunk', 'text'],
+        ['time', 'speaker', 'speech', 'source/provider/model', 'chunk', 'text'],
         (state.recentTranscriptSegments ?? []).map((t) => '<tr><td>' +
           escapeHtml(t.start_ms) + '-' + escapeHtml(t.end_ms) +
           '</td><td>' + escapeHtml(t.display_name_snapshot) +
+          '</td><td>' + escapeHtml(t.speech_status ?? 'speech') +
           '</td><td>' + escapeHtml(t.source) + ' / ' + escapeHtml(t.provider) +
           '<br><code>' + escapeHtml(t.model) + '</code>' +
           '</td><td><code>' + escapeHtml(t.chunk_id) + '</code></td><td>' +
-          escapeHtml(t.text) + '</td></tr>')
+          escapeHtml((t.speech_status === 'no_speech' && !t.text) ? '(no speech)' : t.text) + '</td></tr>')
       ));
 
       setHtml('events', table(

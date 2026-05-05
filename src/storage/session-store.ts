@@ -106,6 +106,8 @@ export type SttJobRow = {
   updated_at: string;
 };
 
+export type SpeechStatus = "speech" | "no_speech";
+
 export type TranscriptSegmentRow = {
   id: string;
   session_id: string;
@@ -116,6 +118,7 @@ export type TranscriptSegmentRow = {
   start_ms: number;
   end_ms: number;
   text: string;
+  speech_status: SpeechStatus;
   source: string;
   provider: string;
   model: string;
@@ -697,6 +700,8 @@ export class SessionStore {
     const now = isoNow();
     const segmentId = `seg_${input.job.chunk_id}`;
     const resultHash = sha256Text(input.text);
+    const speechStatus: SpeechStatus =
+      input.text.trim().length === 0 ? "no_speech" : "speech";
     const startMs = chunk.started_at_ms;
     const endMs = chunk.ended_at_ms ?? chunk.started_at_ms;
 
@@ -704,12 +709,13 @@ export class SessionStore {
       this.run(
         `INSERT INTO transcript_segments (
           id, session_id, chunk_id, stt_job_id, user_id,
-          display_name_snapshot, start_ms, end_ms, text,
+          display_name_snapshot, start_ms, end_ms, text, speech_status,
           source, provider, model, input_audio_sha256,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(stt_job_id) DO UPDATE SET
           text = excluded.text,
+          speech_status = excluded.speech_status,
           source = excluded.source,
           provider = excluded.provider,
           model = excluded.model,
@@ -724,6 +730,7 @@ export class SessionStore {
         startMs,
         endMs,
         input.text,
+        speechStatus,
         input.source,
         input.provider,
         input.model,
@@ -840,6 +847,31 @@ export class SessionStore {
         );
   }
 
+  listTranscriptTimelineSegments(input: {
+    sessionId: string;
+    includeNoSpeech?: boolean;
+  }): TranscriptSegmentRow[] {
+    if (input.includeNoSpeech) {
+      return this.all<TranscriptSegmentRow>(
+        `SELECT *
+         FROM transcript_segments
+         WHERE session_id = ?
+         ORDER BY start_ms ASC, end_ms ASC, created_at ASC`,
+        input.sessionId,
+      );
+    }
+
+    return this.all<TranscriptSegmentRow>(
+      `SELECT *
+       FROM transcript_segments
+       WHERE session_id = ?
+         AND speech_status = 'speech'
+         AND length(trim(text)) > 0
+       ORDER BY start_ms ASC, end_ms ASC, created_at ASC`,
+      input.sessionId,
+    );
+  }
+
   listRecentTranscriptTextForSpeaker(input: {
     sessionId: string;
     userId: string;
@@ -855,6 +887,8 @@ export class SessionStore {
          WHERE session_id = ?
            AND user_id = ?
            AND start_ms < ?
+           AND speech_status = 'speech'
+           AND length(trim(text)) > 0
          ORDER BY start_ms DESC
          LIMIT ?`,
         input.sessionId,
@@ -871,6 +905,8 @@ export class SessionStore {
        WHERE session_id = ?
          AND user_id = ?
          AND start_ms < ?
+         AND speech_status = 'speech'
+         AND length(trim(text)) > 0
          AND source IN (${placeholders})
        ORDER BY start_ms DESC
        LIMIT ?`,

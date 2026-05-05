@@ -7,6 +7,16 @@ export class MissingRequiredConfigError extends Error {
   }
 }
 
+export class DirongError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "DirongError";
+  }
+}
+
 export type SafeErrorInfo = {
   name: string;
   message: string;

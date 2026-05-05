@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS transcript_segments (
   start_ms INTEGER NOT NULL,
   end_ms INTEGER NOT NULL,
   text TEXT NOT NULL,
+  speech_status TEXT NOT NULL DEFAULT 'speech',
   source TEXT NOT NULL,
   provider TEXT NOT NULL,
   model TEXT NOT NULL,

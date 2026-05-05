@@ -17,9 +17,9 @@ import { DashboardServer } from "../dashboard/server.js";
 import { phase1GuildCommandPayloads } from "../discord/commands.js";
 import {
   redactForJson,
-  safeErrorInfo,
   toKoreanErrorMessage,
 } from "../errors.js";
+import { printCliError } from "../cli/error-output.js";
 import { RecordingProducer } from "../recording/recording-producer.js";
 import { runStartupRepair } from "../storage/repair-scan.js";
 import { SessionStore } from "../storage/session-store.js";
@@ -29,8 +29,7 @@ const config = (() => {
   try {
     return loadPhase1Config({ requireDiscordConfig: true });
   } catch (error) {
-    console.error(toKoreanErrorMessage(error));
-    console.error(JSON.stringify(safeErrorInfo(error), null, 2));
+    printCliError(error);
     process.exit(1);
   }
 })();
@@ -60,8 +59,7 @@ client.once(Events.ClientReady, async (readyClient) => {
     try {
       await registerCommands();
     } catch (error) {
-      console.error("Slash command 자동 등록 실패:", toKoreanErrorMessage(error));
-      console.error(JSON.stringify(safeErrorInfo(error), null, 2));
+      printCliError(error, { prefix: "Slash command 자동 등록 실패" });
     }
   }
 
@@ -91,21 +89,18 @@ process.on("SIGTERM", () => {
 });
 
 process.on("unhandledRejection", (error) => {
-  console.error("처리되지 않은 비동기 오류:", toKoreanErrorMessage(error));
-  console.error(JSON.stringify(safeErrorInfo(error), null, 2));
+  printCliError(error, { prefix: "처리되지 않은 비동기 오류" });
 });
 
 process.on("uncaughtException", (error) => {
-  console.error("치명적인 오류:", toKoreanErrorMessage(error));
-  console.error(JSON.stringify(safeErrorInfo(error), null, 2));
+  printCliError(error, { prefix: "치명적인 오류" });
   void shutdown("uncaughtException").finally(() => process.exit(1));
 });
 
 try {
   await client.login(config.discordBotToken);
 } catch (error) {
-  console.error(toKoreanErrorMessage(error));
-  console.error(JSON.stringify(safeErrorInfo(error), null, 2));
+  printCliError(error);
   await shutdown("login_failed");
   process.exit(1);
 }
@@ -215,7 +210,7 @@ async function handleDirongCommand(
     await interaction.editReply("알 수 없는 하위 명령입니다.");
   } catch (error) {
     await interaction.editReply(toKoreanErrorMessage(error));
-    console.error("slash command 처리 실패:", JSON.stringify(safeErrorInfo(error), null, 2));
+    printCliError(error, { prefix: "slash command 처리 실패" });
   }
 }
 
@@ -256,8 +251,7 @@ async function handleConsoleCommand(command: string): Promise<void> {
       console.log("사용 가능한 콘솔 명령: status, stop, exit");
     }
   } catch (error) {
-    console.error(toKoreanErrorMessage(error));
-    console.error(JSON.stringify(safeErrorInfo(error), null, 2));
+    printCliError(error);
   }
 }
 

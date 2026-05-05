@@ -1,4 +1,4 @@
-import { redactSensitiveText } from "../errors.js";
+import { DirongError, redactSensitiveText } from "../errors.js";
 import { runProcess } from "../media.js";
 import type {
   SttProvider,
@@ -28,15 +28,26 @@ export class LocalWhisperSttProvider implements SttProvider {
   async preflight(): Promise<void> {
     const result = await runProcess(
       this.config.command,
-      [...this.config.args, "--check"],
-      Math.min(this.config.defaultTimeoutMs, 30000),
+      [
+        ...this.config.args,
+        "--check-model",
+        "--model",
+        this.modelName,
+        "--device",
+        this.config.device,
+        "--compute-type",
+        this.config.computeType,
+      ],
+      this.config.defaultTimeoutMs,
     );
 
     if (!result.ok) {
-      throw new Error([
+      throw new DirongError("LOCAL_WHISPER_PREFLIGHT_FAILED", [
         "local-whisper 실행 준비에 실패했습니다.",
         `command: ${displayCommand(this.config.command, this.config.args)}`,
-        "faster-whisper 또는 whisper Python package를 설치하거나 PHASE3_LOCAL_WHISPER_COMMAND/ARGS를 JSON wrapper로 설정해 주세요.",
+        `model: ${this.modelName}`,
+        `device: ${this.config.device}`,
+        `computeType: ${this.config.computeType}`,
         summarizeProcessOutput(result.stderr || result.stdout),
       ].filter(Boolean).join(" "));
     }

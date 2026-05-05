@@ -10,13 +10,13 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "node --test dist/settings/env-settings-loader.test.js dist/app/phase3-stt-cli.test.js dist/stt/provider-factory.test.js",
-    "start": "node dist/index.js",
-    "phase0:doctor": "node dist/doctor.js",
-    "phase1:start": "node dist/app/main.js",
-    "phase1:doctor": "node dist/app/doctor.js",
-    "phase2:fake-stt": "node dist/app/fake-stt.js",
-    "phase3:stt": "node dist/app/real-stt.js"
+    "test": "node --no-warnings --test dist/settings/env-settings-loader.test.js dist/app/phase3-stt-cli.test.js dist/stt/provider-factory.test.js dist/transcript/timeline.test.js",
+    "start": "node --no-warnings dist/index.js",
+    "phase0:doctor": "node --no-warnings dist/doctor.js",
+    "phase1:start": "node --no-warnings dist/app/main.js",
+    "phase1:doctor": "node --no-warnings dist/app/doctor.js",
+    "phase2:fake-stt": "node --no-warnings dist/app/fake-stt.js",
+    "phase3:stt": "node --no-warnings dist/app/real-stt.js"
   },
   "dependencies": {
     "@discordjs/voice": "^0.19.0",

@@ -1,6 +1,6 @@
 import process from "node:process";
+import { printCliError } from "../cli/error-output.js";
 import { loadPhase1Config } from "../config.js";
-import { safeErrorInfo, toKoreanErrorMessage } from "../errors.js";
 import { loadAppSettingsFromEnv } from "../settings/env-settings-loader.js";
 import {
   assertPhase3SttProviderReady,
@@ -86,7 +86,6 @@ try {
 
   store.close();
 } catch (error) {
-  console.error(toKoreanErrorMessage(error));
-  console.error(JSON.stringify(safeErrorInfo(error), null, 2));
+  printCliError(error);
   process.exit(1);
 }

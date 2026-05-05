@@ -2,8 +2,16 @@ node_modules/
 dist/
 .env
 .omx/
+.venv-whisper/
 data/
+
+# Local planning docs are intentionally not committed.
 docs/
+
 references/*
 !references/.gitkeep
+
+.github/*
+!.github/FUNDING.yml
+
 npm-debug.log*

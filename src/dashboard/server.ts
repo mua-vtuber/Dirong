@@ -246,6 +246,10 @@ function renderDashboardHtml(): string {
       <div id="sttJobs"></div>
     </section>
     <section>
+      <h2>Transcript Segments</h2>
+      <div id="transcripts"></div>
+    </section>
+    <section>
       <h2>Connection / Errors</h2>
       <div id="events"></div>
     </section>
@@ -315,6 +319,16 @@ function renderDashboardHtml(): string {
           '</td><td>' + escapeHtml(j.attempts) + ' / ' + escapeHtml(j.max_attempts) +
           '</td><td>' + escapeHtml(rel(j.input_audio_path)) +
           '</td><td><code>' + escapeHtml(shortHash(j.input_audio_sha256)) + '</code></td></tr>')
+      ));
+
+      setHtml('transcripts', table(
+        ['time', 'speaker', 'source', 'chunk', 'text'],
+        (state.recentTranscriptSegments ?? []).map((t) => '<tr><td>' +
+          escapeHtml(t.start_ms) + '-' + escapeHtml(t.end_ms) +
+          '</td><td>' + escapeHtml(t.display_name_snapshot) +
+          '</td><td>' + escapeHtml(t.source) + ' / ' + escapeHtml(t.provider) +
+          '</td><td><code>' + escapeHtml(t.chunk_id) + '</code></td><td>' +
+          escapeHtml(t.text) + '</td></tr>')
       ));
 
       setHtml('events', table(

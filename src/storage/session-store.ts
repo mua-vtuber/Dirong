@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -85,7 +86,7 @@ export type ChunkRow = {
   updated_at: string;
 };
 
-type SttJobRow = {
+export type SttJobRow = {
   id: string;
   session_id: string;
   chunk_id: string;
@@ -101,6 +102,24 @@ type SttJobRow = {
   input_audio_sha256: string | null;
   result_text_sha256: string | null;
   last_error: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TranscriptSegmentRow = {
+  id: string;
+  session_id: string;
+  chunk_id: string;
+  stt_job_id: string;
+  user_id: string;
+  display_name_snapshot: string;
+  start_ms: number;
+  end_ms: number;
+  text: string;
+  source: string;
+  provider: string;
+  model: string;
+  input_audio_sha256: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -560,6 +579,244 @@ export class SessionStore {
     return jobs.length;
   }
 
+  claimNextSttJob(input: {
+    workerId: string;
+    leaseMs: number;
+    sessionId?: string | null;
+  }): SttJobRow | null {
+    const now = isoNow();
+    const lockedUntil = new Date(Date.now() + input.leaseMs).toISOString();
+    let claimed: SttJobRow | null = null;
+
+    this.database.transaction(() => {
+      const job = input.sessionId
+        ? this.get<SttJobRow>(
+            `SELECT *
+             FROM stt_jobs
+             WHERE status = 'queued'
+               AND next_attempt_at <= ?
+               AND session_id = ?
+             ORDER BY created_at ASC
+             LIMIT 1`,
+            now,
+            input.sessionId,
+          )
+        : this.get<SttJobRow>(
+            `SELECT *
+             FROM stt_jobs
+             WHERE status = 'queued'
+               AND next_attempt_at <= ?
+             ORDER BY created_at ASC
+             LIMIT 1`,
+            now,
+          );
+
+      if (!job) {
+        return;
+      }
+
+      const result = this.database.db.prepare(
+        `UPDATE stt_jobs
+         SET status = 'processing',
+             attempts = attempts + 1,
+             locked_by = ?,
+             locked_until = ?,
+             last_error = NULL,
+             updated_at = ?
+         WHERE id = ?
+           AND status = 'queued'`,
+      ).run(input.workerId, lockedUntil, now, job.id) as { changes: number };
+
+      if (result.changes === 0) {
+        return;
+      }
+
+      claimed = this.get<SttJobRow>("SELECT * FROM stt_jobs WHERE id = ?", job.id);
+    });
+
+    return claimed;
+  }
+
+  listQueuedSttJobs(input: {
+    limit: number;
+    sessionId?: string | null;
+  }): SttJobRow[] {
+    const now = isoNow();
+    return input.sessionId
+      ? this.all<SttJobRow>(
+          `SELECT *
+           FROM stt_jobs
+           WHERE status = 'queued'
+             AND next_attempt_at <= ?
+             AND session_id = ?
+           ORDER BY created_at ASC
+           LIMIT ?`,
+          now,
+          input.sessionId,
+          input.limit,
+        )
+      : this.all<SttJobRow>(
+          `SELECT *
+           FROM stt_jobs
+           WHERE status = 'queued'
+             AND next_attempt_at <= ?
+           ORDER BY created_at ASC
+           LIMIT ?`,
+          now,
+          input.limit,
+        );
+  }
+
+  completeFakeSttJob(input: {
+    job: SttJobRow;
+    text: string;
+  }): TranscriptSegmentRow {
+    const chunk = this.getChunk(input.job.chunk_id);
+    if (!chunk) {
+      throw new Error(`STT job의 chunk를 찾지 못했습니다: ${input.job.chunk_id}`);
+    }
+
+    const now = isoNow();
+    const segmentId = `seg_${input.job.chunk_id}`;
+    const resultHash = sha256Text(input.text);
+    const startMs = chunk.started_at_ms;
+    const endMs = chunk.ended_at_ms ?? chunk.started_at_ms;
+
+    this.database.transaction(() => {
+      this.run(
+        `INSERT INTO transcript_segments (
+          id, session_id, chunk_id, stt_job_id, user_id,
+          display_name_snapshot, start_ms, end_ms, text,
+          source, provider, model, input_audio_sha256,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'fake', 'dirong-fake-stt', 'fake-v1', ?, ?, ?)
+        ON CONFLICT(stt_job_id) DO UPDATE SET
+          text = excluded.text,
+          source = excluded.source,
+          provider = excluded.provider,
+          model = excluded.model,
+          input_audio_sha256 = excluded.input_audio_sha256,
+          updated_at = excluded.updated_at`,
+        segmentId,
+        input.job.session_id,
+        input.job.chunk_id,
+        input.job.id,
+        input.job.user_id,
+        input.job.display_name_snapshot,
+        startMs,
+        endMs,
+        input.text,
+        input.job.input_audio_sha256,
+        now,
+        now,
+      );
+
+      this.run(
+        `UPDATE stt_jobs
+         SET status = 'done',
+             locked_by = NULL,
+             locked_until = NULL,
+             result_text_sha256 = ?,
+             last_error = NULL,
+             updated_at = ?
+         WHERE id = ?`,
+        resultHash,
+        now,
+        input.job.id,
+      );
+    });
+
+    const segment = this.get<TranscriptSegmentRow>(
+      "SELECT * FROM transcript_segments WHERE stt_job_id = ?",
+      input.job.id,
+    );
+    if (!segment) {
+      throw new Error(`fake transcript segment 저장에 실패했습니다: ${input.job.id}`);
+    }
+    return segment;
+  }
+
+  markSttJobMissingAudio(job: SttJobRow): void {
+    const now = isoNow();
+    this.database.transaction(() => {
+      this.run(
+        `UPDATE stt_jobs
+         SET status = 'failed_missing_file',
+             locked_by = NULL,
+             locked_until = NULL,
+             last_error = ?,
+             updated_at = ?
+         WHERE id = ?`,
+        "STT input audio file이 없습니다.",
+        now,
+        job.id,
+      );
+      this.recordRepairItem({
+        type: "stt_job_missing_audio",
+        sessionId: job.session_id,
+        chunkId: job.chunk_id,
+        sttJobId: job.id,
+        path: job.input_audio_path,
+        severity: "error",
+        details: { previousStatus: job.status },
+      });
+    });
+  }
+
+  failProcessingSttJob(input: {
+    jobId: string;
+    error: string;
+  }): void {
+    const job = this.get<SttJobRow>("SELECT * FROM stt_jobs WHERE id = ?", input.jobId);
+    if (!job) {
+      return;
+    }
+
+    const now = isoNow();
+    const shouldRetry = job.attempts < job.max_attempts;
+    const backoffMs = Math.min(
+      15 * 60 * 1000,
+      30 * 1000 * Math.max(1, 2 ** Math.max(0, job.attempts - 1)),
+    );
+    const nextAttemptAt = new Date(Date.now() + backoffMs).toISOString();
+
+    this.run(
+      `UPDATE stt_jobs
+       SET status = ?,
+           locked_by = NULL,
+           locked_until = NULL,
+           next_attempt_at = ?,
+           last_error = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      shouldRetry ? "queued" : "failed",
+      shouldRetry ? nextAttemptAt : now,
+      input.error,
+      now,
+      input.jobId,
+    );
+  }
+
+  listRecentTranscriptSegments(sessionId: string | null, limit = 30): TranscriptSegmentRow[] {
+    return sessionId === null
+      ? this.all<TranscriptSegmentRow>(
+          `SELECT *
+           FROM transcript_segments
+           ORDER BY created_at DESC
+           LIMIT ?`,
+          limit,
+        )
+      : this.all<TranscriptSegmentRow>(
+          `SELECT *
+           FROM transcript_segments
+           WHERE session_id = ?
+           ORDER BY start_ms DESC
+           LIMIT ?`,
+          sessionId,
+          limit,
+        );
+  }
+
   hasChunkAudioPath(filePath: string): boolean {
     const resolved = path.resolve(filePath);
     const row = this.get<{ count: number }>(
@@ -665,6 +922,7 @@ export class SessionStore {
        GROUP BY status
        ORDER BY status ASC`,
     );
+    const recentTranscriptSegments = this.listRecentTranscriptSegments(sessionId, 30);
 
     return redactForJson({
       generatedAt: isoNow(),
@@ -675,6 +933,7 @@ export class SessionStore {
       recentSttJobs,
       recentConnectionEvents,
       recentRepairItems,
+      recentTranscriptSegments,
       queueStats,
       dbPath: this.database.dbPath,
     });
@@ -778,6 +1037,10 @@ export class SessionStore {
 
 function isoNow(): string {
   return new Date().toISOString();
+}
+
+function sha256Text(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
 export function relativeDisplayPath(filePath: string | null): string | null {

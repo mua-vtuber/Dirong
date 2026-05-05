@@ -13,7 +13,8 @@
     "start": "node dist/index.js",
     "phase0:doctor": "node dist/doctor.js",
     "phase1:start": "node dist/app/main.js",
-    "phase1:doctor": "node dist/app/doctor.js"
+    "phase1:doctor": "node dist/app/doctor.js",
+    "phase2:fake-stt": "node dist/app/fake-stt.js"
   },
   "dependencies": {
     "@discordjs/voice": "^0.19.0",

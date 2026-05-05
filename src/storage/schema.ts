@@ -88,6 +88,30 @@ CREATE TABLE IF NOT EXISTS stt_jobs (
 CREATE INDEX IF NOT EXISTS idx_stt_jobs_status_next_attempt
   ON stt_jobs(status, next_attempt_at);
 
+CREATE TABLE IF NOT EXISTS transcript_segments (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  chunk_id TEXT NOT NULL,
+  stt_job_id TEXT NOT NULL UNIQUE,
+  user_id TEXT NOT NULL,
+  display_name_snapshot TEXT NOT NULL,
+  start_ms INTEGER NOT NULL,
+  end_ms INTEGER NOT NULL,
+  text TEXT NOT NULL,
+  source TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  input_audio_sha256 TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+  FOREIGN KEY (chunk_id) REFERENCES chunks(id) ON DELETE CASCADE,
+  FOREIGN KEY (stt_job_id) REFERENCES stt_jobs(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_transcript_segments_session_start
+  ON transcript_segments(session_id, start_ms);
+
 CREATE TABLE IF NOT EXISTS connection_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id TEXT,

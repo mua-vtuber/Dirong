@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+.omx/
+data/
+docs/
+references/*
+!references/.gitkeep
+npm-debug.log*

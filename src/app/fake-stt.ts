@@ -1,11 +1,10 @@
-import { copyFileSync, existsSync } from "node:fs";
-import path from "node:path";
 import process from "node:process";
 import { loadPhase1Config } from "../config.js";
 import { safeErrorInfo, toKoreanErrorMessage } from "../errors.js";
 import { runFakeSttBatch } from "../stt/fake-runner.js";
 import { SessionStore } from "../storage/session-store.js";
 import { DirongDatabase } from "../storage/sqlite.js";
+import { backupDatabaseFiles } from "./sqlite-backup.js";
 
 type CliOptions = {
   limit: number;
@@ -115,26 +114,4 @@ function readPositiveNumber(value: string | undefined, flag: string): number {
     throw new Error(`${flag} 값은 1 이상의 정수여야 합니다.`);
   }
   return parsed;
-}
-
-function backupDatabaseFiles(dbPath: string): string[] {
-  if (!existsSync(dbPath)) {
-    return [];
-  }
-
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const backupBase = `${dbPath}.backup-${stamp}`;
-  const copied: string[] = [];
-
-  for (const suffix of ["", "-wal", "-shm"]) {
-    const source = `${dbPath}${suffix}`;
-    if (!existsSync(source)) {
-      continue;
-    }
-    const target = `${backupBase}${suffix ? suffix : ".sqlite"}`;
-    copyFileSync(source, target);
-    copied.push(path.relative(process.cwd(), target).replace(/\\/g, "/"));
-  }
-
-  return copied;
 }

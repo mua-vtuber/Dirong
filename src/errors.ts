@@ -17,14 +17,22 @@ export type SafeErrorInfo = {
 export function redactSensitiveText(value: string): string {
   let redacted = value;
   const token = process.env.DISCORD_BOT_TOKEN;
+  const openAiApiKey = process.env.OPENAI_API_KEY;
 
   if (token && token.length > 0) {
     redacted = redacted.split(token).join("[REDACTED_DISCORD_BOT_TOKEN]");
+  }
+  if (openAiApiKey && openAiApiKey.length > 0) {
+    redacted = redacted.split(openAiApiKey).join("[REDACTED_OPENAI_API_KEY]");
   }
 
   redacted = redacted.replace(
     /Bot\s+[A-Za-z0-9._-]+/gi,
     "Bot [REDACTED]",
+  );
+  redacted = redacted.replace(
+    /\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{20,}\b/g,
+    "[REDACTED_OPENAI_API_KEY]",
   );
   redacted = redacted.replace(
     /([A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{20,})/g,

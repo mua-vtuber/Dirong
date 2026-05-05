@@ -287,7 +287,7 @@ function renderDashboardHtml(): string {
         metric('Open Chunks', runtime.openChunks ?? 0),
         metric('Session Status', session?.status ?? '-'),
         metric('DB', rel(state.dbPath)),
-        metric('Queue', (state.queueStats ?? []).map((row) => row.status + ':' + row.count).join(' / ') || '-'),
+        metric('Queue', queueSummary(state.queueStats ?? [])),
         metric('Repair Open', (state.recentRepairItems ?? []).filter((row) => row.status === 'open').length)
       ].join(''));
 
@@ -322,11 +322,12 @@ function renderDashboardHtml(): string {
       ));
 
       setHtml('transcripts', table(
-        ['time', 'speaker', 'source', 'chunk', 'text'],
+        ['time', 'speaker', 'source/provider/model', 'chunk', 'text'],
         (state.recentTranscriptSegments ?? []).map((t) => '<tr><td>' +
           escapeHtml(t.start_ms) + '-' + escapeHtml(t.end_ms) +
           '</td><td>' + escapeHtml(t.display_name_snapshot) +
           '</td><td>' + escapeHtml(t.source) + ' / ' + escapeHtml(t.provider) +
+          '<br><code>' + escapeHtml(t.model) + '</code>' +
           '</td><td><code>' + escapeHtml(t.chunk_id) + '</code></td><td>' +
           escapeHtml(t.text) + '</td></tr>')
       ));
@@ -372,6 +373,12 @@ function renderDashboardHtml(): string {
     function shortHash(value) {
       if (!value) return '';
       return String(value).slice(0, 12);
+    }
+    function queueSummary(rows) {
+      const counts = new Map(rows.map((row) => [row.status, row.count]));
+      return ['queued', 'processing', 'done', 'failed', 'failed_missing_file']
+        .map((status) => status + ':' + (counts.get(status) ?? 0))
+        .join(' / ');
     }
     refresh();
     setInterval(refresh, 3000);

@@ -671,6 +671,24 @@ export class SessionStore {
     job: SttJobRow;
     text: string;
   }): TranscriptSegmentRow {
+    return this.completeSttJob({
+      job: input.job,
+      text: input.text,
+      source: "fake",
+      provider: "dirong-fake-stt",
+      model: "fake-v1",
+      inputAudioSha256: input.job.input_audio_sha256,
+    });
+  }
+
+  completeSttJob(input: {
+    job: SttJobRow;
+    text: string;
+    source: string;
+    provider: string;
+    model: string;
+    inputAudioSha256?: string | null;
+  }): TranscriptSegmentRow {
     const chunk = this.getChunk(input.job.chunk_id);
     if (!chunk) {
       throw new Error(`STT job의 chunk를 찾지 못했습니다: ${input.job.chunk_id}`);
@@ -689,7 +707,7 @@ export class SessionStore {
           display_name_snapshot, start_ms, end_ms, text,
           source, provider, model, input_audio_sha256,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'fake', 'dirong-fake-stt', 'fake-v1', ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(stt_job_id) DO UPDATE SET
           text = excluded.text,
           source = excluded.source,
@@ -706,7 +724,10 @@ export class SessionStore {
         startMs,
         endMs,
         input.text,
-        input.job.input_audio_sha256,
+        input.source,
+        input.provider,
+        input.model,
+        input.inputAudioSha256 ?? input.job.input_audio_sha256,
         now,
         now,
       );
@@ -716,10 +737,12 @@ export class SessionStore {
          SET status = 'done',
              locked_by = NULL,
              locked_until = NULL,
+             input_audio_sha256 = COALESCE(?, input_audio_sha256),
              result_text_sha256 = ?,
              last_error = NULL,
              updated_at = ?
          WHERE id = ?`,
+        input.inputAudioSha256 ?? null,
         resultHash,
         now,
         input.job.id,
@@ -731,7 +754,7 @@ export class SessionStore {
       input.job.id,
     );
     if (!segment) {
-      throw new Error(`fake transcript segment 저장에 실패했습니다: ${input.job.id}`);
+      throw new Error(`transcript segment 저장에 실패했습니다: ${input.job.id}`);
     }
     return segment;
   }
@@ -815,6 +838,48 @@ export class SessionStore {
           sessionId,
           limit,
         );
+  }
+
+  listRecentTranscriptTextForSpeaker(input: {
+    sessionId: string;
+    userId: string;
+    beforeStartMs: number;
+    limit: number;
+    sources?: string[];
+  }): string[] {
+    const sources = input.sources?.filter((source) => source.trim().length > 0) ?? [];
+    if (sources.length === 0) {
+      return this.all<{ text: string }>(
+        `SELECT text
+         FROM transcript_segments
+         WHERE session_id = ?
+           AND user_id = ?
+           AND start_ms < ?
+         ORDER BY start_ms DESC
+         LIMIT ?`,
+        input.sessionId,
+        input.userId,
+        input.beforeStartMs,
+        input.limit,
+      ).map((row) => row.text).reverse();
+    }
+
+    const placeholders = sources.map(() => "?").join(", ");
+    return this.all<{ text: string }>(
+      `SELECT text
+       FROM transcript_segments
+       WHERE session_id = ?
+         AND user_id = ?
+         AND start_ms < ?
+         AND source IN (${placeholders})
+       ORDER BY start_ms DESC
+       LIMIT ?`,
+      input.sessionId,
+      input.userId,
+      input.beforeStartMs,
+      ...sources,
+      input.limit,
+    ).map((row) => row.text).reverse();
   }
 
   hasChunkAudioPath(filePath: string): boolean {
@@ -959,10 +1024,14 @@ export class SessionStore {
       "SELECT COUNT(*) AS count FROM chunks WHERE session_id = ?",
       session.id,
     )?.count ?? 0;
-    const queuedJobs = this.get<{ count: number }>(
-      "SELECT COUNT(*) AS count FROM stt_jobs WHERE session_id = ? AND status = 'queued'",
+    const queueStats = this.all<{ status: string; count: number }>(
+      `SELECT status, COUNT(*) AS count
+       FROM stt_jobs
+       WHERE session_id = ?
+       GROUP BY status
+       ORDER BY status ASC`,
       session.id,
-    )?.count ?? 0;
+    );
     const openRepairs = this.get<{ count: number }>(
       "SELECT COUNT(*) AS count FROM repair_items WHERE status = 'open'",
     )?.count ?? 0;
@@ -975,7 +1044,7 @@ export class SessionStore {
       `열려 있는 chunk: ${runtime.openChunks}`,
       `speaker: ${speakerCount}명`,
       `chunk: ${chunkCount}개`,
-      `queued STT job: ${queuedJobs}개`,
+      `STT queue: ${formatQueueStats(queueStats)}`,
       `open repair item: ${openRepairs}개`,
       `Dashboard: ${dashboardUrl}`,
     ].join("\n");
@@ -1041,6 +1110,13 @@ function isoNow(): string {
 
 function sha256Text(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function formatQueueStats(rows: Array<{ status: string; count: number }>): string {
+  const counts = new Map(rows.map((row) => [row.status, row.count]));
+  return ["queued", "processing", "done", "failed", "failed_missing_file"]
+    .map((status) => `${status}:${counts.get(status) ?? 0}`)
+    .join(" / ");
 }
 
 export function relativeDisplayPath(filePath: string | null): string | null {

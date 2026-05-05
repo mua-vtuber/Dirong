@@ -101,7 +101,7 @@ export class RecordingProducer {
     }
 
     if (input.voiceChannel.type === ChannelType.GuildStageVoice) {
-      throw new Error("Stage 채널은 Phase 1 MVP에서 아직 지원하지 않습니다.");
+      throw new Error("Stage 채널은 현재 Dirong 녹음 앱에서 아직 지원하지 않습니다.");
     }
 
     const health = await runHealthCheck();
@@ -139,7 +139,7 @@ export class RecordingProducer {
         status: "failed",
         lastError: "Node/Opus/FFmpeg 필수 의존성 health check 실패",
       });
-      throw new Error("필수 의존성 health check 실패. npm run phase1:doctor를 확인해 주세요.");
+      throw new Error("필수 의존성 health check 실패. npm run doctor를 확인해 주세요.");
     }
 
     this.store.recordConnectionEvent({
@@ -226,7 +226,7 @@ export class RecordingProducer {
   }): Promise<{ sessionId: string; status: SessionStatus; sessionDir: string }> {
     const active = this.active;
     if (!active) {
-      throw new Error("진행 중인 Phase 1 녹음 세션이 없습니다.");
+      throw new Error("진행 중인 녹음 세션이 없습니다.");
     }
 
     this.store.updateSessionStatus(active.sessionId, "stopping");

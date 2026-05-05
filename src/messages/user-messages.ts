@@ -28,6 +28,19 @@ export function formatUserFacingError(error: unknown): string {
     ].join("\n");
   }
 
+  if (code === "SQLITE_BACKUP_FAILED") {
+    return [
+      "디롱이 SQLite backup 생성에 실패했습니다.",
+      "",
+      "확인할 것:",
+      "1. 녹음 중이면 잠시 후 다시 시도해 주세요.",
+      "2. data 폴더를 다른 프로그램이 잠그고 있지 않은지 확인해 주세요.",
+      "3. 디스크 여유 공간이 충분한지 확인해 주세요.",
+      "",
+      "backup이 실패했으므로 STT 처리는 시작하지 않았습니다.",
+    ].join("\n");
+  }
+
   if (
     message.includes("local-whisper") ||
     message.includes("faster-whisper") ||

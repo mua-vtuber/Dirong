@@ -1047,7 +1047,7 @@ export class SessionStore {
         : this.getLatestSession();
     if (!session) {
       return [
-        "진행 중이거나 최근 생성된 Phase 1 세션이 없습니다.",
+        "진행 중이거나 최근 생성된 녹음 세션이 없습니다.",
         `Dashboard: ${dashboardUrl}`,
       ].join("\n");
     }
@@ -1073,7 +1073,7 @@ export class SessionStore {
     )?.count ?? 0;
 
     return [
-      `Phase 1 상태: ${session.status}`,
+      `Recording + STT 상태: ${session.status}`,
       `세션: ${session.id}`,
       `음성 채널: ${session.voice_channel_name ?? session.voice_channel_id}`,
       `현재 녹음: ${runtime.isRecording ? "yes" : "no"}`,

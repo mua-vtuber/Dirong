@@ -45,14 +45,14 @@ const dashboard = new DashboardServer(config, store, producer);
 const dashboardUrl = await dashboard.start();
 let shutdownPromise: Promise<void> | null = null;
 
-console.log("디롱이 Phase 1 dashboard 시작:", dashboardUrl);
+console.log("디롱이 Recording + STT dashboard 시작:", dashboardUrl);
 console.log("startup repair:", JSON.stringify(repairSummary, null, 2));
 if (config.openDashboard) {
   openDashboardUrl(dashboardUrl);
 }
 
 client.once(Events.ClientReady, async (readyClient) => {
-  console.log(`디롱이 Phase 1 봇 로그인 완료: ${readyClient.user.tag}`);
+  console.log(`디롱이 봇 로그인 완료: ${readyClient.user.tag}`);
   console.log("설정 요약:", JSON.stringify(redactForJson(snapshotPhase1Config(config)), null, 2));
 
   if (config.autoRegisterCommands) {
@@ -118,7 +118,7 @@ async function handleDirongCommand(
 ): Promise<void> {
   if (!interaction.guildId || interaction.guildId !== config.guildId) {
     await interaction.reply({
-      content: "이 Phase 1 앱은 .env에 설정된 서버에서만 사용할 수 있습니다.",
+      content: "이 Dirong 앱은 .env에 설정된 서버에서만 사용할 수 있습니다.",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -161,7 +161,7 @@ async function handleDirongCommand(
 
       await interaction.editReply(
         [
-          "Phase 1 녹음을 시작했습니다.",
+          "녹음을 시작했습니다.",
           `세션: ${result.sessionId}`,
           `음성 채널: ${voiceChannel.name}`,
           `Dashboard: ${dashboard.getUrl()}`,
@@ -191,7 +191,7 @@ async function handleDirongCommand(
 
       await interaction.editReply(
         [
-          "Phase 1 녹음을 종료했습니다.",
+          "녹음을 종료했습니다.",
           `세션: ${result.sessionId}`,
           `상태: ${result.status}`,
           `Dashboard: ${dashboard.getUrl()}`,
@@ -238,7 +238,7 @@ async function handleConsoleCommand(command: string): Promise<void> {
         stoppedByUserId: "console",
         stoppedByDisplayName: "console",
       });
-      console.log(`Phase 1 종료: ${result.sessionId} (${result.status})`);
+      console.log(`녹음 종료: ${result.sessionId} (${result.status})`);
       return;
     }
 

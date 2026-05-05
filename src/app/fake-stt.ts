@@ -4,7 +4,7 @@ import { loadPhase1Config } from "../config.js";
 import { runFakeSttBatch } from "../stt/fake-runner.js";
 import { SessionStore } from "../storage/session-store.js";
 import { DirongDatabase } from "../storage/sqlite.js";
-import { backupDatabaseFiles } from "./sqlite-backup.js";
+import { backupDatabaseSnapshot } from "./sqlite-backup.js";
 
 type CliOptions = {
   limit: number;
@@ -20,9 +20,11 @@ try {
   const config = loadPhase1Config({ requireDiscordConfig: false });
 
   if (!options.dryRun && options.backup) {
-    const backupPaths = backupDatabaseFiles(config.dbPath);
+    const backupPaths = backupDatabaseSnapshot(config.dbPath, {
+      busyTimeoutMs: config.dbBusyTimeoutMs,
+    });
     if (backupPaths.length > 0) {
-      console.log("SQLite backup 생성:");
+      console.log("SQLite snapshot backup 생성:");
       for (const backupPath of backupPaths) {
         console.log(`- ${backupPath}`);
       }
@@ -41,7 +43,7 @@ try {
     dryRun: options.dryRun,
   });
 
-  console.log("디롱이 Phase 2 Fake STT 결과");
+  console.log("디롱이 Fake STT 결과");
   console.log(`DB: ${config.dbPath}`);
   console.log(`mode: ${options.dryRun ? "dry-run" : "write"}`);
   console.log(`limit: ${result.limit}`);

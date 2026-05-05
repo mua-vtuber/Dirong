@@ -164,7 +164,7 @@ export function loadPhase1Config(options?: {
   const dataDir = path.resolve(optional("PHASE1_DATA_DIR", "./data/sessions"));
   const dashboardHost = optional("PHASE1_DASHBOARD_HOST", "127.0.0.1");
   if (dashboardHost !== "127.0.0.1") {
-    throw new Error("Phase 1 dashboard는 127.0.0.1에만 bind할 수 있습니다.");
+    throw new Error("Dirong dashboard는 127.0.0.1에만 bind할 수 있습니다.");
   }
 
   const config: Phase1Config = {

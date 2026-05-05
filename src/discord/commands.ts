@@ -2,7 +2,7 @@ import { SlashCommandBuilder } from "discord.js";
 
 export const dirongCommand = new SlashCommandBuilder()
   .setName("dirong")
-  .setDescription("디롱이 Phase 1 녹음 producer")
+  .setDescription("디롱이 녹음과 STT pipeline")
   .addSubcommand((subcommand) =>
     subcommand
       .setName("start")

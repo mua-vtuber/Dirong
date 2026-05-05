@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 
 echo.
-echo Dirong Phase 1 RecordingProducer MVP
+echo Dirong Recording + STT Pipeline
 echo.
 
 where node > nul 2> nul
@@ -23,7 +23,7 @@ if not exist ".env" (
   echo - DISCORD_CLIENT_ID
   echo - DISCORD_GUILD_ID
   echo.
-  echo Phase 1 does not require DISCORD_VOICE_CHANNEL_ID.
+  echo Dirong does not require DISCORD_VOICE_CHANNEL_ID for normal recording.
   echo Use /dirong start while you are in a Discord voice channel.
   echo.
   pause
@@ -48,22 +48,23 @@ if errorlevel 1 (
 )
 
 echo.
-echo [3/4] Running Phase 1 doctor...
-call npm run phase1:doctor
+echo [3/4] Running Dirong doctor...
+echo local-whisper model checks can take a little while.
+call npm run doctor
 if errorlevel 1 (
-  echo [ERROR] phase1 doctor failed.
+  echo [ERROR] Dirong doctor failed.
   pause
   exit /b 1
 )
 
 echo.
-echo [4/4] Starting Dirong Phase 1 app...
+echo [4/4] Starting Dirong Recording + STT app...
 echo In Discord, join a voice channel and use: /dirong start
 echo Dashboard default: http://127.0.0.1:3095/
 echo In this console, you can type: status, stop, exit
 echo.
-call npm run phase1:start
+call npm start
 
 echo.
-echo Dirong Phase 1 app exited.
+echo Dirong app exited.
 pause

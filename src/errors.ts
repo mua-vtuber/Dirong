@@ -150,7 +150,7 @@ export function toKoreanErrorMessage(error: unknown): string {
   }
 
   if (message.includes("ffmpeg")) {
-    return "FFmpeg 실행에 실패했습니다. npm install이 끝났는지 확인하고, 계속 실패하면 npm run phase0:doctor 결과를 확인해 주세요.";
+    return "FFmpeg 실행에 실패했습니다. npm install이 끝났는지 확인하고, 계속 실패하면 npm run doctor 결과를 확인해 주세요.";
   }
 
   if (message.includes("timed out") || message.includes("timeout")) {

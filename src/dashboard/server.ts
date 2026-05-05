@@ -155,7 +155,7 @@ function renderDashboardHtml(): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Dirong Phase 1 Dashboard</title>
+  <title>Dirong Recording + STT Dashboard</title>
   <style>
     :root {
       color-scheme: light;
@@ -228,7 +228,7 @@ function renderDashboardHtml(): string {
 </head>
 <body>
   <header>
-    <h1>Dirong Phase 1 Dashboard</h1>
+    <h1>Dirong Recording + STT Dashboard</h1>
     <div class="muted" id="generatedAt">loading</div>
   </header>
   <main>

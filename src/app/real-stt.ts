@@ -10,7 +10,7 @@ import { runSttBatch } from "../stt/runner.js";
 import { SessionStore } from "../storage/session-store.js";
 import { DirongDatabase } from "../storage/sqlite.js";
 import { parsePhase3SttArgs } from "./phase3-stt-cli.js";
-import { backupDatabaseFiles } from "./sqlite-backup.js";
+import { backupDatabaseSnapshot } from "./sqlite-backup.js";
 
 try {
   const options = parsePhase3SttArgs(process.argv.slice(2));
@@ -34,9 +34,11 @@ try {
   }
 
   if (!options.dryRun && options.backup) {
-    const backupPaths = backupDatabaseFiles(phase1Config.dbPath);
+    const backupPaths = backupDatabaseSnapshot(phase1Config.dbPath, {
+      busyTimeoutMs: phase1Config.dbBusyTimeoutMs,
+    });
     if (backupPaths.length > 0) {
-      console.log("SQLite backup 생성:");
+      console.log("SQLite snapshot backup 생성:");
       for (const backupPath of backupPaths) {
         console.log(`- ${backupPath}`);
       }
@@ -63,7 +65,7 @@ try {
     contextSegments: 2,
   });
 
-  console.log("디롱이 Phase 3 Real STT 결과");
+  console.log("디롱이 Real STT 결과");
   console.log(`DB: ${phase1Config.dbPath}`);
   console.log(`mode: ${options.dryRun ? "dry-run" : "write"}`);
   console.log(`provider: ${result.provider}`);

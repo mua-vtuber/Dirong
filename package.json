@@ -10,11 +10,15 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "node --no-warnings --test dist/settings/env-settings-loader.test.js dist/app/phase3-stt-cli.test.js dist/stt/provider-factory.test.js dist/transcript/timeline.test.js",
-    "start": "node --no-warnings dist/index.js",
+    "test": "node --no-warnings --test dist/settings/env-settings-loader.test.js dist/app/phase3-stt-cli.test.js dist/app/sqlite-backup.test.js dist/stt/provider-factory.test.js dist/transcript/timeline.test.js",
+    "start": "node --no-warnings dist/app/main.js",
+    "doctor": "node --no-warnings dist/app/doctor.js",
+    "repair": "node --no-warnings dist/app/repair.js",
+    "phase0:start": "node --no-warnings dist/index.js",
     "phase0:doctor": "node --no-warnings dist/doctor.js",
     "phase1:start": "node --no-warnings dist/app/main.js",
     "phase1:doctor": "node --no-warnings dist/app/doctor.js",
+    "phase1:repair": "node --no-warnings dist/app/repair.js",
     "phase2:fake-stt": "node --no-warnings dist/app/fake-stt.js",
     "phase3:stt": "node --no-warnings dist/app/real-stt.js"
   },

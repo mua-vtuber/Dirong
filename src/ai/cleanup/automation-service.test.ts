@@ -78,6 +78,57 @@ test("AiCleanupAutomationService skips an STT-waiting session and runs a later t
   }
 });
 
+test("AiCleanupAutomationService prioritizes ready sessions over old STT waiting sessions with a small batch limit", async () => {
+  const fixture = createSessionFixture();
+  try {
+    addQueuedSttChunk(fixture, 1);
+    finalizeSession(fixture);
+    setFinalizedAt(fixture, fixture.sessionId, "2026-05-06T00:00:00.000Z");
+
+    const processingFixture = createAdditionalSession(
+      fixture,
+      "meeting_ai_auto_old_stt_processing",
+    );
+    addProcessingSttChunk(processingFixture, 1);
+    finalizeSession(processingFixture);
+    setFinalizedAt(
+      fixture,
+      processingFixture.sessionId,
+      "2026-05-06T00:00:01.000Z",
+    );
+
+    const readyFixture = createAdditionalSession(
+      fixture,
+      "meeting_ai_auto_ready_after_stt_waiting_limit_one",
+    );
+    addCompletedRealSttChunk(
+      readyFixture,
+      1,
+      "batch limit이 1이어도 이 세션을 먼저 처리해야 합니다.",
+    );
+    finalizeSession(readyFixture);
+    setFinalizedAt(
+      fixture,
+      readyFixture.sessionId,
+      "2026-05-06T00:00:02.000Z",
+    );
+
+    const provider = new CountingFakeAiCleanupProvider();
+    const service = await createReadyAutomationService(fixture, provider, {
+      sessionBatchLimit: 1,
+    });
+
+    const snapshot = await service.runOnce();
+
+    assert.equal(snapshot.status, "done");
+    assert.equal(snapshot.sessionId, readyFixture.sessionId);
+    assert.deepEqual(fixture.countAiRows(), { jobs: 1, drafts: 1 });
+    assert.equal(provider.generateCalls, 1);
+  } finally {
+    fixture.close();
+  }
+});
+
 test("AiCleanupAutomationService runs Phase 4 after finalized STT terminal state", async () => {
   const fixture = createSessionFixture();
   try {
@@ -146,10 +197,80 @@ test("AiCleanupAutomationService skips a queued AI job whose retry time is in th
   }
 });
 
+test("AiCleanupAutomationService prioritizes ready sessions over old AI backoff jobs with a small batch limit", async () => {
+  const fixture = createSessionFixture();
+  try {
+    const provider = new CountingFakeAiCleanupProvider();
+
+    addCompletedRealSttChunk(
+      fixture,
+      1,
+      "앞 세션은 오래된 AI cleanup backoff 상태입니다.",
+    );
+    finalizeSession(fixture);
+    setFinalizedAt(fixture, fixture.sessionId, "2026-05-06T00:00:00.000Z");
+    const backoffJob = createQueuedAiCleanupJob(fixture, provider);
+    fixture.database.db.prepare(
+      "UPDATE ai_cleanup_jobs SET next_attempt_at = ? WHERE id = ?",
+    ).run("2999-01-01T00:00:00.000Z", backoffJob.id);
+
+    const readyFixture = createAdditionalSession(
+      fixture,
+      "meeting_ai_auto_ready_after_backoff_limit_one",
+    );
+    addCompletedRealSttChunk(
+      readyFixture,
+      1,
+      "batch limit이 1이어도 backoff 세션보다 먼저 실행됩니다.",
+    );
+    finalizeSession(readyFixture);
+    setFinalizedAt(
+      fixture,
+      readyFixture.sessionId,
+      "2026-05-06T00:00:01.000Z",
+    );
+
+    const service = await createReadyAutomationService(fixture, provider, {
+      sessionBatchLimit: 1,
+    });
+
+    const snapshot = await service.runOnce();
+    const unchangedBackoffJob = fixture.store.getAiCleanupJob(backoffJob.id);
+
+    assert.equal(snapshot.status, "done");
+    assert.equal(snapshot.sessionId, readyFixture.sessionId);
+    assert.equal(unchangedBackoffJob?.attempts, 0);
+    assert.equal(provider.generateCalls, 1);
+  } finally {
+    fixture.close();
+  }
+});
+
 test("AiCleanupAutomationService records empty timeline block without provider generate for fake-only STT", async () => {
   const fixture = createSessionFixture();
   try {
     addCompletedFakeSttChunk(fixture, 1, "[FAKE STT] 테스트 transcript입니다.");
+    finalizeSession(fixture);
+    const provider = new CountingFakeAiCleanupProvider();
+    const service = await createReadyAutomationService(fixture, provider);
+
+    const snapshot = await service.runOnce();
+
+    assert.equal(snapshot.status, "blocked");
+    assert.equal(snapshot.job?.status, "blocked");
+    assert.equal(snapshot.job?.failureKind, "empty_timeline");
+    assert.equal(snapshot.stt?.shouldRecordEmptyTimelineBlock, true);
+    assert.deepEqual(fixture.countAiRows(), { jobs: 1, drafts: 0 });
+    assert.equal(provider.generateCalls, 0);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("AiCleanupAutomationService records empty timeline block without provider generate for no-speech-only STT", async () => {
+  const fixture = createSessionFixture();
+  try {
+    addCompletedNoSpeechSttChunk(fixture, 1);
     finalizeSession(fixture);
     const provider = new CountingFakeAiCleanupProvider();
     const service = await createReadyAutomationService(fixture, provider);
@@ -453,6 +574,40 @@ function addCompletedFakeSttChunk(
   fixture.store.completeFakeSttJob({ job, text });
 }
 
+function addCompletedNoSpeechSttChunk(
+  fixture: AutomationFixture,
+  index: number,
+): void {
+  addQueuedSttChunk(fixture, index);
+  const job = fixture.store.claimNextSttJob({
+    workerId: "ai-auto-test-stt",
+    leaseMs: 60000,
+    sessionId: fixture.sessionId,
+  });
+  assert.ok(job);
+  fixture.store.completeSttJob({
+    job,
+    text: "",
+    source: "real",
+    provider: "local-whisper",
+    model: "small",
+    inputAudioSha256: `stt-${index}`,
+  });
+}
+
+function addProcessingSttChunk(
+  fixture: AutomationFixture,
+  index: number,
+): void {
+  addQueuedSttChunk(fixture, index);
+  const job = fixture.store.claimNextSttJob({
+    workerId: "ai-auto-test-stt",
+    leaseMs: 60000,
+    sessionId: fixture.sessionId,
+  });
+  assert.ok(job);
+}
+
 function addFailedSttChunk(fixture: AutomationFixture, index: number): void {
   addQueuedSttChunk(fixture, index, { maxAttempts: 1 });
   const job = fixture.store.claimNextSttJob({
@@ -523,9 +678,10 @@ function setFinalizedAt(
 async function createReadyAutomationService(
   fixture: AutomationFixture,
   provider: AiCleanupProvider,
+  options: { sessionBatchLimit?: number } = {},
 ): Promise<AiCleanupAutomationService> {
   const lifecycle = await createReadyLifecycle(provider);
-  return createAutomationService(fixture, provider, lifecycle);
+  return createAutomationService(fixture, provider, lifecycle, options);
 }
 
 async function createReadyLifecycle(
@@ -544,13 +700,14 @@ function createAutomationService(
   fixture: AutomationFixture,
   provider: AiCleanupProvider,
   lifecycle: AiProviderLifecycleService,
+  options: { sessionBatchLimit?: number } = {},
 ): AiCleanupAutomationService {
   return new AiCleanupAutomationService(fixture.store, {
     enabled: true,
     provider,
     lifecycle,
     pollIntervalMs: 1000,
-    sessionBatchLimit: 3,
+    sessionBatchLimit: options.sessionBatchLimit ?? 3,
     readinessRetryMs: 1000,
     runner: {
       workerId: "ai-auto-test",

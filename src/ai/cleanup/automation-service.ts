@@ -235,9 +235,13 @@ export class AiCleanupAutomationService {
       return this.getSnapshot();
     }
 
-    const sessions = this.store.listFinalizedSessionsForAiCleanupAutomation(
-      this.options.sessionBatchLimit,
-    );
+    const sessions = this.store.listFinalizedSessionsForAiCleanupAutomation({
+      limit: this.options.sessionBatchLimit,
+      provider: this.options.provider.providerName,
+      model: this.options.provider.modelName,
+      promptVersion: PHASE4_AI_CLEANUP_PROMPT_VERSION,
+      nowIso: checkedAt,
+    });
     if (sessions.length === 0) {
       this.snapshot = makeSnapshot({
         ...this.snapshot,

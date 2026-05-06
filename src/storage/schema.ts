@@ -1,4 +1,9 @@
 export const SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS dirong_migrations (
+  id TEXT PRIMARY KEY,
+  applied_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   guild_id TEXT NOT NULL,

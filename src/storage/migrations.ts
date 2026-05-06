@@ -1,0 +1,75 @@
+import { DatabaseSync } from "node:sqlite";
+
+type SchemaMigration = {
+  id: string;
+  apply: (db: DatabaseSync) => void;
+};
+
+export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
+  {
+    id: "001_transcript_segments_speech_status",
+    apply: migrateTranscriptSegmentsSpeechStatus,
+  },
+];
+
+export function applySchemaMigrations(db: DatabaseSync): void {
+  db.exec(`
+CREATE TABLE IF NOT EXISTS dirong_migrations (
+  id TEXT PRIMARY KEY,
+  applied_at TEXT NOT NULL
+);
+`);
+
+  const appliedMigrationIds = new Set(
+    (
+      db.prepare("SELECT id FROM dirong_migrations;").all() as Array<{
+        id: string;
+      }>
+    ).map((row) => row.id),
+  );
+
+  for (const migration of SCHEMA_MIGRATIONS) {
+    if (appliedMigrationIds.has(migration.id)) {
+      continue;
+    }
+
+    db.exec("BEGIN IMMEDIATE;");
+    try {
+      migration.apply(db);
+      db.prepare(
+        "INSERT INTO dirong_migrations (id, applied_at) VALUES (?, ?);",
+      ).run(migration.id, new Date().toISOString());
+      db.exec("COMMIT;");
+    } catch (error) {
+      db.exec("ROLLBACK;");
+      throw error;
+    }
+  }
+}
+
+function migrateTranscriptSegmentsSpeechStatus(db: DatabaseSync): void {
+  const transcriptColumns = db.prepare(
+    "PRAGMA table_info(transcript_segments);",
+  ).all() as Array<{ name: string }>;
+  const transcriptColumnNames = new Set(
+    transcriptColumns.map((column) => column.name),
+  );
+
+  if (
+    transcriptColumns.length > 0 &&
+    !transcriptColumnNames.has("speech_status")
+  ) {
+    db.exec(
+      "ALTER TABLE transcript_segments ADD COLUMN speech_status TEXT NOT NULL DEFAULT 'speech';",
+    );
+  }
+
+  db.exec(
+    `UPDATE transcript_segments
+     SET speech_status = CASE
+       WHEN length(trim(text)) = 0 THEN 'no_speech'
+       WHEN speech_status IS NULL OR trim(speech_status) = '' THEN 'speech'
+       ELSE speech_status
+     END;`,
+  );
+}

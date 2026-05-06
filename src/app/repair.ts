@@ -8,7 +8,10 @@ import { DirongDatabase } from "../storage/sqlite.js";
 try {
   const config = loadPhase1Config({ requireDiscordConfig: false });
   const database = new DirongDatabase(config.dbPath, config.dbBusyTimeoutMs);
-  const store = new SessionStore(database);
+  const store = new SessionStore(database, {
+    storageRoot: config.dataDir,
+    normalizeStoredPaths: true,
+  });
   const repairSummary = await runStartupRepair(store, config);
 
   console.log("디롱이 Recording + STT repair 결과");

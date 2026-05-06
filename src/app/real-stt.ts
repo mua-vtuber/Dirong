@@ -50,7 +50,10 @@ try {
   }
 
   const database = new DirongDatabase(phase1Config.dbPath, phase1Config.dbBusyTimeoutMs);
-  const store = new SessionStore(database);
+  const store = new SessionStore(database, {
+    storageRoot: phase1Config.dataDir,
+    normalizeStoredPaths: !options.dryRun,
+  });
 
   const result = await runSttBatch(store, {
     workerId: `real-stt-${provider.providerName}-${process.pid}`,

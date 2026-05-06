@@ -3,6 +3,10 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { redactForJson } from "../errors.js";
+import {
+  createStoragePathResolver,
+  type StoragePathResolver,
+} from "./path-resolver.js";
 import { DirongDatabase, type SqlValue } from "./sqlite.js";
 
 export type SessionStatus =
@@ -228,8 +232,23 @@ export type AiCleanupLeaseRepairSummary = {
   failed: number;
 };
 
+export type SessionStoreOptions = {
+  storageRoot?: string | null;
+  normalizeStoredPaths?: boolean;
+};
+
 export class SessionStore {
-  constructor(private readonly database: DirongDatabase) {}
+  private readonly paths: StoragePathResolver;
+
+  constructor(
+    private readonly database: DirongDatabase,
+    options: SessionStoreOptions = {},
+  ) {
+    this.paths = createStoragePathResolver(options.storageRoot);
+    if (options.normalizeStoredPaths && this.paths.storageRoot) {
+      this.normalizeStoredPaths();
+    }
+  }
 
   close(): void {
     this.database.close();
@@ -262,7 +281,7 @@ export class SessionStore {
       input.startedByUserId,
       input.startedByDisplayName,
       now,
-      input.dataDir,
+      this.toStoredPath(input.dataDir),
       now,
       now,
     );
@@ -309,12 +328,16 @@ export class SessionStore {
   }
 
   getSession(sessionId: string): SessionRow | null {
-    return this.get<SessionRow>("SELECT * FROM sessions WHERE id = ?", sessionId);
+    return this.mapSessionRow(
+      this.get<SessionRow>("SELECT * FROM sessions WHERE id = ?", sessionId),
+    );
   }
 
   getLatestSession(): SessionRow | null {
-    return this.get<SessionRow>(
-      "SELECT * FROM sessions ORDER BY started_at DESC LIMIT 1",
+    return this.mapSessionRow(
+      this.get<SessionRow>(
+        "SELECT * FROM sessions ORDER BY started_at DESC LIMIT 1",
+      ),
     );
   }
 
@@ -425,7 +448,7 @@ export class SessionStore {
       promptVersion,
       promptVersion,
       safeLimit,
-    );
+    ).map((row) => this.mapSessionRow(row));
   }
 
   upsertSpeaker(input: {
@@ -479,7 +502,7 @@ export class SessionStore {
       input.userId,
       input.displayNameSnapshot,
       input.startedAtMs,
-      input.rawAudioPath,
+      this.toStoredPath(input.rawAudioPath),
       now,
       now,
     );
@@ -546,7 +569,7 @@ export class SessionStore {
              stt_byte_size = ?, stt_sha256 = ?, transcode_status = 'done',
              transcode_error = NULL, updated_at = ?
          WHERE id = ?`,
-        input.sttAudioPath,
+        this.toStoredPath(input.sttAudioPath),
         input.sttAudioFormat,
         input.sttByteSize,
         input.sttSha256,
@@ -593,7 +616,9 @@ export class SessionStore {
   }
 
   getChunk(chunkId: string): ChunkRow | null {
-    return this.get<ChunkRow>("SELECT * FROM chunks WHERE id = ?", chunkId);
+    return this.mapChunkRow(
+      this.get<ChunkRow>("SELECT * FROM chunks WHERE id = ?", chunkId),
+    );
   }
 
   listChunksMissingSttJob(): ChunkRow[] {
@@ -604,7 +629,7 @@ export class SessionStore {
        WHERE j.id IS NULL
          AND c.status IN ('finalized', 'queued', 'transcode_failed')
        ORDER BY c.created_at ASC`,
-    );
+    ).map((row) => this.mapChunkRow(row));
   }
 
   listWritingChunks(): ChunkRow[] {
@@ -613,7 +638,7 @@ export class SessionStore {
        FROM chunks
        WHERE status = 'writing'
        ORDER BY created_at ASC`,
-    );
+    ).map((row) => this.mapChunkRow(row));
   }
 
   queueExistingSttJobForChunk(chunkId: string, maxAttempts: number): boolean {
@@ -678,13 +703,14 @@ export class SessionStore {
     details?: unknown;
   }): void {
     const now = isoNow();
-    const dedupeKey = [
-      input.type,
-      input.sessionId ?? "",
-      input.path ?? "",
-      input.chunkId ?? "",
-      input.sttJobId ?? "",
-    ].join(":");
+    const storedPath = this.toStoredPath(input.path ?? null);
+    const dedupeKey = makeRepairItemDedupeKey({
+      type: input.type,
+      sessionId: input.sessionId ?? null,
+      path: storedPath,
+      chunkId: input.chunkId ?? null,
+      sttJobId: input.sttJobId ?? null,
+    });
 
     this.run(
       `INSERT INTO repair_items (
@@ -705,7 +731,7 @@ export class SessionStore {
       input.type,
       input.status ?? "open",
       input.severity ?? "warn",
-      input.path ?? null,
+      storedPath,
       input.chunkId ?? null,
       input.sttJobId ?? null,
       input.details === undefined
@@ -726,7 +752,8 @@ export class SessionStore {
 
     let failed = 0;
     for (const job of jobs) {
-      if (existsSync(job.input_audio_path)) {
+      const inputAudioPath = this.resolveStoredPath(job.input_audio_path);
+      if (inputAudioPath && existsSync(inputAudioPath)) {
         continue;
       }
 
@@ -745,7 +772,7 @@ export class SessionStore {
         sessionId: job.session_id,
         chunkId: job.chunk_id,
         sttJobId: job.id,
-        path: job.input_audio_path,
+        path: inputAudioPath,
         severity: "error",
         details: { previousStatus: job.status },
       });
@@ -845,7 +872,9 @@ export class SessionStore {
         return;
       }
 
-      claimed = this.get<SttJobRow>("SELECT * FROM stt_jobs WHERE id = ?", job.id);
+      claimed = this.mapSttJobRow(
+        this.get<SttJobRow>("SELECT * FROM stt_jobs WHERE id = ?", job.id),
+      );
     });
 
     return claimed;
@@ -868,7 +897,7 @@ export class SessionStore {
           now,
           input.sessionId,
           input.limit,
-        )
+        ).map((row) => this.mapSttJobRow(row))
       : this.all<SttJobRow>(
           `SELECT *
            FROM stt_jobs
@@ -878,7 +907,7 @@ export class SessionStore {
            LIMIT ?`,
           now,
           input.limit,
-        );
+        ).map((row) => this.mapSttJobRow(row));
   }
 
   completeFakeSttJob(input: {
@@ -997,7 +1026,7 @@ export class SessionStore {
         sessionId: job.session_id,
         chunkId: job.chunk_id,
         sttJobId: job.id,
-        path: job.input_audio_path,
+        path: this.resolveStoredPath(job.input_audio_path),
         severity: "error",
         details: { previousStatus: job.status },
       });
@@ -1245,25 +1274,27 @@ export class SessionStore {
       input.inputContractVersion,
       input.inputHash,
       input.inputEntryCount,
-      input.inputTimelineJsonPath,
-      input.inputTimelineMarkdownPath,
+      this.toStoredPath(input.inputTimelineJsonPath),
+      this.toStoredPath(input.inputTimelineMarkdownPath),
       now,
       now,
     );
 
-    const job = this.get<AiCleanupJobRow>(
-      `SELECT *
-       FROM ai_cleanup_jobs
-       WHERE session_id = ?
-         AND provider = ?
-         AND model = ?
-         AND prompt_version = ?
-         AND input_hash = ?`,
-      input.sessionId,
-      input.provider,
-      input.model,
-      input.promptVersion,
-      input.inputHash,
+    const job = this.mapAiCleanupJobRow(
+      this.get<AiCleanupJobRow>(
+        `SELECT *
+         FROM ai_cleanup_jobs
+         WHERE session_id = ?
+           AND provider = ?
+           AND model = ?
+           AND prompt_version = ?
+           AND input_hash = ?`,
+        input.sessionId,
+        input.provider,
+        input.model,
+        input.promptVersion,
+        input.inputHash,
+      ),
     );
     if (!job) {
       throw new Error("AI cleanup job 저장에 실패했습니다.");
@@ -1272,9 +1303,11 @@ export class SessionStore {
   }
 
   getAiCleanupJob(jobId: string): AiCleanupJobRow | null {
-    return this.get<AiCleanupJobRow>(
-      "SELECT * FROM ai_cleanup_jobs WHERE id = ?",
-      jobId,
+    return this.mapAiCleanupJobRow(
+      this.get<AiCleanupJobRow>(
+        "SELECT * FROM ai_cleanup_jobs WHERE id = ?",
+        jobId,
+      ),
     );
   }
 
@@ -1285,19 +1318,21 @@ export class SessionStore {
     promptVersion: string;
     inputHash: string;
   }): AiCleanupJobRow | null {
-    return this.get<AiCleanupJobRow>(
-      `SELECT *
-       FROM ai_cleanup_jobs
-       WHERE session_id = ?
-         AND provider = ?
-         AND model = ?
-         AND prompt_version = ?
-         AND input_hash = ?`,
-      input.sessionId,
-      input.provider,
-      input.model,
-      input.promptVersion,
-      input.inputHash,
+    return this.mapAiCleanupJobRow(
+      this.get<AiCleanupJobRow>(
+        `SELECT *
+         FROM ai_cleanup_jobs
+         WHERE session_id = ?
+           AND provider = ?
+           AND model = ?
+           AND prompt_version = ?
+           AND input_hash = ?`,
+        input.sessionId,
+        input.provider,
+        input.model,
+        input.promptVersion,
+        input.inputHash,
+      ),
     );
   }
 
@@ -1359,11 +1394,11 @@ export class SessionStore {
            updated_at = ?
        WHERE id = ?`,
       input.command ?? null,
-      input.promptPath ?? null,
-      input.rawOutputPath ?? null,
-      input.stderrPath ?? null,
-      input.parsedJsonPath ?? null,
-      input.markdownPath ?? null,
+      this.toStoredPath(input.promptPath ?? null),
+      this.toStoredPath(input.rawOutputPath ?? null),
+      this.toStoredPath(input.stderrPath ?? null),
+      this.toStoredPath(input.parsedJsonPath ?? null),
+      this.toStoredPath(input.markdownPath ?? null),
       input.outputHash ?? null,
       isoNow(),
       input.jobId,
@@ -1469,9 +1504,9 @@ export class SessionStore {
         input.summaryText,
         input.draftJson,
         input.markdown,
-        input.jsonPath,
-        input.markdownPath,
-        input.rawOutputPath,
+        this.toStoredPath(input.jsonPath),
+        this.toStoredPath(input.markdownPath),
+        this.toStoredPath(input.rawOutputPath),
         input.provider,
         input.model,
         input.promptVersion,
@@ -1493,18 +1528,20 @@ export class SessionStore {
              last_error = NULL,
              updated_at = ?
          WHERE id = ?`,
-        input.jsonPath,
-        input.markdownPath,
-        input.rawOutputPath,
+        this.toStoredPath(input.jsonPath),
+        this.toStoredPath(input.markdownPath),
+        this.toStoredPath(input.rawOutputPath),
         input.outputHash,
         now,
         input.jobId,
       );
     });
 
-    const draft = this.get<MeetingNotesDraftRow>(
-      "SELECT * FROM meeting_notes_drafts WHERE ai_cleanup_job_id = ?",
-      input.jobId,
+    const draft = this.mapMeetingNotesDraftRow(
+      this.get<MeetingNotesDraftRow>(
+        "SELECT * FROM meeting_notes_drafts WHERE ai_cleanup_job_id = ?",
+        input.jobId,
+      ),
     );
     if (!draft) {
       throw new Error("meeting notes draft 저장에 실패했습니다.");
@@ -1600,7 +1637,7 @@ export class SessionStore {
     sessionId: string | null,
     limit = 20,
   ): AiCleanupJobRow[] {
-    return sessionId === null
+    const rows = sessionId === null
       ? this.all<AiCleanupJobRow>(
           `SELECT *
            FROM ai_cleanup_jobs
@@ -1617,23 +1654,28 @@ export class SessionStore {
           sessionId,
           limit,
         );
+    return rows.map((row) => this.mapAiCleanupJobRow(row));
   }
 
   getLatestMeetingNotesDraft(sessionId: string): MeetingNotesDraftRow | null {
-    return this.get<MeetingNotesDraftRow>(
-      `SELECT *
-       FROM meeting_notes_drafts
-       WHERE session_id = ?
-       ORDER BY created_at DESC
-       LIMIT 1`,
-      sessionId,
+    return this.mapMeetingNotesDraftRow(
+      this.get<MeetingNotesDraftRow>(
+        `SELECT *
+         FROM meeting_notes_drafts
+         WHERE session_id = ?
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        sessionId,
+      ),
     );
   }
 
   getMeetingNotesDraftByJobId(jobId: string): MeetingNotesDraftRow | null {
-    return this.get<MeetingNotesDraftRow>(
-      "SELECT * FROM meeting_notes_drafts WHERE ai_cleanup_job_id = ?",
-      jobId,
+    return this.mapMeetingNotesDraftRow(
+      this.get<MeetingNotesDraftRow>(
+        "SELECT * FROM meeting_notes_drafts WHERE ai_cleanup_job_id = ?",
+        jobId,
+      ),
     );
   }
 
@@ -1684,13 +1726,20 @@ export class SessionStore {
   }
 
   hasChunkAudioPath(filePath: string): boolean {
-    const resolved = path.resolve(filePath);
+    const candidates = uniqueStrings([
+      filePath,
+      path.resolve(filePath),
+      this.toStoredPath(filePath),
+      this.resolveStoredPath(filePath),
+    ]);
+    const placeholders = candidates.map(() => "?").join(", ");
     const row = this.get<{ count: number }>(
       `SELECT COUNT(*) AS count
        FROM chunks
-       WHERE raw_audio_path = ? OR stt_audio_path = ?`,
-      resolved,
-      resolved,
+       WHERE raw_audio_path IN (${placeholders})
+          OR stt_audio_path IN (${placeholders})`,
+      ...candidates,
+      ...candidates,
     );
     return (row?.count ?? 0) > 0;
   }
@@ -1887,13 +1936,187 @@ export class SessionStore {
       chunk.id,
       chunk.user_id,
       chunk.display_name_snapshot,
-      input.inputAudioPath,
+      this.toStoredPath(input.inputAudioPath),
       input.maxAttempts,
       input.now,
       input.inputAudioSha256,
       input.now,
       input.now,
     );
+  }
+
+  private normalizeStoredPaths(): void {
+    const pathColumns: Array<{ table: string; columns: string[] }> = [
+      { table: "sessions", columns: ["data_dir"] },
+      { table: "chunks", columns: ["raw_audio_path", "stt_audio_path"] },
+      { table: "stt_jobs", columns: ["input_audio_path"] },
+      {
+        table: "ai_cleanup_jobs",
+        columns: [
+          "input_timeline_json_path",
+          "input_timeline_markdown_path",
+          "prompt_path",
+          "raw_output_path",
+          "stderr_path",
+          "parsed_json_path",
+          "markdown_path",
+        ],
+      },
+      {
+        table: "meeting_notes_drafts",
+        columns: ["json_path", "markdown_path", "raw_output_path"],
+      },
+      { table: "repair_items", columns: ["path"] },
+    ];
+
+    this.database.transaction(() => {
+      for (const { table, columns } of pathColumns) {
+        const rowIds = this.all<{ row_id: number }>(
+          `SELECT rowid AS row_id FROM ${table}`,
+        );
+        for (const { row_id: rowId } of rowIds) {
+          for (const column of columns) {
+            const row = this.get<{ value: string | null }>(
+              `SELECT ${column} AS value FROM ${table} WHERE rowid = ?`,
+              rowId,
+            );
+            const storedPath = this.toStoredPath(row?.value ?? null);
+            if (storedPath === (row?.value ?? null)) {
+              continue;
+            }
+            this.run(
+              `UPDATE ${table} SET ${column} = ? WHERE rowid = ?`,
+              storedPath,
+              rowId,
+            );
+          }
+        }
+      }
+    });
+    this.normalizeRepairItemDedupeKeys();
+  }
+
+  private normalizeRepairItemDedupeKeys(): void {
+    const repairItems = this.all<{
+      row_id: number;
+      dedupe_key: string;
+      item_type: string;
+      session_id: string | null;
+      path: string | null;
+      chunk_id: string | null;
+      stt_job_id: string | null;
+    }>(
+      `SELECT rowid AS row_id, dedupe_key, item_type, session_id, path, chunk_id, stt_job_id
+       FROM repair_items`,
+    );
+
+    for (const item of repairItems) {
+      const dedupeKey = makeRepairItemDedupeKey({
+        type: item.item_type,
+        sessionId: item.session_id,
+        path: item.path,
+        chunkId: item.chunk_id,
+        sttJobId: item.stt_job_id,
+      });
+      if (dedupeKey === item.dedupe_key) {
+        continue;
+      }
+      this.run(
+        "UPDATE OR IGNORE repair_items SET dedupe_key = ? WHERE rowid = ?",
+        dedupeKey,
+        item.row_id,
+      );
+    }
+  }
+
+  private toStoredPath(filePath: string | null): string | null {
+    return this.paths.toStoredPath(filePath);
+  }
+
+  private resolveStoredPath(filePath: string | null): string | null {
+    return this.paths.resolveStoredPath(filePath);
+  }
+
+  private mapSessionRow(row: SessionRow): SessionRow;
+  private mapSessionRow(row: SessionRow | null): SessionRow | null;
+  private mapSessionRow(row: SessionRow | null): SessionRow | null {
+    return row
+      ? { ...row, data_dir: this.resolveStoredPath(row.data_dir) ?? row.data_dir }
+      : null;
+  }
+
+  private mapChunkRow(row: ChunkRow): ChunkRow;
+  private mapChunkRow(row: ChunkRow | null): ChunkRow | null;
+  private mapChunkRow(row: ChunkRow | null): ChunkRow | null {
+    return row
+      ? {
+          ...row,
+          raw_audio_path:
+            this.resolveStoredPath(row.raw_audio_path) ?? row.raw_audio_path,
+          stt_audio_path:
+            this.resolveStoredPath(row.stt_audio_path) ?? row.stt_audio_path,
+        }
+      : null;
+  }
+
+  private mapSttJobRow(row: SttJobRow): SttJobRow;
+  private mapSttJobRow(row: SttJobRow | null): SttJobRow | null;
+  private mapSttJobRow(row: SttJobRow | null): SttJobRow | null {
+    return row
+      ? {
+          ...row,
+          input_audio_path:
+            this.resolveStoredPath(row.input_audio_path) ?? row.input_audio_path,
+        }
+      : null;
+  }
+
+  private mapAiCleanupJobRow(row: AiCleanupJobRow): AiCleanupJobRow;
+  private mapAiCleanupJobRow(row: AiCleanupJobRow | null): AiCleanupJobRow | null;
+  private mapAiCleanupJobRow(
+    row: AiCleanupJobRow | null,
+  ): AiCleanupJobRow | null {
+    return row
+      ? {
+          ...row,
+          input_timeline_json_path:
+            this.resolveStoredPath(row.input_timeline_json_path) ??
+            row.input_timeline_json_path,
+          input_timeline_markdown_path:
+            this.resolveStoredPath(row.input_timeline_markdown_path) ??
+            row.input_timeline_markdown_path,
+          prompt_path:
+            this.resolveStoredPath(row.prompt_path) ?? row.prompt_path,
+          raw_output_path:
+            this.resolveStoredPath(row.raw_output_path) ?? row.raw_output_path,
+          stderr_path:
+            this.resolveStoredPath(row.stderr_path) ?? row.stderr_path,
+          parsed_json_path:
+            this.resolveStoredPath(row.parsed_json_path) ??
+            row.parsed_json_path,
+          markdown_path:
+            this.resolveStoredPath(row.markdown_path) ?? row.markdown_path,
+        }
+      : null;
+  }
+
+  private mapMeetingNotesDraftRow(row: MeetingNotesDraftRow): MeetingNotesDraftRow;
+  private mapMeetingNotesDraftRow(
+    row: MeetingNotesDraftRow | null,
+  ): MeetingNotesDraftRow | null;
+  private mapMeetingNotesDraftRow(
+    row: MeetingNotesDraftRow | null,
+  ): MeetingNotesDraftRow | null {
+    return row
+      ? {
+          ...row,
+          json_path: this.resolveStoredPath(row.json_path) ?? row.json_path,
+          markdown_path:
+            this.resolveStoredPath(row.markdown_path) ?? row.markdown_path,
+          raw_output_path:
+            this.resolveStoredPath(row.raw_output_path) ?? row.raw_output_path,
+        }
+      : null;
   }
 
   private run(sql: string, ...params: SqlValue[]): void {
@@ -1916,6 +2139,26 @@ function isoNow(): string {
 
 function sha256Text(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function uniqueStrings(values: Array<string | null>): string[] {
+  return [...new Set(values.filter((value): value is string => Boolean(value)))];
+}
+
+function makeRepairItemDedupeKey(input: {
+  type: string;
+  sessionId: string | null;
+  path: string | null;
+  chunkId: string | null;
+  sttJobId: string | null;
+}): string {
+  return [
+    input.type,
+    input.sessionId ?? "",
+    input.path ?? "",
+    input.chunkId ?? "",
+    input.sttJobId ?? "",
+  ].join(":");
 }
 
 function formatQueueStats(rows: Array<{ status: string; count: number }>): string {

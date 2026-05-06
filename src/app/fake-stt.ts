@@ -33,7 +33,10 @@ try {
   }
 
   const database = new DirongDatabase(config.dbPath, config.dbBusyTimeoutMs);
-  const store = new SessionStore(database);
+  const store = new SessionStore(database, {
+    storageRoot: config.dataDir,
+    normalizeStoredPaths: !options.dryRun,
+  });
 
   const result = await runFakeSttBatch(store, {
     workerId: `fake-stt-${process.pid}`,

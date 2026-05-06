@@ -60,7 +60,10 @@ const config = (() => {
 })();
 
 const database = new DirongDatabase(config.dbPath, config.dbBusyTimeoutMs);
-const store = new SessionStore(database);
+const store = new SessionStore(database, {
+  storageRoot: config.dataDir,
+  normalizeStoredPaths: true,
+});
 const repairSummary = await runStartupRepair(store, config);
 const appSettings = loadAppSettingsFromEnv();
 const sttProviderSelection = createPhase3SttProvider(appSettings.stt);

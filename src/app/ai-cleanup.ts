@@ -22,7 +22,10 @@ try {
   const database = new DirongDatabase(config.dbPath, config.dbBusyTimeoutMs, {
     readOnly: options.dryRun,
   });
-  store = new SessionStore(database);
+  store = new SessionStore(database, {
+    storageRoot: config.dataDir,
+    normalizeStoredPaths: !options.dryRun,
+  });
 
   const result = await runAiCleanupForSession(store, {
     sessionId: options.sessionId,

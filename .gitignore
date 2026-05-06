@@ -2,6 +2,7 @@ node_modules/
 dist/
 .env
 .omx/
+.omc/
 .venv-whisper/
 data/
 
@@ -10,8 +11,5 @@ docs/
 
 references/*
 !references/.gitkeep
-
-.github/*
-!.github/FUNDING.yml
 
 npm-debug.log*

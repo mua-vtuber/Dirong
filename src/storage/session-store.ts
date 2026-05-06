@@ -39,7 +39,7 @@ export type RecordingRuntimeState = {
   openChunks: number;
 };
 
-type SessionRow = {
+export type SessionRow = {
   id: string;
   guild_id: string;
   guild_name: string | null;
@@ -123,6 +123,81 @@ export type TranscriptSegmentRow = {
   provider: string;
   model: string;
   input_audio_sha256: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AiCleanupJobStatus =
+  | "queued"
+  | "processing"
+  | "done"
+  | "failed"
+  | "blocked";
+
+export type AiCleanupFailureKind =
+  | "provider_not_found"
+  | "provider_auth_required"
+  | "provider_timeout"
+  | "provider_nonzero_exit"
+  | "missing_timeline"
+  | "empty_timeline"
+  | "input_too_long"
+  | "unsafe_input"
+  | "empty_output"
+  | "malformed_json"
+  | "schema_invalid"
+  | "file_io"
+  | "unknown";
+
+export type AiCleanupJobRow = {
+  id: string;
+  session_id: string;
+  status: AiCleanupJobStatus;
+  attempts: number;
+  max_attempts: number;
+  locked_by: string | null;
+  locked_until: string | null;
+  next_attempt_at: string;
+  provider: string;
+  model: string;
+  command: string | null;
+  prompt_version: string;
+  input_contract_version: string;
+  input_hash: string;
+  input_entry_count: number;
+  input_timeline_json_path: string | null;
+  input_timeline_markdown_path: string | null;
+  prompt_path: string | null;
+  raw_output_path: string | null;
+  stderr_path: string | null;
+  parsed_json_path: string | null;
+  markdown_path: string | null;
+  output_hash: string | null;
+  failure_kind: AiCleanupFailureKind | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MeetingNotesDraftRow = {
+  id: string;
+  session_id: string;
+  ai_cleanup_job_id: string;
+  schema_version: string;
+  language: string;
+  title: string;
+  summary_text: string;
+  draft_json: string;
+  markdown: string;
+  json_path: string;
+  markdown_path: string;
+  raw_output_path: string;
+  provider: string;
+  model: string;
+  prompt_version: string;
+  input_hash: string;
+  output_hash: string;
+  validation_status: string;
   created_at: string;
   updated_at: string;
 };
@@ -850,25 +925,386 @@ export class SessionStore {
   listTranscriptTimelineSegments(input: {
     sessionId: string;
     includeNoSpeech?: boolean;
+    includeFakeStt?: boolean;
   }): TranscriptSegmentRow[] {
-    if (input.includeNoSpeech) {
-      return this.all<TranscriptSegmentRow>(
-        `SELECT *
-         FROM transcript_segments
-         WHERE session_id = ?
-         ORDER BY start_ms ASC, end_ms ASC, created_at ASC`,
-        input.sessionId,
-      );
+    const conditions = ["session_id = ?"];
+    const params: SqlValue[] = [input.sessionId];
+
+    if (!input.includeNoSpeech) {
+      conditions.push("speech_status = 'speech'");
+      conditions.push("length(trim(text)) > 0");
+    }
+
+    if (!input.includeFakeStt) {
+      conditions.push("source <> 'fake'");
+      conditions.push("provider <> 'dirong-fake-stt'");
     }
 
     return this.all<TranscriptSegmentRow>(
       `SELECT *
        FROM transcript_segments
-       WHERE session_id = ?
-         AND speech_status = 'speech'
-         AND length(trim(text)) > 0
+       WHERE ${conditions.join(" AND ")}
        ORDER BY start_ms ASC, end_ms ASC, created_at ASC`,
+      ...params,
+    );
+  }
+
+  getOrCreateAiCleanupJob(input: {
+    id: string;
+    sessionId: string;
+    provider: string;
+    model: string;
+    command: string | null;
+    promptVersion: string;
+    inputContractVersion: string;
+    inputHash: string;
+    inputEntryCount: number;
+    inputTimelineJsonPath: string | null;
+    inputTimelineMarkdownPath: string | null;
+    maxAttempts: number;
+  }): AiCleanupJobRow {
+    const now = isoNow();
+    this.run(
+      `INSERT INTO ai_cleanup_jobs (
+        id, session_id, status, attempts, max_attempts, locked_by,
+        locked_until, next_attempt_at, provider, model, command,
+        prompt_version, input_contract_version, input_hash,
+        input_entry_count, input_timeline_json_path,
+        input_timeline_markdown_path, created_at, updated_at
+      ) VALUES (?, ?, 'queued', 0, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(session_id, provider, model, prompt_version, input_hash)
+      DO UPDATE SET
+        command = excluded.command,
+        input_entry_count = excluded.input_entry_count,
+        input_timeline_json_path = COALESCE(excluded.input_timeline_json_path, ai_cleanup_jobs.input_timeline_json_path),
+        input_timeline_markdown_path = COALESCE(excluded.input_timeline_markdown_path, ai_cleanup_jobs.input_timeline_markdown_path),
+        max_attempts = CASE
+          WHEN ai_cleanup_jobs.status IN ('queued', 'blocked', 'failed') THEN excluded.max_attempts
+          ELSE ai_cleanup_jobs.max_attempts
+        END,
+        updated_at = excluded.updated_at`,
+      input.id,
       input.sessionId,
+      input.maxAttempts,
+      now,
+      input.provider,
+      input.model,
+      input.command,
+      input.promptVersion,
+      input.inputContractVersion,
+      input.inputHash,
+      input.inputEntryCount,
+      input.inputTimelineJsonPath,
+      input.inputTimelineMarkdownPath,
+      now,
+      now,
+    );
+
+    const job = this.get<AiCleanupJobRow>(
+      `SELECT *
+       FROM ai_cleanup_jobs
+       WHERE session_id = ?
+         AND provider = ?
+         AND model = ?
+         AND prompt_version = ?
+         AND input_hash = ?`,
+      input.sessionId,
+      input.provider,
+      input.model,
+      input.promptVersion,
+      input.inputHash,
+    );
+    if (!job) {
+      throw new Error("AI cleanup job 저장에 실패했습니다.");
+    }
+    return job;
+  }
+
+  getAiCleanupJob(jobId: string): AiCleanupJobRow | null {
+    return this.get<AiCleanupJobRow>(
+      "SELECT * FROM ai_cleanup_jobs WHERE id = ?",
+      jobId,
+    );
+  }
+
+  claimAiCleanupJob(input: {
+    jobId: string;
+    workerId: string;
+    leaseMs: number;
+  }): AiCleanupJobRow | null {
+    const now = isoNow();
+    const lockedUntil = new Date(Date.now() + input.leaseMs).toISOString();
+    let claimed: AiCleanupJobRow | null = null;
+
+    this.database.transaction(() => {
+      const result = this.database.db.prepare(
+        `UPDATE ai_cleanup_jobs
+         SET status = 'processing',
+             attempts = attempts + 1,
+             locked_by = ?,
+             locked_until = ?,
+             failure_kind = NULL,
+             last_error = NULL,
+             updated_at = ?
+         WHERE id = ?
+           AND status = 'queued'
+           AND next_attempt_at <= ?`,
+      ).run(input.workerId, lockedUntil, now, input.jobId, now) as {
+        changes: number;
+      };
+
+      if (result.changes === 0) {
+        return;
+      }
+
+      claimed = this.getAiCleanupJob(input.jobId);
+    });
+
+    return claimed;
+  }
+
+  updateAiCleanupJobArtifacts(input: {
+    jobId: string;
+    command?: string | null;
+    promptPath?: string | null;
+    rawOutputPath?: string | null;
+    stderrPath?: string | null;
+    parsedJsonPath?: string | null;
+    markdownPath?: string | null;
+    outputHash?: string | null;
+  }): void {
+    this.run(
+      `UPDATE ai_cleanup_jobs
+       SET command = COALESCE(?, command),
+           prompt_path = COALESCE(?, prompt_path),
+           raw_output_path = COALESCE(?, raw_output_path),
+           stderr_path = COALESCE(?, stderr_path),
+           parsed_json_path = COALESCE(?, parsed_json_path),
+           markdown_path = COALESCE(?, markdown_path),
+           output_hash = COALESCE(?, output_hash),
+           updated_at = ?
+       WHERE id = ?`,
+      input.command ?? null,
+      input.promptPath ?? null,
+      input.rawOutputPath ?? null,
+      input.stderrPath ?? null,
+      input.parsedJsonPath ?? null,
+      input.markdownPath ?? null,
+      input.outputHash ?? null,
+      isoNow(),
+      input.jobId,
+    );
+  }
+
+  blockAiCleanupJob(input: {
+    jobId: string;
+    failureKind: AiCleanupFailureKind;
+    error: string;
+  }): void {
+    this.run(
+      `UPDATE ai_cleanup_jobs
+       SET status = 'blocked',
+           locked_by = NULL,
+           locked_until = NULL,
+           failure_kind = ?,
+           last_error = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      input.failureKind,
+      input.error,
+      isoNow(),
+      input.jobId,
+    );
+  }
+
+  failProcessingAiCleanupJob(input: {
+    jobId: string;
+    failureKind: AiCleanupFailureKind;
+    error: string;
+  }): void {
+    const job = this.getAiCleanupJob(input.jobId);
+    if (!job) {
+      return;
+    }
+
+    const now = isoNow();
+    const shouldRetry = job.attempts < job.max_attempts;
+    const backoffMs = Math.min(
+      15 * 60 * 1000,
+      30 * 1000 * Math.max(1, 2 ** Math.max(0, job.attempts - 1)),
+    );
+    const nextAttemptAt = new Date(Date.now() + backoffMs).toISOString();
+
+    this.run(
+      `UPDATE ai_cleanup_jobs
+       SET status = ?,
+           locked_by = NULL,
+           locked_until = NULL,
+           next_attempt_at = ?,
+           failure_kind = ?,
+           last_error = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      shouldRetry ? "queued" : "failed",
+      shouldRetry ? nextAttemptAt : now,
+      input.failureKind,
+      input.error,
+      now,
+      input.jobId,
+    );
+  }
+
+  completeAiCleanupJob(input: {
+    jobId: string;
+    draftId: string;
+    schemaVersion: string;
+    language: string;
+    title: string;
+    summaryText: string;
+    draftJson: string;
+    markdown: string;
+    jsonPath: string;
+    markdownPath: string;
+    rawOutputPath: string;
+    provider: string;
+    model: string;
+    promptVersion: string;
+    inputHash: string;
+    outputHash: string;
+  }): MeetingNotesDraftRow {
+    const job = this.getAiCleanupJob(input.jobId);
+    if (!job) {
+      throw new Error(`AI cleanup job을 찾지 못했습니다: ${input.jobId}`);
+    }
+
+    const now = isoNow();
+    this.database.transaction(() => {
+      this.run(
+        `INSERT INTO meeting_notes_drafts (
+          id, session_id, ai_cleanup_job_id, schema_version, language,
+          title, summary_text, draft_json, markdown, json_path,
+          markdown_path, raw_output_path, provider, model, prompt_version,
+          input_hash, output_hash, validation_status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'valid', ?, ?)`,
+        input.draftId,
+        job.session_id,
+        input.jobId,
+        input.schemaVersion,
+        input.language,
+        input.title,
+        input.summaryText,
+        input.draftJson,
+        input.markdown,
+        input.jsonPath,
+        input.markdownPath,
+        input.rawOutputPath,
+        input.provider,
+        input.model,
+        input.promptVersion,
+        input.inputHash,
+        input.outputHash,
+        now,
+        now,
+      );
+      this.run(
+        `UPDATE ai_cleanup_jobs
+         SET status = 'done',
+             locked_by = NULL,
+             locked_until = NULL,
+             parsed_json_path = ?,
+             markdown_path = ?,
+             raw_output_path = ?,
+             output_hash = ?,
+             failure_kind = NULL,
+             last_error = NULL,
+             updated_at = ?
+         WHERE id = ?`,
+        input.jsonPath,
+        input.markdownPath,
+        input.rawOutputPath,
+        input.outputHash,
+        now,
+        input.jobId,
+      );
+    });
+
+    const draft = this.get<MeetingNotesDraftRow>(
+      "SELECT * FROM meeting_notes_drafts WHERE ai_cleanup_job_id = ?",
+      input.jobId,
+    );
+    if (!draft) {
+      throw new Error("meeting notes draft 저장에 실패했습니다.");
+    }
+    return draft;
+  }
+
+  releaseExpiredAiCleanupLeases(nowIso = isoNow()): number {
+    const jobs = this.all<AiCleanupJobRow>(
+      `SELECT *
+       FROM ai_cleanup_jobs
+       WHERE status = 'processing'
+         AND locked_until IS NOT NULL
+         AND locked_until < ?
+         AND attempts < max_attempts`,
+      nowIso,
+    );
+
+    for (const job of jobs) {
+      this.run(
+        `UPDATE ai_cleanup_jobs
+         SET status = 'queued',
+             locked_by = NULL,
+             locked_until = NULL,
+             next_attempt_at = ?,
+             updated_at = ?
+         WHERE id = ?`,
+        nowIso,
+        nowIso,
+        job.id,
+      );
+    }
+
+    return jobs.length;
+  }
+
+  listRecentAiCleanupJobs(
+    sessionId: string | null,
+    limit = 20,
+  ): AiCleanupJobRow[] {
+    return sessionId === null
+      ? this.all<AiCleanupJobRow>(
+          `SELECT *
+           FROM ai_cleanup_jobs
+           ORDER BY created_at DESC
+           LIMIT ?`,
+          limit,
+        )
+      : this.all<AiCleanupJobRow>(
+          `SELECT *
+           FROM ai_cleanup_jobs
+           WHERE session_id = ?
+           ORDER BY created_at DESC
+           LIMIT ?`,
+          sessionId,
+          limit,
+        );
+  }
+
+  getLatestMeetingNotesDraft(sessionId: string): MeetingNotesDraftRow | null {
+    return this.get<MeetingNotesDraftRow>(
+      `SELECT *
+       FROM meeting_notes_drafts
+       WHERE session_id = ?
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      sessionId,
+    );
+  }
+
+  getMeetingNotesDraftByJobId(jobId: string): MeetingNotesDraftRow | null {
+    return this.get<MeetingNotesDraftRow>(
+      "SELECT * FROM meeting_notes_drafts WHERE ai_cleanup_job_id = ?",
+      jobId,
     );
   }
 
@@ -1024,6 +1460,9 @@ export class SessionStore {
        ORDER BY status ASC`,
     );
     const recentTranscriptSegments = this.listRecentTranscriptSegments(sessionId, 30);
+    const recentAiCleanupJobs = this.listRecentAiCleanupJobs(sessionId, 10);
+    const latestMeetingNotesDraft =
+      sessionId === null ? null : this.getLatestMeetingNotesDraft(sessionId);
 
     return redactForJson({
       generatedAt: isoNow(),
@@ -1035,6 +1474,8 @@ export class SessionStore {
       recentConnectionEvents,
       recentRepairItems,
       recentTranscriptSegments,
+      recentAiCleanupJobs,
+      latestMeetingNotesDraft,
       queueStats,
       dbPath: this.database.dbPath,
     });

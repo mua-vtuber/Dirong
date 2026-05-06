@@ -24,6 +24,7 @@ export type Phase4TranscriptTimeline = {
   contractVersion: "phase3.5-transcript-timeline-v1";
   sessionId: string;
   includeNoSpeech: boolean;
+  includeFakeStt: boolean;
   entries: Phase4TranscriptTimelineEntry[];
 };
 
@@ -32,18 +33,22 @@ export function buildPhase4TranscriptTimeline(
   input: {
     sessionId: string;
     includeNoSpeech?: boolean;
+    includeFakeStt?: boolean;
   },
 ): Phase4TranscriptTimeline {
   const includeNoSpeech = input.includeNoSpeech ?? false;
+  const includeFakeStt = input.includeFakeStt ?? false;
   const rows = store.listTranscriptTimelineSegments({
     sessionId: input.sessionId,
     includeNoSpeech,
+    includeFakeStt,
   });
 
   return {
     contractVersion: "phase3.5-transcript-timeline-v1",
     sessionId: input.sessionId,
     includeNoSpeech,
+    includeFakeStt,
     entries: rows.map(toTimelineEntry),
   };
 }

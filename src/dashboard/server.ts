@@ -214,6 +214,19 @@ function renderDashboardHtml(): string {
     th { color: var(--muted); font-weight: 600; background: #fbfbf9; }
     tr:last-child td { border-bottom: 0; }
     code { font-family: Consolas, monospace; font-size: 12px; }
+    pre {
+      margin: 0;
+      padding: 12px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      max-height: 360px;
+      overflow: auto;
+      font-family: Consolas, "Malgun Gothic", monospace;
+      font-size: 13px;
+    }
     audio { width: 220px; max-width: 100%; height: 32px; }
     .status { color: var(--accent); font-weight: 700; }
     .warn { color: var(--warn); }
@@ -248,6 +261,14 @@ function renderDashboardHtml(): string {
     <section>
       <h2>Transcript Segments</h2>
       <div id="transcripts"></div>
+    </section>
+    <section>
+      <h2>AI Cleanup</h2>
+      <div id="aiCleanup"></div>
+    </section>
+    <section>
+      <h2>Latest Draft Preview</h2>
+      <div id="draftPreview"></div>
     </section>
     <section>
       <h2>Connection / Errors</h2>
@@ -332,6 +353,21 @@ function renderDashboardHtml(): string {
           '</td><td><code>' + escapeHtml(t.chunk_id) + '</code></td><td>' +
           escapeHtml((t.speech_status === 'no_speech' && !t.text) ? '(no speech)' : t.text) + '</td></tr>')
       ));
+
+      setHtml('aiCleanup', table(
+        ['job', 'status', 'provider/model', 'attempts', 'input', 'error'],
+        (state.recentAiCleanupJobs ?? []).map((j) => '<tr><td><code>' + escapeHtml(j.id) +
+          '</code></td><td>' + escapeHtml(j.status) +
+          '</td><td>' + escapeHtml(j.provider) + '<br><code>' + escapeHtml(j.model) + '</code>' +
+          '</td><td>' + escapeHtml(j.attempts) + ' / ' + escapeHtml(j.max_attempts) +
+          '</td><td>' + escapeHtml(j.input_entry_count) + '<br><code>' + escapeHtml(shortHash(j.input_hash)) + '</code>' +
+          '</td><td>' + escapeHtml(j.failure_kind ?? '') + '<br>' + escapeHtml(j.last_error ?? '') + '</td></tr>')
+      ));
+
+      const draft = state.latestMeetingNotesDraft;
+      setHtml('draftPreview', draft
+        ? '<pre>' + escapeHtml(draft.markdown) + '</pre>'
+        : '<div class="muted">아직 AI cleanup draft가 없습니다.</div>');
 
       setHtml('events', table(
         ['time', 'level', 'event', 'details'],

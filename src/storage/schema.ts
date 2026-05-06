@@ -113,6 +113,72 @@ CREATE TABLE IF NOT EXISTS transcript_segments (
 CREATE INDEX IF NOT EXISTS idx_transcript_segments_session_start
   ON transcript_segments(session_id, start_ms);
 
+CREATE TABLE IF NOT EXISTS ai_cleanup_jobs (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 3,
+  locked_by TEXT,
+  locked_until TEXT,
+  next_attempt_at TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  command TEXT,
+  prompt_version TEXT NOT NULL,
+  input_contract_version TEXT NOT NULL,
+  input_hash TEXT NOT NULL,
+  input_entry_count INTEGER NOT NULL,
+  input_timeline_json_path TEXT,
+  input_timeline_markdown_path TEXT,
+  prompt_path TEXT,
+  raw_output_path TEXT,
+  stderr_path TEXT,
+  parsed_json_path TEXT,
+  markdown_path TEXT,
+  output_hash TEXT,
+  failure_kind TEXT,
+  last_error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+  UNIQUE (session_id, provider, model, prompt_version, input_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_cleanup_jobs_status_next_attempt
+  ON ai_cleanup_jobs(status, next_attempt_at);
+
+CREATE INDEX IF NOT EXISTS idx_ai_cleanup_jobs_session_created
+  ON ai_cleanup_jobs(session_id, created_at);
+
+CREATE TABLE IF NOT EXISTS meeting_notes_drafts (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  ai_cleanup_job_id TEXT NOT NULL UNIQUE,
+  schema_version TEXT NOT NULL,
+  language TEXT NOT NULL,
+  title TEXT NOT NULL,
+  summary_text TEXT NOT NULL,
+  draft_json TEXT NOT NULL,
+  markdown TEXT NOT NULL,
+  json_path TEXT NOT NULL,
+  markdown_path TEXT NOT NULL,
+  raw_output_path TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  prompt_version TEXT NOT NULL,
+  input_hash TEXT NOT NULL,
+  output_hash TEXT NOT NULL,
+  validation_status TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+  FOREIGN KEY (ai_cleanup_job_id) REFERENCES ai_cleanup_jobs(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_meeting_notes_drafts_session_created
+  ON meeting_notes_drafts(session_id, created_at);
+
 CREATE TABLE IF NOT EXISTS connection_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id TEXT,

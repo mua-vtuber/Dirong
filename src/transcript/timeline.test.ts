@@ -42,6 +42,92 @@ test("buildPhase4TranscriptTimeline excludes no_speech by default", () => {
   }
 });
 
+test("buildPhase4TranscriptTimeline excludes fake STT by default", () => {
+  const fixture = createFixtureStore();
+  try {
+    addCompletedTranscript(fixture.store, {
+      chunkIndex: 1,
+      startMs: 1000,
+      endMs: 2000,
+      text: "실제 발화입니다.",
+    });
+    addCompletedTranscript(fixture.store, {
+      chunkIndex: 2,
+      startMs: 3000,
+      endMs: 4000,
+      text: "[FAKE STT] source 기준 fake입니다.",
+      source: "fake",
+      provider: "local-whisper",
+    });
+    addCompletedTranscript(fixture.store, {
+      chunkIndex: 3,
+      startMs: 5000,
+      endMs: 6000,
+      text: "provider 기준 fake입니다.",
+      source: "real",
+      provider: "dirong-fake-stt",
+    });
+
+    const timeline = buildPhase4TranscriptTimeline(fixture.store, {
+      sessionId: fixture.sessionId,
+    });
+
+    assert.equal(timeline.includeFakeStt, false);
+    assert.equal(timeline.entries.length, 1);
+    assert.equal(timeline.entries[0]?.text, "실제 발화입니다.");
+  } finally {
+    fixture.close();
+  }
+});
+
+test("buildPhase4TranscriptTimeline can include fake STT for diagnostics", () => {
+  const fixture = createFixtureStore();
+  try {
+    addCompletedTranscript(fixture.store, {
+      chunkIndex: 1,
+      startMs: 1000,
+      endMs: 2000,
+      text: "[FAKE STT] smoke test transcript",
+      source: "fake",
+      provider: "dirong-fake-stt",
+    });
+
+    const timeline = buildPhase4TranscriptTimeline(fixture.store, {
+      sessionId: fixture.sessionId,
+      includeFakeStt: true,
+    });
+
+    assert.equal(timeline.includeFakeStt, true);
+    assert.equal(timeline.entries.length, 1);
+    assert.equal(timeline.entries[0]?.source, "fake");
+    assert.equal(timeline.entries[0]?.provider, "dirong-fake-stt");
+  } finally {
+    fixture.close();
+  }
+});
+
+test("buildPhase4TranscriptTimeline keeps short speech", () => {
+  const fixture = createFixtureStore();
+  try {
+    addCompletedTranscript(fixture.store, {
+      chunkIndex: 1,
+      startMs: 1000,
+      endMs: 1500,
+      text: "네",
+    });
+
+    const timeline = buildPhase4TranscriptTimeline(fixture.store, {
+      sessionId: fixture.sessionId,
+    });
+
+    assert.equal(timeline.entries.length, 1);
+    assert.equal(timeline.entries[0]?.text, "네");
+    assert.equal(timeline.entries[0]?.speechStatus, "speech");
+  } finally {
+    fixture.close();
+  }
+});
+
 test("buildPhase4TranscriptTimeline can include no_speech for diagnostics", () => {
   const fixture = createFixtureStore();
   try {
@@ -111,6 +197,9 @@ function addCompletedTranscript(
     startMs: number;
     endMs: number;
     text: string;
+    source?: string;
+    provider?: string;
+    model?: string;
   },
 ) {
   const chunkId = `meeting_test_${String(input.chunkIndex).padStart(6, "0")}_speaker`;
@@ -151,9 +240,9 @@ function addCompletedTranscript(
   return store.completeSttJob({
     job,
     text: input.text,
-    source: "real",
-    provider: "local-whisper",
-    model: "test-model",
+    source: input.source ?? "real",
+    provider: input.provider ?? "local-whisper",
+    model: input.model ?? "test-model",
     inputAudioSha256: "stt",
   });
 }

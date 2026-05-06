@@ -11,14 +11,21 @@ export class DirongDatabase {
   constructor(
     readonly dbPath: string,
     busyTimeoutMs: number,
+    options?: { readOnly?: boolean },
   ) {
-    mkdirSync(path.dirname(dbPath), { recursive: true });
-    this.db = new DatabaseSync(dbPath);
-    this.db.exec("PRAGMA journal_mode = WAL;");
+    if (!options?.readOnly) {
+      mkdirSync(path.dirname(dbPath), { recursive: true });
+    }
+    this.db = new DatabaseSync(dbPath, { readOnly: options?.readOnly ?? false });
+    if (!options?.readOnly) {
+      this.db.exec("PRAGMA journal_mode = WAL;");
+    }
     this.db.exec(`PRAGMA busy_timeout = ${Math.trunc(busyTimeoutMs)};`);
     this.db.exec("PRAGMA foreign_keys = ON;");
-    this.db.exec(SCHEMA_SQL);
-    applySchemaMigrations(this.db);
+    if (!options?.readOnly) {
+      this.db.exec(SCHEMA_SQL);
+      applySchemaMigrations(this.db);
+    }
   }
 
   transaction<T>(fn: () => T): T {

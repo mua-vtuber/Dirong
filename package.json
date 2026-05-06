@@ -10,7 +10,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "node --no-warnings --test dist/settings/env-settings-loader.test.js dist/app/phase3-stt-cli.test.js dist/app/sqlite-backup.test.js dist/stt/provider-factory.test.js dist/transcript/timeline.test.js",
+    "test": "node --no-warnings --test dist/settings/env-settings-loader.test.js dist/app/phase3-stt-cli.test.js dist/app/phase4-ai-cleanup-cli.test.js dist/app/sqlite-backup.test.js dist/ai/cleanup/claude-cli-provider.test.js dist/ai/cleanup/draft.test.js dist/ai/cleanup/markdown-renderer.test.js dist/ai/cleanup/runner.test.js dist/stt/provider-factory.test.js dist/transcript/timeline.test.js",
     "start": "node --no-warnings dist/app/main.js",
     "doctor": "node --no-warnings dist/app/doctor.js",
     "repair": "node --no-warnings dist/app/repair.js",
@@ -20,7 +20,8 @@
     "phase1:doctor": "node --no-warnings dist/app/doctor.js",
     "phase1:repair": "node --no-warnings dist/app/repair.js",
     "phase2:fake-stt": "node --no-warnings dist/app/fake-stt.js",
-    "phase3:stt": "node --no-warnings dist/app/real-stt.js"
+    "phase3:stt": "node --no-warnings dist/app/real-stt.js",
+    "phase4:ai-cleanup": "node --no-warnings dist/app/ai-cleanup.js"
   },
   "dependencies": {
     "@discordjs/voice": "^0.19.0",

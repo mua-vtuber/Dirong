@@ -6,25 +6,6 @@ import type { SttProviderName, SttSettings } from "./settings/app-settings.js";
 
 export type SttSafeFormat = "webm" | "wav";
 
-export type Phase0Config = {
-  discordBotToken: string;
-  discordClientId: string;
-  guildId: string;
-  voiceChannelId: string;
-  dataDir: string;
-  silenceMs: number;
-  maxChunkMs: number;
-  sttSafeFormat: SttSafeFormat;
-  enableDave: boolean;
-  decryptionFailureTolerance: number;
-  debugVoice: boolean;
-  autoRegisterCommands: boolean;
-};
-
-export type Phase0ConfigSnapshot = Omit<Phase0Config, "discordBotToken"> & {
-  discordBotToken: "[REDACTED]" | "[MISSING]";
-};
-
 export type Phase1Config = {
   discordBotToken: string;
   discordClientId: string;
@@ -71,71 +52,6 @@ export type Phase1ConfigSnapshot = Omit<Phase1Config, "discordBotToken"> & {
 
 export function loadDotEnv(): void {
   dotenv.config({ path: path.resolve(process.cwd(), ".env"), quiet: true });
-}
-
-export function loadPhase0Config(options?: {
-  requireDiscordConfig?: boolean;
-}): Phase0Config {
-  loadDotEnv();
-
-  const missingKeys: string[] = [];
-  const required = (key: string): string => {
-    const value = process.env[key]?.trim();
-    if (!value) {
-      missingKeys.push(key);
-      return "";
-    }
-    return value;
-  };
-
-  const optional = (key: string, fallback: string): string =>
-    process.env[key]?.trim() || fallback;
-
-  const sttSafeFormat = optional("PHASE0_STT_SAFE_FORMAT", "webm");
-  if (sttSafeFormat !== "webm" && sttSafeFormat !== "wav") {
-    throw new Error(
-      "PHASE0_STT_SAFE_FORMAT은 webm 또는 wav 중 하나여야 합니다.",
-    );
-  }
-
-  const config: Phase0Config = {
-    discordBotToken: options?.requireDiscordConfig
-      ? required("DISCORD_BOT_TOKEN")
-      : process.env.DISCORD_BOT_TOKEN?.trim() ?? "",
-    discordClientId: options?.requireDiscordConfig
-      ? required("DISCORD_CLIENT_ID")
-      : process.env.DISCORD_CLIENT_ID?.trim() ?? "",
-    guildId: options?.requireDiscordConfig
-      ? required("DISCORD_GUILD_ID")
-      : process.env.DISCORD_GUILD_ID?.trim() ?? "",
-    voiceChannelId: options?.requireDiscordConfig
-      ? required("DISCORD_VOICE_CHANNEL_ID")
-      : process.env.DISCORD_VOICE_CHANNEL_ID?.trim() ?? "",
-    dataDir: path.resolve(optional("PHASE0_DATA_DIR", "./data/phase0")),
-    silenceMs: readNumber("PHASE0_SILENCE_MS", 1000),
-    maxChunkMs: readNumber("PHASE0_MAX_CHUNK_MS", 120000),
-    sttSafeFormat,
-    enableDave: readBoolean("PHASE0_ENABLE_DAVE", true),
-    decryptionFailureTolerance: readNumber(
-      "PHASE0_DECRYPTION_FAILURE_TOLERANCE",
-      24,
-    ),
-    debugVoice: readBoolean("PHASE0_DEBUG_VOICE", true),
-    autoRegisterCommands: readBoolean("PHASE0_AUTO_REGISTER_COMMANDS", true),
-  };
-
-  if (missingKeys.length > 0) {
-    throw new MissingRequiredConfigError(missingKeys);
-  }
-
-  return config;
-}
-
-export function snapshotConfig(config: Phase0Config): Phase0ConfigSnapshot {
-  return {
-    ...config,
-    discordBotToken: config.discordBotToken ? "[REDACTED]" : "[MISSING]",
-  };
 }
 
 export function loadPhase1Config(options?: {

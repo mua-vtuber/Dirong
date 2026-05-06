@@ -17,7 +17,7 @@ export type HealthCheck = {
   action?: string;
 };
 
-export type Phase0HealthReport = {
+export type HealthReport = {
   generatedAt: string;
   nodeVersion: string;
   platform: NodeJS.Platform;
@@ -42,7 +42,7 @@ export type Phase0HealthReport = {
   dependencyReport: string;
 };
 
-export async function runHealthCheck(): Promise<Phase0HealthReport> {
+export async function runHealthCheck(): Promise<HealthReport> {
   loadDotEnv();
 
   const ffmpeg = await resolveFfmpegPath();
@@ -141,7 +141,7 @@ export async function runHealthCheck(): Promise<Phase0HealthReport> {
   };
 }
 
-export function criticalHealthFailed(report: Phase0HealthReport): boolean {
+export function criticalHealthFailed(report: HealthReport): boolean {
   return report.checks.some(
     (check) =>
       check.status === "fail" &&

@@ -1,10 +1,10 @@
 {
-  "name": "dirong-phase0-voice-receive-test",
+  "name": "dirong-discord-record-bot",
   "version": "0.0.1",
   "private": true,
-  "description": "Dirong Phase 0 Discord voice receive spike",
+  "description": "Dirong Discord recording and STT pipeline",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/app/main.js",
   "engines": {
     "node": ">=22.12.0"
   },
@@ -14,11 +14,6 @@
     "start": "node --no-warnings dist/app/main.js",
     "doctor": "node --no-warnings dist/app/doctor.js",
     "repair": "node --no-warnings dist/app/repair.js",
-    "phase0:start": "node --no-warnings dist/index.js",
-    "phase0:doctor": "node --no-warnings dist/doctor.js",
-    "phase1:start": "node --no-warnings dist/app/main.js",
-    "phase1:doctor": "node --no-warnings dist/app/doctor.js",
-    "phase1:repair": "node --no-warnings dist/app/repair.js",
     "phase2:fake-stt": "node --no-warnings dist/app/fake-stt.js",
     "phase3:stt": "node --no-warnings dist/app/real-stt.js",
     "phase4:ai-cleanup": "node --no-warnings dist/app/ai-cleanup.js",

@@ -71,7 +71,7 @@ function adaptHealthChecksForRecordingSttDoctor(
       return {
         ...check,
         name: "Discord voice channel ID (optional)",
-        message: "설정됨(값은 출력하지 않음). 일반 녹음에는 필요 없고 Phase 0 고정 채널 테스트에서만 사용합니다.",
+        message: "설정됨(값은 출력하지 않음). 일반 녹음에는 필요하지 않습니다.",
         action: undefined,
       };
     }

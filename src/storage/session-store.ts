@@ -202,6 +202,32 @@ export type MeetingNotesDraftRow = {
   updated_at: string;
 };
 
+export type AiCleanupSttTerminalSnapshot = {
+  sessionId: string;
+  sessionStatus: "finalized";
+  openChunkCount: number;
+  sttQueuedCount: number;
+  sttProcessingCount: number;
+  sttDoneCount: number;
+  sttFailedCount: number;
+  sttFailedMissingFileCount: number;
+  sttOtherNonTerminalCount: number;
+  chunksMissingSttJobCount: number;
+  chunksWithTranscodeFailedCount: number;
+  chunksMissingSttAudioCount: number;
+  realTranscriptEntryCount: number;
+  isTerminal: boolean;
+  canGenerateDraft: boolean;
+  shouldRecordEmptyTimelineBlock: boolean;
+  canInvokeRunner: boolean;
+  warnings: string[];
+};
+
+export type AiCleanupLeaseRepairSummary = {
+  requeued: number;
+  failed: number;
+};
+
 export class SessionStore {
   constructor(private readonly database: DirongDatabase) {}
 
@@ -289,6 +315,32 @@ export class SessionStore {
   getLatestSession(): SessionRow | null {
     return this.get<SessionRow>(
       "SELECT * FROM sessions ORDER BY started_at DESC LIMIT 1",
+    );
+  }
+
+  listFinalizedSessionsForAiCleanupAutomation(limit = 3): SessionRow[] {
+    const safeLimit = Math.max(1, Math.trunc(limit));
+    return this.all<SessionRow>(
+      `SELECT s.*
+       FROM sessions s
+       WHERE s.status = 'finalized'
+       ORDER BY
+         CASE
+           WHEN EXISTS (
+             SELECT 1 FROM ai_cleanup_jobs j
+             WHERE j.session_id = s.id
+               AND j.status IN ('queued', 'processing')
+           ) THEN 0
+           WHEN NOT EXISTS (
+             SELECT 1 FROM ai_cleanup_jobs j
+             WHERE j.session_id = s.id
+               AND j.status IN ('done', 'blocked', 'failed')
+           ) THEN 1
+           ELSE 2
+         END ASC,
+         COALESCE(s.finalized_at, s.updated_at, s.created_at) ASC
+       LIMIT ?`,
+      safeLimit,
     );
   }
 
@@ -949,6 +1001,121 @@ export class SessionStore {
     );
   }
 
+  getAiCleanupSttTerminalSnapshot(
+    sessionId: string,
+  ): AiCleanupSttTerminalSnapshot | null {
+    const session = this.getSession(sessionId);
+    if (!session || session.status !== "finalized") {
+      return null;
+    }
+
+    const openChunkCount = this.get<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM chunks WHERE session_id = ? AND status = 'writing'",
+      sessionId,
+    )?.count ?? 0;
+
+    const statusRows = this.all<{ status: string; count: number }>(
+      `SELECT status, COUNT(*) AS count
+       FROM stt_jobs
+       WHERE session_id = ?
+       GROUP BY status`,
+      sessionId,
+    );
+    const sttStatusCounts = new Map(
+      statusRows.map((row) => [row.status, row.count]),
+    );
+    const sttQueuedCount = sttStatusCounts.get("queued") ?? 0;
+    const sttProcessingCount = sttStatusCounts.get("processing") ?? 0;
+    const sttDoneCount = sttStatusCounts.get("done") ?? 0;
+    const sttFailedCount = sttStatusCounts.get("failed") ?? 0;
+    const sttFailedMissingFileCount =
+      sttStatusCounts.get("failed_missing_file") ?? 0;
+    const terminalSttStatuses = new Set([
+      "done",
+      "failed",
+      "failed_missing_file",
+    ]);
+    const waitingSttStatuses = new Set(["queued", "processing"]);
+    const sttOtherNonTerminalCount = statusRows
+      .filter(
+        (row) =>
+          !terminalSttStatuses.has(row.status) &&
+          !waitingSttStatuses.has(row.status),
+      )
+      .reduce((sum, row) => sum + row.count, 0);
+
+    const chunksMissingSttJobCount = this.get<{ count: number }>(
+      `SELECT COUNT(*) AS count
+       FROM chunks c
+       LEFT JOIN stt_jobs j ON j.chunk_id = c.id
+       WHERE c.session_id = ?
+         AND c.status IN ('finalized', 'queued', 'transcode_failed')
+         AND j.id IS NULL`,
+      sessionId,
+    )?.count ?? 0;
+
+    const chunksWithTranscodeFailedCount = this.get<{ count: number }>(
+      `SELECT COUNT(*) AS count
+       FROM chunks
+       WHERE session_id = ?
+         AND (transcode_status = 'failed' OR status = 'transcode_failed')`,
+      sessionId,
+    )?.count ?? 0;
+
+    const chunksMissingSttAudioCount = this.get<{ count: number }>(
+      `SELECT COUNT(*) AS count
+       FROM chunks
+       WHERE session_id = ?
+         AND status IN ('finalized', 'queued', 'transcode_failed')
+         AND (stt_audio_path IS NULL OR length(trim(stt_audio_path)) = 0)`,
+      sessionId,
+    )?.count ?? 0;
+
+    const realTranscriptEntryCount = this.listTranscriptTimelineSegments({
+      sessionId,
+      includeNoSpeech: false,
+      includeFakeStt: false,
+    }).length;
+
+    const isTerminal =
+      openChunkCount === 0 &&
+      sttQueuedCount === 0 &&
+      sttProcessingCount === 0 &&
+      sttOtherNonTerminalCount === 0;
+    const canGenerateDraft = realTranscriptEntryCount > 0;
+    const shouldRecordEmptyTimelineBlock =
+      isTerminal && realTranscriptEntryCount === 0;
+    const canInvokeRunner =
+      isTerminal && (canGenerateDraft || shouldRecordEmptyTimelineBlock);
+
+    return {
+      sessionId,
+      sessionStatus: "finalized",
+      openChunkCount,
+      sttQueuedCount,
+      sttProcessingCount,
+      sttDoneCount,
+      sttFailedCount,
+      sttFailedMissingFileCount,
+      sttOtherNonTerminalCount,
+      chunksMissingSttJobCount,
+      chunksWithTranscodeFailedCount,
+      chunksMissingSttAudioCount,
+      realTranscriptEntryCount,
+      isTerminal,
+      canGenerateDraft,
+      shouldRecordEmptyTimelineBlock,
+      canInvokeRunner,
+      warnings: makeAiCleanupSttWarnings({
+        sttFailedCount,
+        sttFailedMissingFileCount,
+        chunksMissingSttJobCount,
+        chunksWithTranscodeFailedCount,
+        chunksMissingSttAudioCount,
+      }),
+    };
+  }
+
   getOrCreateAiCleanupJob(input: {
     id: string;
     sessionId: string;
@@ -1024,6 +1191,29 @@ export class SessionStore {
     return this.get<AiCleanupJobRow>(
       "SELECT * FROM ai_cleanup_jobs WHERE id = ?",
       jobId,
+    );
+  }
+
+  getAiCleanupJobByIdentity(input: {
+    sessionId: string;
+    provider: string;
+    model: string;
+    promptVersion: string;
+    inputHash: string;
+  }): AiCleanupJobRow | null {
+    return this.get<AiCleanupJobRow>(
+      `SELECT *
+       FROM ai_cleanup_jobs
+       WHERE session_id = ?
+         AND provider = ?
+         AND model = ?
+         AND prompt_version = ?
+         AND input_hash = ?`,
+      input.sessionId,
+      input.provider,
+      input.model,
+      input.promptVersion,
+      input.inputHash,
     );
   }
 
@@ -1265,6 +1455,61 @@ export class SessionStore {
     }
 
     return jobs.length;
+  }
+
+  repairExpiredAiCleanupProcessingJobs(
+    nowIso = isoNow(),
+  ): AiCleanupLeaseRepairSummary {
+    const jobs = this.all<AiCleanupJobRow>(
+      `SELECT *
+       FROM ai_cleanup_jobs
+       WHERE status = 'processing'
+         AND locked_until IS NOT NULL
+         AND locked_until < ?`,
+      nowIso,
+    );
+    let requeued = 0;
+    let failed = 0;
+
+    for (const job of jobs) {
+      if (job.attempts < job.max_attempts) {
+        this.run(
+          `UPDATE ai_cleanup_jobs
+           SET status = 'queued',
+               locked_by = NULL,
+               locked_until = NULL,
+               next_attempt_at = ?,
+               last_error = ?,
+               updated_at = ?
+           WHERE id = ?`,
+          nowIso,
+          "AI cleanup processing lease expired; retrying.",
+          nowIso,
+          job.id,
+        );
+        requeued += 1;
+        continue;
+      }
+
+      this.run(
+        `UPDATE ai_cleanup_jobs
+         SET status = 'failed',
+             locked_by = NULL,
+             locked_until = NULL,
+             next_attempt_at = ?,
+             failure_kind = 'provider_timeout',
+             last_error = ?,
+             updated_at = ?
+         WHERE id = ?`,
+        nowIso,
+        "AI cleanup processing lease expired after max attempts.",
+        nowIso,
+        job.id,
+      );
+      failed += 1;
+    }
+
+    return { requeued, failed };
   }
 
   listRecentAiCleanupJobs(
@@ -1594,6 +1839,32 @@ function formatQueueStats(rows: Array<{ status: string; count: number }>): strin
   return ["queued", "processing", "done", "failed", "failed_missing_file"]
     .map((status) => `${status}:${counts.get(status) ?? 0}`)
     .join(" / ");
+}
+
+function makeAiCleanupSttWarnings(input: {
+  sttFailedCount: number;
+  sttFailedMissingFileCount: number;
+  chunksMissingSttJobCount: number;
+  chunksWithTranscodeFailedCount: number;
+  chunksMissingSttAudioCount: number;
+}): string[] {
+  const warnings: string[] = [];
+  if (input.sttFailedCount > 0) {
+    warnings.push(`STT 실패 ${input.sttFailedCount}건`);
+  }
+  if (input.sttFailedMissingFileCount > 0) {
+    warnings.push(`STT 입력 파일 누락 ${input.sttFailedMissingFileCount}건`);
+  }
+  if (input.chunksMissingSttJobCount > 0) {
+    warnings.push(`STT job 없는 chunk ${input.chunksMissingSttJobCount}개`);
+  }
+  if (input.chunksWithTranscodeFailedCount > 0) {
+    warnings.push(`transcode 실패 chunk ${input.chunksWithTranscodeFailedCount}개`);
+  }
+  if (input.chunksMissingSttAudioCount > 0) {
+    warnings.push(`STT audio path 없는 chunk ${input.chunksMissingSttAudioCount}개`);
+  }
+  return warnings;
 }
 
 export function relativeDisplayPath(filePath: string | null): string | null {

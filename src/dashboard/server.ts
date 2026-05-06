@@ -1,9 +1,24 @@
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import path from "node:path";
+import type { AiCleanupAutomationSnapshot } from "../ai/cleanup/automation-service.js";
+import type { AiProviderRuntimeReadinessSnapshot } from "../ai/cleanup/provider-lifecycle.js";
 import type { Phase1Config } from "../config.js";
 import type { RecordingProducer } from "../recording/recording-producer.js";
 import { relativeDisplayPath, type SessionStore } from "../storage/session-store.js";
+
+export type DashboardAiReadinessSource = {
+  getSnapshot(): AiProviderRuntimeReadinessSnapshot;
+};
+
+export type DashboardAiCleanupAutomationSource = {
+  getSnapshot(): AiCleanupAutomationSnapshot;
+};
+
+export type DashboardRuntimeSources = {
+  aiReadiness?: DashboardAiReadinessSource;
+  aiCleanupAutomation?: DashboardAiCleanupAutomationSource;
+};
 
 export class DashboardServer {
   private server: Server | null = null;
@@ -13,6 +28,7 @@ export class DashboardServer {
     private readonly config: Phase1Config,
     private readonly store: SessionStore,
     private readonly producer: RecordingProducer,
+    private readonly runtimeSources: DashboardRuntimeSources = {},
   ) {}
 
   async start(): Promise<string> {
@@ -75,7 +91,7 @@ export class DashboardServer {
 
     if (url.pathname === "/api/state") {
       const state = this.store.getDashboardState(this.producer.getRuntimeState());
-      sendJson(response, state);
+      sendJson(response, appendDashboardRuntimeSnapshots(state, this.runtimeSources));
       return;
     }
 
@@ -147,6 +163,37 @@ export class DashboardServer {
     });
     createReadStream(audio.path).pipe(response);
   }
+}
+
+export function appendAiReadinessToDashboardState(
+  state: unknown,
+  aiReadinessSource?: DashboardAiReadinessSource,
+): unknown {
+  return appendDashboardRuntimeSnapshots(state, {
+    aiReadiness: aiReadinessSource,
+  });
+}
+
+export function appendDashboardRuntimeSnapshots(
+  state: unknown,
+  sources: DashboardRuntimeSources = {},
+): unknown {
+  if (!isRecord(state)) {
+    return state;
+  }
+  if (!sources.aiReadiness && !sources.aiCleanupAutomation) {
+    return state;
+  }
+
+  return {
+    ...state,
+    ...(sources.aiReadiness
+      ? { aiReadiness: sources.aiReadiness.getSnapshot() }
+      : {}),
+    ...(sources.aiCleanupAutomation
+      ? { aiCleanupAutomation: sources.aiCleanupAutomation.getSnapshot() }
+      : {}),
+  };
 }
 
 function renderDashboardHtml(): string {
@@ -308,6 +355,9 @@ function renderDashboardHtml(): string {
         metric('Open Chunks', runtime.openChunks ?? 0),
         metric('Session Status', session?.status ?? '-'),
         metric('DB', rel(state.dbPath)),
+        metric('AI Status', state.aiReadiness?.message ?? '-'),
+        metric('AI Cleanup', state.aiCleanupAutomation?.message ?? '-'),
+        metric('AI Provider', state.aiReadiness ? state.aiReadiness.provider + ' / ' + state.aiReadiness.model : '-'),
         metric('Queue', queueSummary(state.queueStats ?? [])),
         metric('Repair Open', (state.recentRepairItems ?? []).filter((row) => row.status === 'open').length)
       ].join(''));
@@ -354,7 +404,8 @@ function renderDashboardHtml(): string {
           escapeHtml((t.speech_status === 'no_speech' && !t.text) ? '(no speech)' : t.text) + '</td></tr>')
       ));
 
-      setHtml('aiCleanup', table(
+      setHtml('aiCleanup', renderAiReadiness(state.aiReadiness) +
+        renderAiCleanupAutomation(state.aiCleanupAutomation) + table(
         ['job', 'status', 'provider/model', 'attempts', 'input', 'error'],
         (state.recentAiCleanupJobs ?? []).map((j) => '<tr><td><code>' + escapeHtml(j.id) +
           '</code></td><td>' + escapeHtml(j.status) +
@@ -397,6 +448,47 @@ function renderDashboardHtml(): string {
       return '<div class="metric"><div class="label">' + escapeHtml(label) +
         '</div><div class="value">' + escapeHtml(value) + '</div></div>';
     }
+    function renderAiReadiness(readiness) {
+      if (!readiness) {
+        return '<div class="muted">AI readiness snapshot이 아직 없습니다.</div>';
+      }
+      const action = readiness.userAction
+        ? '<div class="value">' + escapeHtml(readiness.userAction) + '</div>'
+        : '';
+      const technical = readiness.technicalDetail
+        ? '<details><summary class="muted">기술 세부정보</summary><pre>' + escapeHtml(readiness.technicalDetail) + '</pre></details>'
+        : '';
+      return '<div class="metric" style="margin-bottom:10px">' +
+        '<div class="label">' + escapeHtml(readiness.provider) + ' / ' + escapeHtml(readiness.model) +
+        ' · ' + escapeHtml(readiness.status) + ' · ' + escapeHtml(readiness.checkedAt ?? 'not checked') +
+        '</div><div class="value status">' + escapeHtml(readiness.message) + '</div>' +
+        action + technical + '</div>';
+    }
+    function renderAiCleanupAutomation(automation) {
+      if (!automation) {
+        return '<div class="muted">AI cleanup 자동화 snapshot이 아직 없습니다.</div>';
+      }
+      const action = automation.userAction
+        ? '<div class="value">' + escapeHtml(automation.userAction) + '</div>'
+        : '';
+      const stt = automation.stt
+        ? '<div class="muted">STT done ' + escapeHtml(automation.stt.sttDoneCount) +
+          ' / failed ' + escapeHtml(automation.stt.sttFailedCount) +
+          ' / missing file ' + escapeHtml(automation.stt.sttFailedMissingFileCount) +
+          ' / real transcript ' + escapeHtml(automation.stt.realTranscriptEntryCount) + '</div>'
+        : '';
+      const warnings = automation.warnings?.length
+        ? '<div class="warn">' + automation.warnings.map(escapeHtml).join(', ') + '</div>'
+        : '';
+      const technical = automation.technicalDetail
+        ? '<details><summary class="muted">자동화 세부정보</summary><pre>' + escapeHtml(automation.technicalDetail) + '</pre></details>'
+        : '';
+      return '<div class="metric" style="margin-bottom:10px">' +
+        '<div class="label">' + escapeHtml(automation.provider) + ' / ' + escapeHtml(automation.model) +
+        ' · ' + escapeHtml(automation.status) + ' · ' + escapeHtml(automation.checkedAt ?? 'not checked') +
+        '</div><div class="value status">' + escapeHtml(automation.message) + '</div>' +
+        stt + warnings + action + technical + '</div>';
+    }
     function renderAudioControls(c) {
       if (!(c.raw_byte_size > 0) || c.status === 'writing') {
         return '<span class="muted">pending</span>';
@@ -430,6 +522,10 @@ function sendHtml(response: ServerResponse, html: string): void {
     "Cache-Control": "no-store",
   });
   response.end(html);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function sendJson(response: ServerResponse, value: unknown): void {

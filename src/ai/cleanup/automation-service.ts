@@ -1,0 +1,673 @@
+import { redactSensitiveText } from "../../errors.js";
+import type {
+  AiCleanupJobRow,
+  AiCleanupLeaseRepairSummary,
+  AiCleanupSttTerminalSnapshot,
+  SessionStore,
+} from "../../storage/session-store.js";
+import { buildPhase4TimelineInput } from "./timeline-input.js";
+import type { AiCleanupProvider } from "./provider.js";
+import { AiCleanupProviderError } from "./provider.js";
+import { PHASE4_AI_CLEANUP_PROMPT_VERSION } from "./prompts.js";
+import {
+  runAiCleanupForSession,
+  type AiCleanupRunOptions,
+  type AiCleanupRunResult,
+} from "./runner.js";
+import type { AiProviderLifecycleService } from "./provider-lifecycle-service.js";
+
+export type AiCleanupAutomationStatus =
+  | "disabled"
+  | "idle"
+  | "waiting_for_finalized_session"
+  | "waiting_for_stt"
+  | "waiting_for_ai_provider"
+  | "queued"
+  | "running"
+  | "done"
+  | "already_done"
+  | "blocked"
+  | "failed"
+  | "not_claimed"
+  | "stopped";
+
+export type AiCleanupAutomationJobSnapshot = {
+  id: string;
+  status: AiCleanupJobRow["status"];
+  attempts: number;
+  maxAttempts: number;
+  inputHash: string;
+  inputEntryCount: number;
+  failureKind: string | null;
+  lastError: string | null;
+};
+
+export type AiCleanupAutomationSnapshot = {
+  enabled: boolean;
+  status: AiCleanupAutomationStatus;
+  provider: string;
+  model: string;
+  checkedAt: string | null;
+  sessionId: string | null;
+  message: string;
+  userAction: string | null;
+  technicalDetail: string | null;
+  stt: AiCleanupSttTerminalSnapshot | null;
+  job: AiCleanupAutomationJobSnapshot | null;
+  lastRunStatus: AiCleanupRunResult["status"] | null;
+  inFlightSessionIds: string[];
+  repairedExpiredJobs: AiCleanupLeaseRepairSummary;
+  warnings: string[];
+};
+
+export type AiCleanupAutomationServiceOptions = {
+  enabled: boolean;
+  provider: AiCleanupProvider;
+  lifecycle: AiProviderLifecycleService;
+  pollIntervalMs: number;
+  sessionBatchLimit: number;
+  readinessRetryMs: number;
+  runner: Omit<AiCleanupRunOptions, "sessionId" | "dryRun" | "provider">;
+};
+
+/**
+ * Runtime-only Phase C automation coordinator.
+ *
+ * It does not persist readiness or automation state. Durable truth remains in
+ * ai_cleanup_jobs and meeting_notes_drafts. Timeout/cancel is still delegated to
+ * the existing one-shot provider path; Phase C does not hard-kill provider work.
+ */
+export class AiCleanupAutomationService {
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private tickPromise: Promise<AiCleanupAutomationSnapshot> | null = null;
+  private started = false;
+  private stopping = false;
+  private lastReadinessRetryAt = 0;
+  private readonly inFlightSessionIds = new Set<string>();
+  private snapshot: AiCleanupAutomationSnapshot;
+
+  constructor(
+    private readonly store: SessionStore,
+    private readonly options: AiCleanupAutomationServiceOptions,
+  ) {
+    this.snapshot = makeSnapshot({
+      enabled: options.enabled,
+      status: options.enabled ? "idle" : "disabled",
+      provider: options.provider.providerName,
+      model: options.provider.modelName,
+      checkedAt: null,
+      sessionId: null,
+      message: options.enabled
+        ? "AI cleanup 자동 실행 대기 중"
+        : "AI cleanup 자동 실행이 꺼져 있습니다.",
+      userAction: options.enabled ? null : "필요하면 수동 Phase 4 CLI를 실행해 주세요.",
+      technicalDetail: null,
+      stt: null,
+      job: null,
+      lastRunStatus: null,
+      inFlightSessionIds: [],
+      repairedExpiredJobs: { requeued: 0, failed: 0 },
+      warnings: [],
+    });
+  }
+
+  start(): void {
+    if (this.started || !this.options.enabled) {
+      return;
+    }
+    this.started = true;
+    this.stopping = false;
+    this.schedule(0);
+  }
+
+  async stop(): Promise<void> {
+    this.started = false;
+    this.stopping = true;
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    if (this.tickPromise) {
+      await this.tickPromise;
+    }
+    this.snapshot = makeSnapshot({
+      ...this.snapshot,
+      status: "stopped",
+      checkedAt: new Date().toISOString(),
+      message: "AI cleanup 자동 실행 중지됨",
+      userAction: null,
+      inFlightSessionIds: this.getInFlightSessionIds(),
+    });
+  }
+
+  getSnapshot(): AiCleanupAutomationSnapshot {
+    return cloneSnapshot(this.snapshot);
+  }
+
+  async runOnce(): Promise<AiCleanupAutomationSnapshot> {
+    if (!this.options.enabled) {
+      this.snapshot = makeSnapshot({
+        ...this.snapshot,
+        status: "disabled",
+        checkedAt: new Date().toISOString(),
+        message: "AI cleanup 자동 실행이 꺼져 있습니다.",
+        userAction: "필요하면 수동 Phase 4 CLI를 실행해 주세요.",
+      });
+      return this.getSnapshot();
+    }
+
+    if (this.tickPromise) {
+      return await this.tickPromise;
+    }
+
+    this.tickPromise = this.tick();
+    try {
+      return await this.tickPromise;
+    } finally {
+      this.tickPromise = null;
+    }
+  }
+
+  private schedule(delayMs: number): void {
+    if (!this.started || this.stopping) {
+      return;
+    }
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void this.runScheduledTick();
+    }, Math.max(0, delayMs));
+    this.timer.unref?.();
+  }
+
+  private async runScheduledTick(): Promise<void> {
+    try {
+      await this.runOnce();
+    } catch (error) {
+      this.snapshot = makeSnapshot({
+        ...this.snapshot,
+        status: "failed",
+        checkedAt: new Date().toISOString(),
+        message: "AI cleanup 자동 실행 확인 중 오류가 발생했습니다.",
+        userAction: "녹음/STT는 보존됩니다. 로그와 dashboard 상태를 확인해 주세요.",
+        technicalDetail: summarizeError(error),
+      });
+    } finally {
+      this.schedule(this.options.pollIntervalMs);
+    }
+  }
+
+  private async tick(): Promise<AiCleanupAutomationSnapshot> {
+    const checkedAt = new Date().toISOString();
+    const repairedExpiredJobs =
+      this.store.repairExpiredAiCleanupProcessingJobs();
+
+    if (this.inFlightSessionIds.size > 0) {
+      this.snapshot = makeSnapshot({
+        ...this.snapshot,
+        status: "running",
+        checkedAt,
+        message: "회의록 생성 중",
+        userAction: null,
+        repairedExpiredJobs,
+        inFlightSessionIds: this.getInFlightSessionIds(),
+      });
+      return this.getSnapshot();
+    }
+
+    const readiness = this.options.lifecycle.getSnapshot();
+    if (readiness.status !== "ready") {
+      this.maybeRetryReadiness();
+      this.snapshot = makeSnapshot({
+        ...this.snapshot,
+        status: "waiting_for_ai_provider",
+        checkedAt,
+        sessionId: null,
+        message: "AI cleanup 대기 중: AI 준비가 필요합니다.",
+        userAction:
+          readiness.userAction ??
+          "AI provider 상태를 확인한 뒤 준비가 완료되면 자동으로 다시 시도합니다.",
+        technicalDetail: readiness.technicalDetail,
+        stt: null,
+        job: null,
+        repairedExpiredJobs,
+        warnings: [],
+      });
+      return this.getSnapshot();
+    }
+
+    const sessions = this.store.listFinalizedSessionsForAiCleanupAutomation(
+      this.options.sessionBatchLimit,
+    );
+    if (sessions.length === 0) {
+      this.snapshot = makeSnapshot({
+        ...this.snapshot,
+        status: "waiting_for_finalized_session",
+        checkedAt,
+        sessionId: null,
+        message: "AI cleanup 대기 중: finalized 세션을 기다리는 중",
+        userAction: null,
+        technicalDetail: null,
+        stt: null,
+        job: null,
+        repairedExpiredJobs,
+        warnings: [],
+      });
+      return this.getSnapshot();
+    }
+
+    let fallbackSnapshot: AiCleanupAutomationSnapshot | null = null;
+    for (const session of sessions) {
+      if (this.inFlightSessionIds.has(session.id)) {
+        continue;
+      }
+
+      const stt = this.store.getAiCleanupSttTerminalSnapshot(session.id);
+      if (!stt) {
+        continue;
+      }
+      if (!stt.isTerminal) {
+        fallbackSnapshot ??= makeSnapshot({
+          ...this.snapshot,
+          status: "waiting_for_stt",
+          checkedAt,
+          sessionId: session.id,
+          message: "STT 완료 대기 중",
+          userAction: null,
+          technicalDetail: null,
+          stt,
+          job: null,
+          repairedExpiredJobs,
+          warnings: stt.warnings,
+        });
+        continue;
+      }
+
+      const timelineInput = buildPhase4TimelineInput(this.store, {
+        sessionId: session.id,
+        includeFakeStt: false,
+      });
+      const existingJob = this.store.getAiCleanupJobByIdentity({
+        sessionId: session.id,
+        provider: this.options.provider.providerName,
+        model: this.options.provider.modelName,
+        promptVersion: PHASE4_AI_CLEANUP_PROMPT_VERSION,
+        inputHash: timelineInput.inputHash,
+      });
+
+      if (existingJob?.status === "processing") {
+        this.snapshot = makeSnapshot({
+          ...this.snapshot,
+          status: "running",
+          checkedAt,
+          sessionId: session.id,
+          message: "회의록 생성 중",
+          userAction: null,
+          technicalDetail: null,
+          stt,
+          job: makeJobSnapshot(existingJob),
+          repairedExpiredJobs,
+          warnings: stt.warnings,
+        });
+        return this.getSnapshot();
+      }
+
+      if (
+        existingJob &&
+        existingJob.status !== "queued"
+      ) {
+        fallbackSnapshot ??= makeSnapshot({
+          ...this.snapshot,
+          status: existingStatusToAutomationStatus(existingJob.status),
+          checkedAt,
+          sessionId: session.id,
+          message: messageForExistingJob(existingJob),
+          userAction: userActionForExistingJob(existingJob),
+          technicalDetail: existingJob.last_error,
+          stt,
+          job: makeJobSnapshot(existingJob),
+          repairedExpiredJobs,
+          warnings: stt.warnings,
+        });
+        continue;
+      }
+
+      if (
+        existingJob?.status === "queued" &&
+        !isAiCleanupJobReadyToClaim(existingJob, checkedAt)
+      ) {
+        fallbackSnapshot ??= makeSnapshot({
+          ...this.snapshot,
+          status: "not_claimed",
+          checkedAt,
+          sessionId: session.id,
+          message: "AI cleanup job 재시도 시간을 기다리는 중",
+          userAction: "재시도 시간이 오면 자동으로 다시 실행됩니다.",
+          technicalDetail: existingJob.last_error,
+          stt,
+          job: makeJobSnapshot(existingJob),
+          repairedExpiredJobs,
+          warnings: stt.warnings,
+        });
+        continue;
+      }
+
+      if (!stt.canInvokeRunner) {
+        fallbackSnapshot ??= makeSnapshot({
+          ...this.snapshot,
+          status: "waiting_for_stt",
+          checkedAt,
+          sessionId: session.id,
+          message: "AI cleanup 대기 중: STT terminal 조건을 기다리는 중",
+          userAction: null,
+          technicalDetail: null,
+          stt,
+          job: existingJob ? makeJobSnapshot(existingJob) : null,
+          repairedExpiredJobs,
+          warnings: stt.warnings,
+        });
+        continue;
+      }
+
+      return await this.runForSession(
+        session.id,
+        stt,
+        existingJob,
+        repairedExpiredJobs,
+      );
+    }
+
+    this.snapshot =
+      fallbackSnapshot ??
+      makeSnapshot({
+        ...this.snapshot,
+        status: "idle",
+        checkedAt,
+        sessionId: null,
+        message: "AI cleanup 자동 실행 대기 중",
+        userAction: null,
+        technicalDetail: null,
+        stt: null,
+        job: null,
+        repairedExpiredJobs,
+        warnings: [],
+      });
+    return this.getSnapshot();
+  }
+
+  private async runForSession(
+    sessionId: string,
+    stt: AiCleanupSttTerminalSnapshot,
+    existingJob: AiCleanupJobRow | null,
+    repairedExpiredJobs: AiCleanupLeaseRepairSummary,
+  ): Promise<AiCleanupAutomationSnapshot> {
+    this.inFlightSessionIds.add(sessionId);
+    this.snapshot = makeSnapshot({
+      ...this.snapshot,
+      status: existingJob?.status === "queued" ? "queued" : "running",
+      checkedAt: new Date().toISOString(),
+      sessionId,
+      message:
+        existingJob?.status === "queued"
+          ? "AI cleanup job 실행 준비 중"
+          : "회의록 생성 중",
+      userAction: null,
+      technicalDetail: null,
+      stt,
+      job: existingJob ? makeJobSnapshot(existingJob) : null,
+      repairedExpiredJobs,
+      warnings: stt.warnings,
+      inFlightSessionIds: this.getInFlightSessionIds(),
+    });
+
+    try {
+      const result = await runAiCleanupForSession(this.store, {
+        ...this.options.runner,
+        sessionId,
+        dryRun: false,
+        provider: this.options.provider,
+      });
+      this.snapshot = snapshotFromRunResult({
+        previous: this.snapshot,
+        result,
+        stt,
+        repairedExpiredJobs,
+        inFlightSessionIds: this.getInFlightSessionIds(),
+      });
+    } catch (error) {
+      const providerFailure = error instanceof AiCleanupProviderError;
+      if (providerFailure) {
+        this.maybeRetryReadiness();
+      }
+      this.snapshot = makeSnapshot({
+        ...this.snapshot,
+        status: providerFailure ? "waiting_for_ai_provider" : "failed",
+        checkedAt: new Date().toISOString(),
+        sessionId,
+        message: providerFailure
+          ? "AI cleanup 대기 중: AI provider를 다시 확인해야 합니다."
+          : "AI cleanup 자동 실행 중 오류가 발생했습니다. 녹음/STT는 보존됩니다.",
+        userAction: providerFailure
+          ? "AI CLI 설치/로그인 상태를 확인해 주세요. 녹음과 STT 결과는 보존됩니다."
+          : "로그와 dashboard 상태를 확인한 뒤 필요하면 수동 Phase 4 CLI로 재시도해 주세요.",
+        technicalDetail: summarizeError(error),
+        stt,
+        job: null,
+        repairedExpiredJobs,
+        warnings: stt.warnings,
+      });
+    } finally {
+      this.inFlightSessionIds.delete(sessionId);
+      this.snapshot = makeSnapshot({
+        ...this.snapshot,
+        inFlightSessionIds: this.getInFlightSessionIds(),
+      });
+    }
+
+    return this.getSnapshot();
+  }
+
+  private maybeRetryReadiness(): void {
+    const now = Date.now();
+    if (now - this.lastReadinessRetryAt < this.options.readinessRetryMs) {
+      return;
+    }
+    this.lastReadinessRetryAt = now;
+    void this.options.lifecycle.startPrepareInBackground();
+  }
+
+  private getInFlightSessionIds(): string[] {
+    return [...this.inFlightSessionIds].sort();
+  }
+}
+
+export function formatAiCleanupAutomationForStatus(
+  snapshot: AiCleanupAutomationSnapshot,
+): string {
+  const lines = [
+    `AI cleanup 자동화: ${snapshot.message}`,
+    `AI cleanup provider: ${snapshot.provider} / ${snapshot.model}`,
+  ];
+  if (snapshot.sessionId) {
+    lines.push(`AI cleanup 세션: ${snapshot.sessionId}`);
+  }
+  if (snapshot.stt) {
+    lines.push(
+      [
+        "AI cleanup STT:",
+        `done:${snapshot.stt.sttDoneCount}`,
+        `failed:${snapshot.stt.sttFailedCount}`,
+        `missing_file:${snapshot.stt.sttFailedMissingFileCount}`,
+        `real_transcript:${snapshot.stt.realTranscriptEntryCount}`,
+      ].join(" "),
+    );
+  }
+  if (snapshot.warnings.length > 0) {
+    lines.push(`AI cleanup 주의: ${snapshot.warnings.join(", ")}`);
+  }
+  if (snapshot.userAction) {
+    lines.push(`AI cleanup 조치: ${snapshot.userAction}`);
+  }
+  return lines.join("\n");
+}
+
+function snapshotFromRunResult(input: {
+  previous: AiCleanupAutomationSnapshot;
+  result: AiCleanupRunResult;
+  stt: AiCleanupSttTerminalSnapshot;
+  repairedExpiredJobs: AiCleanupLeaseRepairSummary;
+  inFlightSessionIds: string[];
+}): AiCleanupAutomationSnapshot {
+  const { result } = input;
+  const status = resultStatusToAutomationStatus(result.status);
+  return makeSnapshot({
+    ...input.previous,
+    status,
+    checkedAt: new Date().toISOString(),
+    sessionId: result.sessionId,
+    message: messageForRunResult(result),
+    userAction: userActionForRunResult(result),
+    technicalDetail: result.error,
+    stt: input.stt,
+    job: result.job ? makeJobSnapshot(result.job) : null,
+    lastRunStatus: result.status,
+    repairedExpiredJobs: input.repairedExpiredJobs,
+    inFlightSessionIds: input.inFlightSessionIds,
+    warnings: input.stt.warnings,
+  });
+}
+
+function resultStatusToAutomationStatus(
+  status: AiCleanupRunResult["status"],
+): AiCleanupAutomationStatus {
+  if (status === "dry_run") {
+    return "idle";
+  }
+  if (status === "already_done") {
+    return "already_done";
+  }
+  return status;
+}
+
+function existingStatusToAutomationStatus(
+  status: AiCleanupJobRow["status"],
+): AiCleanupAutomationStatus {
+  if (status === "done") {
+    return "already_done";
+  }
+  if (status === "processing") {
+    return "running";
+  }
+  return status;
+}
+
+function messageForRunResult(result: AiCleanupRunResult): string {
+  if (result.status === "done") {
+    return "회의록 초안 생성 완료";
+  }
+  if (result.status === "already_done") {
+    return "이미 회의록 초안이 있습니다.";
+  }
+  if (result.status === "blocked") {
+    return "회의록 생성 보류: 생성할 실제 발화가 없거나 입력 조건을 만족하지 않습니다.";
+  }
+  if (result.status === "failed") {
+    return "회의록 생성 실패. 실패했지만 녹음/STT는 보존됩니다.";
+  }
+  if (result.status === "not_claimed") {
+    return "AI cleanup job을 아직 실행할 수 없습니다.";
+  }
+  return "AI cleanup 자동 실행 대기 중";
+}
+
+function userActionForRunResult(result: AiCleanupRunResult): string | null {
+  if (result.status === "blocked") {
+    return "실제 STT 발화가 생기면 다시 실행됩니다. fake/no_speech만 있는 세션은 draft 없이 보류됩니다.";
+  }
+  if (result.status === "failed") {
+    return "AI provider 상태와 job 오류를 확인한 뒤 필요하면 수동 Phase 4 CLI로 재시도해 주세요.";
+  }
+  if (result.status === "not_claimed") {
+    return "이미 처리 중이거나 재시도 시간이 아직 오지 않았습니다.";
+  }
+  return null;
+}
+
+function messageForExistingJob(job: AiCleanupJobRow): string {
+  if (job.status === "done") {
+    return "이미 회의록 초안이 있습니다.";
+  }
+  if (job.status === "blocked") {
+    return "회의록 생성 보류 상태입니다.";
+  }
+  if (job.status === "failed") {
+    return "회의록 생성 실패 상태입니다. 녹음/STT는 보존되어 있습니다.";
+  }
+  return "AI cleanup job 상태 확인 중";
+}
+
+function userActionForExistingJob(job: AiCleanupJobRow): string | null {
+  if (job.status === "blocked") {
+    return "생성할 실제 STT 발화가 있는지 확인해 주세요.";
+  }
+  if (job.status === "failed") {
+    return "AI provider 상태와 job 오류를 확인한 뒤 필요하면 수동 Phase 4 CLI로 재시도해 주세요.";
+  }
+  return null;
+}
+
+function isAiCleanupJobReadyToClaim(
+  job: AiCleanupJobRow,
+  nowIso: string,
+): boolean {
+  return job.next_attempt_at <= nowIso;
+}
+
+function makeJobSnapshot(job: AiCleanupJobRow): AiCleanupAutomationJobSnapshot {
+  return {
+    id: job.id,
+    status: job.status,
+    attempts: job.attempts,
+    maxAttempts: job.max_attempts,
+    inputHash: job.input_hash,
+    inputEntryCount: job.input_entry_count,
+    failureKind: job.failure_kind,
+    lastError:
+      job.last_error === null ? null : redactSensitiveText(job.last_error),
+  };
+}
+
+function makeSnapshot(
+  snapshot: AiCleanupAutomationSnapshot,
+): AiCleanupAutomationSnapshot {
+  return cloneSnapshot({
+    ...snapshot,
+    technicalDetail:
+      snapshot.technicalDetail === null
+        ? null
+        : redactSensitiveText(snapshot.technicalDetail),
+  });
+}
+
+function cloneSnapshot(
+  snapshot: AiCleanupAutomationSnapshot,
+): AiCleanupAutomationSnapshot {
+  return {
+    ...snapshot,
+    stt: snapshot.stt
+      ? {
+          ...snapshot.stt,
+          warnings: [...snapshot.stt.warnings],
+        }
+      : null,
+    job: snapshot.job ? { ...snapshot.job } : null,
+    inFlightSessionIds: [...snapshot.inFlightSessionIds],
+    repairedExpiredJobs: { ...snapshot.repairedExpiredJobs },
+    warnings: [...snapshot.warnings],
+  };
+}
+
+function summarizeError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const redacted = redactSensitiveText(message);
+  return redacted.length <= 1000 ? redacted : `${redacted.slice(0, 1000)}...`;
+}

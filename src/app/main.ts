@@ -13,6 +13,17 @@ import {
   loadPhase1Config,
   snapshotPhase1Config,
 } from "../config.js";
+import { ClaudeCliCleanupProvider } from "../ai/cleanup/claude-cli-provider.js";
+import {
+  AiCleanupAutomationService,
+  formatAiCleanupAutomationForStatus,
+} from "../ai/cleanup/automation-service.js";
+import type { AiCleanupProvider } from "../ai/cleanup/provider.js";
+import {
+  AiProviderLifecycleService,
+  formatAiReadinessForStatus,
+} from "../ai/cleanup/provider-lifecycle-service.js";
+import { wrapAiCleanupProviderWithLifecycle } from "../ai/cleanup/provider-lifecycle.js";
 import { DashboardServer } from "../dashboard/server.js";
 import { phase1GuildCommandPayloads } from "../discord/commands.js";
 import {
@@ -24,6 +35,7 @@ import { RecordingProducer } from "../recording/recording-producer.js";
 import { runStartupRepair } from "../storage/repair-scan.js";
 import { SessionStore } from "../storage/session-store.js";
 import { DirongDatabase } from "../storage/sqlite.js";
+import { backupDatabaseSnapshot } from "./sqlite-backup.js";
 
 const config = (() => {
   try {
@@ -41,12 +53,23 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
 });
 const producer = new RecordingProducer(client, config, store);
-const dashboard = new DashboardServer(config, store, producer);
+const aiCleanupProvider = createAiCleanupProvider();
+const aiLifecycle = createAiLifecycleService(aiCleanupProvider);
+const aiCleanupAutomation = createAiCleanupAutomationService(
+  aiCleanupProvider,
+  aiLifecycle,
+);
+const dashboard = new DashboardServer(config, store, producer, {
+  aiReadiness: aiLifecycle,
+  aiCleanupAutomation,
+});
 const dashboardUrl = await dashboard.start();
 let shutdownPromise: Promise<void> | null = null;
 
 console.log("디롱이 Recording + STT dashboard 시작:", dashboardUrl);
 console.log("startup repair:", JSON.stringify(repairSummary, null, 2));
+startAiPrepareInBackground();
+startAiCleanupAutomation();
 if (config.openDashboard) {
   openDashboardUrl(dashboardUrl);
 }
@@ -201,9 +224,7 @@ async function handleDirongCommand(
     }
 
     if (subcommand === "status") {
-      await interaction.editReply(
-        store.statusText(producer.getRuntimeState(), dashboard.getUrl()),
-      );
+      await interaction.editReply(statusTextWithAiReadiness());
       return;
     }
 
@@ -229,7 +250,7 @@ function startConsoleCommands(): void {
 async function handleConsoleCommand(command: string): Promise<void> {
   try {
     if (command === "status") {
-      console.log(store.statusText(producer.getRuntimeState(), dashboard.getUrl()));
+      console.log(statusTextWithAiReadiness());
       return;
     }
 
@@ -263,12 +284,145 @@ async function shutdown(reason: string): Promise<void> {
   shutdownPromise = (async () => {
     console.log(`종료 처리 중: ${reason}`);
     await producer.shutdown();
+    try {
+      await aiCleanupAutomation.stop();
+    } catch (error) {
+      printCliError(error, { prefix: "AI cleanup 자동화 종료 실패" });
+    }
+    try {
+      await aiLifecycle.stop();
+    } catch (error) {
+      printCliError(error, { prefix: "AI lifecycle 종료 실패" });
+    }
     await dashboard.stop();
     client.destroy();
     store.close();
   })();
 
   return shutdownPromise;
+}
+
+function createAiCleanupProvider(): AiCleanupProvider {
+  return new ClaudeCliCleanupProvider({
+    command: process.env.PHASE4_CLAUDE_COMMAND?.trim() || "claude",
+    model: process.env.PHASE4_CLAUDE_MODEL?.trim() ?? null,
+  });
+}
+
+function createAiLifecycleService(
+  provider: AiCleanupProvider,
+): AiProviderLifecycleService {
+  return new AiProviderLifecycleService(
+    wrapAiCleanupProviderWithLifecycle(provider),
+    {
+      prepareTimeoutMs: readPositiveEnvNumber(
+        "PHASE4_AI_PREPARE_TIMEOUT_MS",
+        5000,
+      ),
+    },
+  );
+}
+
+function createAiCleanupAutomationService(
+  provider: AiCleanupProvider,
+  lifecycle: AiProviderLifecycleService,
+): AiCleanupAutomationService {
+  return new AiCleanupAutomationService(store, {
+    enabled: readBooleanEnv("PHASE4_AI_AUTO_CLEANUP_ENABLED", true),
+    provider,
+    lifecycle,
+    pollIntervalMs: readPositiveEnvNumber(
+      "PHASE4_AI_AUTO_CLEANUP_POLL_MS",
+      5000,
+    ),
+    sessionBatchLimit: readPositiveEnvNumber(
+      "PHASE4_AI_AUTO_CLEANUP_SESSION_BATCH_LIMIT",
+      3,
+    ),
+    readinessRetryMs: readPositiveEnvNumber(
+      "PHASE4_AI_READINESS_RETRY_MS",
+      60000,
+    ),
+    runner: {
+      workerId: `phase4-ai-auto-${provider.providerName}-${process.pid}`,
+      leaseMs: readPositiveEnvNumber("PHASE4_AI_LEASE_MS", config.sttLeaseMs),
+      maxAttempts: readPositiveEnvNumber("PHASE4_AI_MAX_ATTEMPTS", 3),
+      maxInputChars: readPositiveEnvNumber(
+        "PHASE4_AI_MAX_INPUT_CHARS",
+        120000,
+      ),
+      timeoutMs: readPositiveEnvNumber("PHASE4_AI_TIMEOUT_MS", 120000),
+      maxOutputBytes: readPositiveEnvNumber(
+        "PHASE4_AI_MAX_OUTPUT_BYTES",
+        2 * 1024 * 1024,
+      ),
+      backup: () =>
+        backupDatabaseSnapshot(config.dbPath, {
+          busyTimeoutMs: config.dbBusyTimeoutMs,
+        }),
+    },
+  });
+}
+
+function startAiPrepareInBackground(): void {
+  const snapshot = aiLifecycle.getSnapshot();
+  console.log(`AI 준비 중: ${snapshot.provider} / ${snapshot.model}`);
+  console.log("녹음은 바로 시작할 수 있습니다.");
+
+  void aiLifecycle.startPrepareInBackground().then((readiness) => {
+    console.log(`AI 상태: ${readiness.message}`);
+    if (readiness.userAction) {
+      console.log(readiness.userAction);
+    }
+  });
+}
+
+function startAiCleanupAutomation(): void {
+  const snapshot = aiCleanupAutomation.getSnapshot();
+  if (!snapshot.enabled) {
+    console.log("AI cleanup 자동 실행이 꺼져 있습니다. 수동 Phase 4 CLI는 계속 사용할 수 있습니다.");
+    return;
+  }
+  aiCleanupAutomation.start();
+  console.log("AI cleanup 자동 실행 대기 시작: finalized 세션과 STT 완료를 기다립니다.");
+}
+
+function statusTextWithAiReadiness(): string {
+  return [
+    store.statusText(producer.getRuntimeState(), dashboard.getUrl()),
+    "",
+    formatAiReadinessForStatus(aiLifecycle.getSnapshot()),
+    "",
+    formatAiCleanupAutomationForStatus(aiCleanupAutomation.getSnapshot()),
+  ].join("\n");
+}
+
+function readPositiveEnvNumber(key: string, fallback: number): number {
+  const raw = process.env[key]?.trim();
+  if (!raw) {
+    return fallback;
+  }
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    console.warn(`${key} 값이 올바르지 않아 기본값 ${fallback}를 사용합니다.`);
+    return fallback;
+  }
+  return parsed;
+}
+
+function readBooleanEnv(key: string, fallback: boolean): boolean {
+  const raw = process.env[key]?.trim().toLowerCase();
+  if (!raw) {
+    return fallback;
+  }
+  if (["1", "true", "yes", "on"].includes(raw)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(raw)) {
+    return false;
+  }
+  console.warn(`${key} 값이 올바르지 않아 기본값 ${fallback ? "true" : "false"}를 사용합니다.`);
+  return fallback;
 }
 
 function displayNameForMember(member: GuildMember): string {

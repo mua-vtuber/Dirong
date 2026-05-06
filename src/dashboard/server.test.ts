@@ -96,3 +96,48 @@ test("appendDashboardRuntimeSnapshots includes AI cleanup automation snapshot", 
     },
   });
 });
+
+test("appendDashboardRuntimeSnapshots includes alone finalize snapshot", () => {
+  const state = {
+    generatedAt: "2026-05-06T00:00:00.000Z",
+  };
+
+  const withAloneFinalize = appendDashboardRuntimeSnapshots(state, {
+    aloneFinalize: {
+      getSnapshot: () => ({
+        enabled: true,
+        status: "countdown",
+        checkedAt: "2026-05-06T00:00:01.000Z",
+        sessionId: "meeting_1",
+        voiceChannelId: "voice_1",
+        aloneSince: "2026-05-06T00:00:01.000Z",
+        finalizeAt: "2026-05-06T00:01:31.000Z",
+        remainingMs: 90000,
+        nonBotMemberCount: 0,
+        message: "혼자 남음 감지, 90초 후 자동 종료",
+        userAction: "grace 시간 안에 사람이 돌아오면 자동 종료가 취소됩니다.",
+        technicalDetail: null,
+        warnings: [],
+      }),
+    },
+  });
+
+  assert.deepEqual(withAloneFinalize, {
+    ...state,
+    aloneFinalize: {
+      enabled: true,
+      status: "countdown",
+      checkedAt: "2026-05-06T00:00:01.000Z",
+      sessionId: "meeting_1",
+      voiceChannelId: "voice_1",
+      aloneSince: "2026-05-06T00:00:01.000Z",
+      finalizeAt: "2026-05-06T00:01:31.000Z",
+      remainingMs: 90000,
+      nonBotMemberCount: 0,
+      message: "혼자 남음 감지, 90초 후 자동 종료",
+      userAction: "grace 시간 안에 사람이 돌아오면 자동 종료가 취소됩니다.",
+      technicalDetail: null,
+      warnings: [],
+    },
+  });
+});

@@ -4,6 +4,7 @@ import path from "node:path";
 import type { AiCleanupAutomationSnapshot } from "../ai/cleanup/automation-service.js";
 import type { AiProviderRuntimeReadinessSnapshot } from "../ai/cleanup/provider-lifecycle.js";
 import type { Phase1Config } from "../config.js";
+import type { AloneFinalizeSnapshot } from "../recording/alone-finalize-service.js";
 import type { RecordingProducer } from "../recording/recording-producer.js";
 import { relativeDisplayPath, type SessionStore } from "../storage/session-store.js";
 
@@ -15,9 +16,14 @@ export type DashboardAiCleanupAutomationSource = {
   getSnapshot(): AiCleanupAutomationSnapshot;
 };
 
+export type DashboardAloneFinalizeSource = {
+  getSnapshot(): AloneFinalizeSnapshot;
+};
+
 export type DashboardRuntimeSources = {
   aiReadiness?: DashboardAiReadinessSource;
   aiCleanupAutomation?: DashboardAiCleanupAutomationSource;
+  aloneFinalize?: DashboardAloneFinalizeSource;
 };
 
 export class DashboardServer {
@@ -181,7 +187,7 @@ export function appendDashboardRuntimeSnapshots(
   if (!isRecord(state)) {
     return state;
   }
-  if (!sources.aiReadiness && !sources.aiCleanupAutomation) {
+  if (!sources.aiReadiness && !sources.aiCleanupAutomation && !sources.aloneFinalize) {
     return state;
   }
 
@@ -192,6 +198,9 @@ export function appendDashboardRuntimeSnapshots(
       : {}),
     ...(sources.aiCleanupAutomation
       ? { aiCleanupAutomation: sources.aiCleanupAutomation.getSnapshot() }
+      : {}),
+    ...(sources.aloneFinalize
+      ? { aloneFinalize: sources.aloneFinalize.getSnapshot() }
       : {}),
   };
 }
@@ -357,6 +366,7 @@ function renderDashboardHtml(): string {
         metric('DB', rel(state.dbPath)),
         metric('AI Status', state.aiReadiness?.message ?? '-'),
         metric('AI Cleanup', state.aiCleanupAutomation?.message ?? '-'),
+        metric('Alone Finalize', state.aloneFinalize?.message ?? '-'),
         metric('AI Provider', state.aiReadiness ? state.aiReadiness.provider + ' / ' + state.aiReadiness.model : '-'),
         metric('Queue', queueSummary(state.queueStats ?? [])),
         metric('Repair Open', (state.recentRepairItems ?? []).filter((row) => row.status === 'open').length)
@@ -405,7 +415,8 @@ function renderDashboardHtml(): string {
       ));
 
       setHtml('aiCleanup', renderAiReadiness(state.aiReadiness) +
-        renderAiCleanupAutomation(state.aiCleanupAutomation) + table(
+        renderAiCleanupAutomation(state.aiCleanupAutomation) +
+        renderAloneFinalize(state.aloneFinalize) + table(
         ['job', 'status', 'provider/model', 'attempts', 'input', 'error'],
         (state.recentAiCleanupJobs ?? []).map((j) => '<tr><td><code>' + escapeHtml(j.id) +
           '</code></td><td>' + escapeHtml(j.status) +
@@ -488,6 +499,28 @@ function renderDashboardHtml(): string {
         ' · ' + escapeHtml(automation.status) + ' · ' + escapeHtml(automation.checkedAt ?? 'not checked') +
         '</div><div class="value status">' + escapeHtml(automation.message) + '</div>' +
         stt + warnings + action + technical + '</div>';
+    }
+    function renderAloneFinalize(aloneFinalize) {
+      if (!aloneFinalize) {
+        return '';
+      }
+      const countdown = aloneFinalize.status === 'countdown' && aloneFinalize.remainingMs !== null
+        ? '<div class="muted">자동 종료까지 ' + escapeHtml(Math.ceil(aloneFinalize.remainingMs / 1000)) + '초</div>'
+        : '';
+      const action = aloneFinalize.userAction
+        ? '<div class="value">' + escapeHtml(aloneFinalize.userAction) + '</div>'
+        : '';
+      const warnings = aloneFinalize.warnings?.length
+        ? '<div class="warn">' + aloneFinalize.warnings.map(escapeHtml).join(', ') + '</div>'
+        : '';
+      const technical = aloneFinalize.technicalDetail
+        ? '<details><summary class="muted">혼자 남음 세부정보</summary><pre>' + escapeHtml(aloneFinalize.technicalDetail) + '</pre></details>'
+        : '';
+      return '<div class="metric" style="margin-bottom:10px">' +
+        '<div class="label">alone finalize · ' + escapeHtml(aloneFinalize.status) +
+        ' · ' + escapeHtml(aloneFinalize.checkedAt ?? 'not checked') +
+        '</div><div class="value status">' + escapeHtml(aloneFinalize.message) + '</div>' +
+        countdown + action + warnings + technical + '</div>';
     }
     function renderAudioControls(c) {
       if (!(c.raw_byte_size > 0) || c.status === 'writing') {

@@ -66,8 +66,15 @@ type ActiveSession = {
   lastDisconnectedAt: number | null;
 };
 
+export type RecordingStopResult = {
+  sessionId: string;
+  status: SessionStatus;
+  sessionDir: string;
+};
+
 export class RecordingProducer {
   private active: ActiveSession | null = null;
+  private stopPromise: Promise<RecordingStopResult> | null = null;
 
   constructor(
     private readonly client: Client,
@@ -223,12 +230,29 @@ export class RecordingProducer {
   async stop(input: {
     stoppedByUserId: string;
     stoppedByDisplayName: string;
-  }): Promise<{ sessionId: string; status: SessionStatus; sessionDir: string }> {
+  }): Promise<RecordingStopResult> {
+    if (this.stopPromise) {
+      return this.stopPromise;
+    }
+
     const active = this.active;
     if (!active) {
       throw new Error("진행 중인 녹음 세션이 없습니다.");
     }
 
+    this.stopPromise = this.stopActiveSession(active, input).finally(() => {
+      this.stopPromise = null;
+    });
+    return this.stopPromise;
+  }
+
+  private async stopActiveSession(
+    active: ActiveSession,
+    input: {
+      stoppedByUserId: string;
+      stoppedByDisplayName: string;
+    },
+  ): Promise<RecordingStopResult> {
     this.store.updateSessionStatus(active.sessionId, "stopping");
     this.store.recordConnectionEvent({
       sessionId: active.sessionId,

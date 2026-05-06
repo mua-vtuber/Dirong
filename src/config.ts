@@ -46,6 +46,8 @@ export type Phase1Config = {
   dashboardHost: "127.0.0.1";
   dashboardPort: number;
   openDashboard: boolean;
+  aloneFinalizeEnabled: boolean;
+  aloneFinalizeGraceMs: number;
 };
 
 export type Phase3SttProviderName = SttProviderName;
@@ -199,10 +201,16 @@ export function loadPhase1Config(options?: {
     dashboardHost,
     dashboardPort: readNumber("PHASE1_DASHBOARD_PORT", 3095),
     openDashboard: readBoolean("PHASE1_OPEN_DASHBOARD", true),
+    aloneFinalizeEnabled: readBoolean("DIRONG_ALONE_FINALIZE_ENABLED", false),
+    aloneFinalizeGraceMs: readNumber("DIRONG_ALONE_FINALIZE_GRACE_MS", 90000),
   };
 
   if (config.dashboardPort <= 0 || config.dashboardPort > 65535) {
     throw new Error("PHASE1_DASHBOARD_PORT는 1부터 65535 사이여야 합니다.");
+  }
+
+  if (config.aloneFinalizeGraceMs <= 0) {
+    throw new Error("DIRONG_ALONE_FINALIZE_GRACE_MS는 1 이상의 숫자여야 합니다.");
   }
 
   if (config.softRolloverMs > config.maxChunkMs) {

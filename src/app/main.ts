@@ -28,9 +28,15 @@ import { DashboardServer } from "../dashboard/server.js";
 import { phase1GuildCommandPayloads } from "../discord/commands.js";
 import {
   redactForJson,
+  safeErrorInfo,
   toKoreanErrorMessage,
 } from "../errors.js";
 import { printCliError } from "../cli/error-output.js";
+import {
+  AloneFinalizeService,
+  formatAloneFinalizeForStatus,
+  type AloneFinalizeMemberCountResult,
+} from "../recording/alone-finalize-service.js";
 import { RecordingProducer } from "../recording/recording-producer.js";
 import { runStartupRepair } from "../storage/repair-scan.js";
 import { SessionStore } from "../storage/session-store.js";
@@ -53,6 +59,7 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
 });
 const producer = new RecordingProducer(client, config, store);
+const aloneFinalize = createAloneFinalizeService();
 const aiCleanupProvider = createAiCleanupProvider();
 const aiLifecycle = createAiLifecycleService(aiCleanupProvider);
 const aiCleanupAutomation = createAiCleanupAutomationService(
@@ -62,6 +69,7 @@ const aiCleanupAutomation = createAiCleanupAutomationService(
 const dashboard = new DashboardServer(config, store, producer, {
   aiReadiness: aiLifecycle,
   aiCleanupAutomation,
+  aloneFinalize,
 });
 const dashboardUrl = await dashboard.start();
 let shutdownPromise: Promise<void> | null = null;
@@ -70,6 +78,7 @@ console.log("디롱이 Recording + STT dashboard 시작:", dashboardUrl);
 console.log("startup repair:", JSON.stringify(repairSummary, null, 2));
 startAiPrepareInBackground();
 startAiCleanupAutomation();
+startAloneFinalizeService();
 if (config.openDashboard) {
   openDashboardUrl(dashboardUrl);
 }
@@ -101,6 +110,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 
   await handleDirongCommand(interaction);
+});
+
+client.on(Events.VoiceStateUpdate, (oldState, newState) => {
+  void aloneFinalize.handleVoiceStateUpdate(oldState, newState);
 });
 
 process.on("SIGINT", () => {
@@ -283,6 +296,7 @@ async function shutdown(reason: string): Promise<void> {
 
   shutdownPromise = (async () => {
     console.log(`종료 처리 중: ${reason}`);
+    await aloneFinalize.stop();
     await producer.shutdown();
     try {
       await aiCleanupAutomation.stop();
@@ -300,6 +314,16 @@ async function shutdown(reason: string): Promise<void> {
   })();
 
   return shutdownPromise;
+}
+
+function createAloneFinalizeService(): AloneFinalizeService {
+  return new AloneFinalizeService({
+    enabled: config.aloneFinalizeEnabled,
+    graceMs: config.aloneFinalizeGraceMs,
+    store,
+    producer,
+    countNonBotMembers: countNonBotVoiceMembers,
+  });
 }
 
 function createAiCleanupProvider(): AiCleanupProvider {
@@ -387,14 +411,80 @@ function startAiCleanupAutomation(): void {
   console.log("AI cleanup 자동 실행 대기 시작: finalized 세션과 STT 완료를 기다립니다.");
 }
 
+function startAloneFinalizeService(): void {
+  if (!config.aloneFinalizeEnabled) {
+    console.log("혼자 남음 자동 종료가 꺼져 있습니다. DIRONG_ALONE_FINALIZE_ENABLED=true로 켤 수 있습니다.");
+    return;
+  }
+  aloneFinalize.start();
+  console.log(`혼자 남음 자동 종료 대기 시작: non-bot 0명 상태가 ${config.aloneFinalizeGraceMs}ms 지속되면 finalize합니다.`);
+}
+
 function statusTextWithAiReadiness(): string {
   return [
     store.statusText(producer.getRuntimeState(), dashboard.getUrl()),
+    "",
+    formatAloneFinalizeForStatus(aloneFinalize.getSnapshot()),
     "",
     formatAiReadinessForStatus(aiLifecycle.getSnapshot()),
     "",
     formatAiCleanupAutomationForStatus(aiCleanupAutomation.getSnapshot()),
   ].join("\n");
+}
+
+async function countNonBotVoiceMembers(
+  voiceChannelId: string,
+): Promise<AloneFinalizeMemberCountResult> {
+  try {
+    const guild =
+      client.guilds.cache.get(config.guildId) ??
+      await client.guilds.fetch(config.guildId);
+    const channel =
+      guild.channels.cache.get(voiceChannelId) ??
+      await guild.channels.fetch(voiceChannelId);
+    if (!channel || !("members" in channel)) {
+      return {
+        ok: false,
+        reason: "voice_channel_unavailable",
+        technicalDetail: `voice channel을 찾지 못했습니다: ${voiceChannelId}`,
+      };
+    }
+
+    const members = (channel as {
+      members?: { size: number; values(): IterableIterator<GuildMember> };
+    }).members;
+    if (!members || members.size === 0) {
+      return {
+        ok: false,
+        reason: "voice_member_cache_empty",
+        technicalDetail: "Discord voice member cache가 비어 있어 자동 종료하지 않았습니다.",
+      };
+    }
+
+    let nonBotMemberCount = 0;
+    let botMemberCount = 0;
+    for (const member of members.values()) {
+      if (member.user.bot) {
+        botMemberCount += 1;
+      } else {
+        nonBotMemberCount += 1;
+      }
+    }
+
+    return {
+      ok: true,
+      nonBotMemberCount,
+      botMemberCount,
+      totalMemberCount: members.size,
+      source: "discord_voice_member_cache",
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "voice_member_count_failed",
+      technicalDetail: JSON.stringify(safeErrorInfo(error)),
+    };
+  }
 }
 
 function readPositiveEnvNumber(key: string, fallback: number): number {

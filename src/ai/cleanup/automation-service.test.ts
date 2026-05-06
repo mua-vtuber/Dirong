@@ -41,6 +41,34 @@ test("AiCleanupAutomationService waits while STT queued jobs remain", async () =
   }
 });
 
+test("AiCleanupAutomationService requeues expired STT processing leases before waiting", async () => {
+  const fixture = createSessionFixture();
+  try {
+    addProcessingSttChunk(fixture, 1);
+    fixture.database.db.prepare(
+      `UPDATE stt_jobs
+       SET locked_by = 'stale-stt-worker',
+           locked_until = '2000-01-01T00:00:00.000Z'
+       WHERE status = 'processing'`,
+    ).run();
+    finalizeSession(fixture);
+    const provider = new CountingFakeAiCleanupProvider();
+    const service = await createReadyAutomationService(fixture, provider);
+
+    const snapshot = await service.runOnce();
+
+    assert.equal(snapshot.status, "waiting_for_stt");
+    assert.equal(snapshot.repairedExpiredSttLeases, 1);
+    assert.equal(snapshot.stt?.sttQueuedCount, 1);
+    assert.equal(snapshot.stt?.sttProcessingCount, 0);
+    assert.equal(readOnlySttJobStatus(fixture), "queued");
+    assert.equal(countExpiredLeaseRepairItems(fixture), 1);
+    assert.equal(provider.generateCalls, 0);
+  } finally {
+    fixture.close();
+  }
+});
+
 test("AiCleanupAutomationService skips an STT-waiting session and runs a later terminal session", async () => {
   const fixture = createSessionFixture();
   try {
@@ -424,6 +452,7 @@ test("formatAiCleanupAutomationForStatus renders concise non-developer status", 
       lastRunStatus: null,
       inFlightSessionIds: [],
       repairedExpiredJobs: { requeued: 0, failed: 0 },
+      repairedExpiredSttLeases: 0,
       warnings: [],
     }),
     /AI cleanup 자동화: STT 완료 대기 중/,
@@ -673,6 +702,22 @@ function setFinalizedAt(
   fixture.database.db.prepare(
     "UPDATE sessions SET finalized_at = ?, updated_at = ? WHERE id = ?",
   ).run(finalizedAt, finalizedAt, sessionId);
+}
+
+function readOnlySttJobStatus(fixture: AutomationFixture): string | null {
+  const row = fixture.database.db.prepare(
+    "SELECT status FROM stt_jobs LIMIT 1",
+  ).get() as { status: string } | undefined;
+  return row?.status ?? null;
+}
+
+function countExpiredLeaseRepairItems(fixture: AutomationFixture): number {
+  const row = fixture.database.db.prepare(
+    `SELECT COUNT(*) AS count
+     FROM repair_items
+     WHERE item_type = 'expired_processing_lease_requeued'`,
+  ).get() as { count: number };
+  return row.count;
 }
 
 async function createReadyAutomationService(

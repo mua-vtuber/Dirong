@@ -57,6 +57,7 @@ export type AiCleanupAutomationSnapshot = {
   lastRunStatus: AiCleanupRunResult["status"] | null;
   inFlightSessionIds: string[];
   repairedExpiredJobs: AiCleanupLeaseRepairSummary;
+  repairedExpiredSttLeases: number;
   warnings: string[];
 };
 
@@ -107,6 +108,7 @@ export class AiCleanupAutomationService {
       lastRunStatus: null,
       inFlightSessionIds: [],
       repairedExpiredJobs: { requeued: 0, failed: 0 },
+      repairedExpiredSttLeases: 0,
       warnings: [],
     });
   }
@@ -198,6 +200,8 @@ export class AiCleanupAutomationService {
 
   private async tick(): Promise<AiCleanupAutomationSnapshot> {
     const checkedAt = new Date().toISOString();
+    const repairedExpiredSttLeases =
+      this.store.releaseExpiredProcessingLeases(checkedAt);
     const repairedExpiredJobs =
       this.store.repairExpiredAiCleanupProcessingJobs();
 
@@ -209,6 +213,7 @@ export class AiCleanupAutomationService {
         message: "회의록 생성 중",
         userAction: null,
         repairedExpiredJobs,
+        repairedExpiredSttLeases,
         inFlightSessionIds: this.getInFlightSessionIds(),
       });
       return this.getSnapshot();
@@ -230,6 +235,7 @@ export class AiCleanupAutomationService {
         stt: null,
         job: null,
         repairedExpiredJobs,
+        repairedExpiredSttLeases,
         warnings: [],
       });
       return this.getSnapshot();
@@ -254,6 +260,7 @@ export class AiCleanupAutomationService {
         stt: null,
         job: null,
         repairedExpiredJobs,
+        repairedExpiredSttLeases,
         warnings: [],
       });
       return this.getSnapshot();
@@ -281,6 +288,7 @@ export class AiCleanupAutomationService {
           stt,
           job: null,
           repairedExpiredJobs,
+          repairedExpiredSttLeases,
           warnings: stt.warnings,
         });
         continue;
@@ -310,6 +318,7 @@ export class AiCleanupAutomationService {
           stt,
           job: makeJobSnapshot(existingJob),
           repairedExpiredJobs,
+          repairedExpiredSttLeases,
           warnings: stt.warnings,
         });
         return this.getSnapshot();
@@ -330,6 +339,7 @@ export class AiCleanupAutomationService {
           stt,
           job: makeJobSnapshot(existingJob),
           repairedExpiredJobs,
+          repairedExpiredSttLeases,
           warnings: stt.warnings,
         });
         continue;
@@ -350,6 +360,7 @@ export class AiCleanupAutomationService {
           stt,
           job: makeJobSnapshot(existingJob),
           repairedExpiredJobs,
+          repairedExpiredSttLeases,
           warnings: stt.warnings,
         });
         continue;
@@ -367,6 +378,7 @@ export class AiCleanupAutomationService {
           stt,
           job: existingJob ? makeJobSnapshot(existingJob) : null,
           repairedExpiredJobs,
+          repairedExpiredSttLeases,
           warnings: stt.warnings,
         });
         continue;
@@ -377,6 +389,7 @@ export class AiCleanupAutomationService {
         stt,
         existingJob,
         repairedExpiredJobs,
+        repairedExpiredSttLeases,
       );
     }
 
@@ -393,6 +406,7 @@ export class AiCleanupAutomationService {
         stt: null,
         job: null,
         repairedExpiredJobs,
+        repairedExpiredSttLeases,
         warnings: [],
       });
     return this.getSnapshot();
@@ -403,6 +417,7 @@ export class AiCleanupAutomationService {
     stt: AiCleanupSttTerminalSnapshot,
     existingJob: AiCleanupJobRow | null,
     repairedExpiredJobs: AiCleanupLeaseRepairSummary,
+    repairedExpiredSttLeases: number,
   ): Promise<AiCleanupAutomationSnapshot> {
     this.inFlightSessionIds.add(sessionId);
     this.snapshot = makeSnapshot({
@@ -419,6 +434,7 @@ export class AiCleanupAutomationService {
       stt,
       job: existingJob ? makeJobSnapshot(existingJob) : null,
       repairedExpiredJobs,
+      repairedExpiredSttLeases,
       warnings: stt.warnings,
       inFlightSessionIds: this.getInFlightSessionIds(),
     });
@@ -435,6 +451,7 @@ export class AiCleanupAutomationService {
         result,
         stt,
         repairedExpiredJobs,
+        repairedExpiredSttLeases,
         inFlightSessionIds: this.getInFlightSessionIds(),
       });
     } catch (error) {
@@ -457,6 +474,7 @@ export class AiCleanupAutomationService {
         stt,
         job: null,
         repairedExpiredJobs,
+        repairedExpiredSttLeases,
         warnings: stt.warnings,
       });
     } finally {
@@ -508,6 +526,9 @@ export function formatAiCleanupAutomationForStatus(
   if (snapshot.warnings.length > 0) {
     lines.push(`AI cleanup 주의: ${snapshot.warnings.join(", ")}`);
   }
+  if (snapshot.repairedExpiredSttLeases > 0) {
+    lines.push(`AI cleanup STT lease 복구: ${snapshot.repairedExpiredSttLeases}개`);
+  }
   if (snapshot.userAction) {
     lines.push(`AI cleanup 조치: ${snapshot.userAction}`);
   }
@@ -519,6 +540,7 @@ function snapshotFromRunResult(input: {
   result: AiCleanupRunResult;
   stt: AiCleanupSttTerminalSnapshot;
   repairedExpiredJobs: AiCleanupLeaseRepairSummary;
+  repairedExpiredSttLeases: number;
   inFlightSessionIds: string[];
 }): AiCleanupAutomationSnapshot {
   const { result } = input;
@@ -535,6 +557,7 @@ function snapshotFromRunResult(input: {
     job: result.job ? makeJobSnapshot(result.job) : null,
     lastRunStatus: result.status,
     repairedExpiredJobs: input.repairedExpiredJobs,
+    repairedExpiredSttLeases: input.repairedExpiredSttLeases,
     inFlightSessionIds: input.inFlightSessionIds,
     warnings: input.stt.warnings,
   });

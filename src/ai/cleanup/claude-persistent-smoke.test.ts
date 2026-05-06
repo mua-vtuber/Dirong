@@ -44,6 +44,27 @@ test("parseClaudeStreamJsonLine treats type result as response boundary", () => 
   assert.equal(observed.isResult, true);
 });
 
+test("parseClaudeStreamJsonLine tolerates unknown event types", () => {
+  const observed = parseClaudeStreamJsonLine(
+    JSON.stringify({ type: "experimental_event", value: "ignored" }),
+  );
+
+  assert.equal(observed.type, "experimental_event");
+  assert.equal(observed.assistantText, "");
+  assert.equal(observed.isResult, false);
+  assert.equal(observed.parseError, null);
+});
+
+test("parseClaudeStreamJsonLine captures malformed JSON", () => {
+  const observed = parseClaudeStreamJsonLine("{not json");
+
+  assert.equal(observed.type, null);
+  assert.equal(observed.parsed, null);
+  assert.equal(observed.assistantText, "");
+  assert.equal(observed.isResult, false);
+  assert.match(observed.parseError ?? "", /JSON/);
+});
+
 test("ClaudePersistentSmokeSession kills process on timeout", async () => {
   const fake = new FakeChildProcess(101);
   const session = new ClaudePersistentSmokeSession({

@@ -14,7 +14,7 @@ import {
   type AiCleanupProviderResetReason,
   type AiCleanupProviderResult,
 } from "./provider.js";
-import { DEFAULT_CLAUDE_CLEANUP_MODEL } from "./claude-cli-provider.js";
+import { DEFAULT_CLAUDE_CLEANUP_MODEL } from "./claude-models.js";
 
 export type ClaudePersistentCliCleanupProviderOptions = {
   command?: string;

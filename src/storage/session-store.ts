@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { redactForJson } from "../errors.js";
+import { buildDashboardReadModel } from "./dashboard-read-model.js";
 import {
   createStoragePathResolver,
   type StoragePathResolver,
@@ -1764,98 +1765,19 @@ export class SessionStore {
   }
 
   getDashboardState(runtime: RecordingRuntimeState): unknown {
-    const currentSession =
-      runtime.sessionId !== null
-        ? this.getSession(runtime.sessionId)
-        : this.getLatestSession();
-    const sessionId = currentSession?.id ?? null;
-    const speakers =
-      sessionId === null
-        ? []
-        : this.all(
-            `SELECT *
-             FROM session_speakers
-             WHERE session_id = ?
-             ORDER BY first_seen_at_ms ASC`,
-            sessionId,
-          );
-    const recentChunks =
-      sessionId === null
-        ? []
-        : this.all(
-            `SELECT
-               c.*,
-               j.id AS stt_job_id,
-               j.status AS stt_job_status,
-               j.attempts AS stt_job_attempts,
-               j.max_attempts AS stt_job_max_attempts,
-               j.last_error AS stt_job_last_error
-             FROM chunks c
-             LEFT JOIN stt_jobs j ON j.chunk_id = c.id
-             WHERE c.session_id = ?
-             ORDER BY c.created_at DESC
-             LIMIT 50`,
-            sessionId,
-          );
-    const recentConnectionEvents = this.all(
-      `SELECT *
-       FROM connection_events
-       WHERE (? IS NULL OR session_id = ?)
-       ORDER BY created_at DESC
-       LIMIT 30`,
-      sessionId,
-      sessionId,
-    );
-    const recentSttJobs =
-      sessionId === null
-        ? this.all(
-            `SELECT j.*, c.duration_ms, c.stt_byte_size
-             FROM stt_jobs j
-             LEFT JOIN chunks c ON c.id = j.chunk_id
-             ORDER BY j.created_at DESC
-             LIMIT 30`,
-          )
-        : this.all(
-            `SELECT j.*, c.duration_ms, c.stt_byte_size
-             FROM stt_jobs j
-             LEFT JOIN chunks c ON c.id = j.chunk_id
-             WHERE j.session_id = ?
-             ORDER BY j.created_at DESC
-             LIMIT 30`,
-            sessionId,
-          );
-    const recentRepairItems = this.all(
-      `SELECT *
-       FROM repair_items
-       WHERE status <> 'ignored'
-       ORDER BY updated_at DESC
-       LIMIT 30`,
-    );
-    const queueStats = this.all(
-      `SELECT status, COUNT(*) AS count
-       FROM stt_jobs
-       GROUP BY status
-       ORDER BY status ASC`,
-    );
-    const recentTranscriptSegments = this.listRecentTranscriptSegments(sessionId, 30);
-    const recentAiCleanupJobs = this.listRecentAiCleanupJobs(sessionId, 10);
-    const latestMeetingNotesDraft =
-      sessionId === null ? null : this.getLatestMeetingNotesDraft(sessionId);
-
-    return redactForJson({
-      generatedAt: isoNow(),
+    return buildDashboardReadModel({
+      database: this.database,
       runtime,
-      currentSession,
-      speakers,
-      recentChunks,
-      recentSttJobs,
-      recentConnectionEvents,
-      recentRepairItems,
-      recentTranscriptSegments,
-      recentAiCleanupJobs,
-      latestMeetingNotesDraft,
-      queueStats,
-      dbPath: this.database.dbPath,
+      queries: {
+        getSession: (sessionId) => this.getSession(sessionId),
+        getLatestSession: () => this.getLatestSession(),
+        listRecentTranscriptSegments: (sessionId, limit) =>
+          this.listRecentTranscriptSegments(sessionId, limit),
+        listRecentAiCleanupJobs: (sessionId, limit) =>
+          this.listRecentAiCleanupJobs(sessionId, limit),
+        getLatestMeetingNotesDraft: (sessionId) =>
+          this.getLatestMeetingNotesDraft(sessionId),
+      },
     });
   }
 

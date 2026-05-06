@@ -82,6 +82,23 @@ test("runAiCleanupForSession with fake provider creates job and draft", async ()
   }
 });
 
+test("runAiCleanupForSession resets provider after a completed session", async () => {
+  const fixture = createFinalizedTranscriptFixture();
+  const provider = new ResetCountingFakeAiCleanupProvider();
+  try {
+    const result = await runAiCleanupForSession(fixture.store, {
+      ...baseRunOptions(fixture.sessionId),
+      provider,
+      backup: () => [],
+    });
+
+    assert.equal(result.status, "done");
+    assert.deepEqual(provider.resetReasons, ["success"]);
+  } finally {
+    fixture.close();
+  }
+});
+
 test("runAiCleanupForSession blocks fake-only timeline by default without provider call", async () => {
   const fixture = createFinalizedTranscriptFixture({
     text: "[FAKE STT] 테스트 전사용 transcript입니다.",
@@ -500,6 +517,14 @@ class CountingFakeAiCleanupProvider extends FakeAiCleanupProvider {
 
 class CountingNonFakeAiCleanupProvider extends CountingFakeAiCleanupProvider {
   override readonly providerName = "claude-cli";
+}
+
+class ResetCountingFakeAiCleanupProvider extends FakeAiCleanupProvider {
+  readonly resetReasons: string[] = [];
+
+  async resetAfterRequest(reason: "success" | "failure" | "timeout"): Promise<void> {
+    this.resetReasons.push(reason);
+  }
 }
 
 function makeLegacyAiCleanupJobId(input: {

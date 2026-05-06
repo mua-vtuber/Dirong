@@ -1,0 +1,774 @@
+import { spawn, spawnSync } from "node:child_process";
+import process from "node:process";
+import type { Readable, Writable } from "node:stream";
+
+export const DEFAULT_CLAUDE_PERSISTENT_SMOKE_ARGS = [
+  "--input-format",
+  "stream-json",
+  "--output-format",
+  "stream-json",
+  "--verbose",
+] as const;
+
+export const DEFAULT_CLAUDE_PERSISTENT_SMOKE_TIMEOUT_MS = 120_000;
+
+export type ClaudePersistentSmokeChildProcess = {
+  readonly pid?: number;
+  readonly stdin: Writable;
+  readonly stdout: Readable;
+  readonly stderr: Readable;
+  readonly killed: boolean;
+  kill(signal?: NodeJS.Signals | number): boolean;
+  on(
+    event: "error",
+    listener: (error: Error) => void,
+  ): ClaudePersistentSmokeChildProcess;
+  on(
+    event: "exit",
+    listener: (
+      code: number | null,
+      signal: NodeJS.Signals | null,
+    ) => void,
+  ): ClaudePersistentSmokeChildProcess;
+};
+
+export type ClaudePersistentSmokeSpawnOptions = {
+  stdio: ["pipe", "pipe", "pipe"];
+  shell: false;
+  windowsHide: true;
+};
+
+export type ClaudePersistentSmokeSpawn = (
+  command: string,
+  args: string[],
+  options: ClaudePersistentSmokeSpawnOptions,
+) => ClaudePersistentSmokeChildProcess;
+
+export type ClaudePersistentSmokeSessionOptions = {
+  command?: string;
+  extraArgs?: string[];
+  model?: string | null;
+  timeoutMs?: number;
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+  spawnProcess?: ClaudePersistentSmokeSpawn;
+  now?: () => number;
+};
+
+export type ClaudePersistentSmokeResolvedOptions = {
+  requestedCommand: string;
+  requestedArgs: string[];
+  spawnedCommand: string;
+  spawnedArgs: string[];
+  model: string | null;
+  timeoutMs: number;
+};
+
+export type ClaudePersistentSmokeLineObservation = {
+  rawLine: string;
+  parsed: Record<string, unknown> | null;
+  type: string | null;
+  assistantText: string;
+  sessionId: string | null;
+  isResult: boolean;
+  parseError: string | null;
+};
+
+export type ClaudePersistentSmokeTurnResult = {
+  prompt: string;
+  requestPayload: string;
+  wroteBytes: number;
+  pidBeforeWrite: number | null;
+  pidAfterResult: number | null;
+  resultReceived: boolean;
+  resultLine: string | null;
+  assistantText: string;
+  sessionId: string | null;
+  stdoutLines: string[];
+  stderrLines: string[];
+  timedOut: boolean;
+  outputExceeded: boolean;
+  durationMs: number;
+  processAliveAfterResult: boolean;
+  exitCode: number | null;
+  exitSignal: NodeJS.Signals | null;
+  error: string | null;
+};
+
+export type ClaudePersistentSmokeKillResult = {
+  killRequested: boolean;
+  exited: boolean;
+  exitCode: number | null;
+  exitSignal: NodeJS.Signals | null;
+};
+
+type WaitForLineResult =
+  | { kind: "line"; line: string }
+  | { kind: "timeout" }
+  | { kind: "exit" }
+  | { kind: "error"; error: Error };
+
+export class ClaudePersistentSmokeSession {
+  readonly requestedCommand: string;
+  readonly requestedArgs: string[];
+  readonly spawnedCommand: string;
+  readonly spawnedArgs: string[];
+  readonly model: string | null;
+  readonly timeoutMs: number;
+
+  private readonly spawnProcess: ClaudePersistentSmokeSpawn;
+  private readonly now: () => number;
+  private child: ClaudePersistentSmokeChildProcess | null = null;
+  private stdoutBuffer = "";
+  private stderrBuffer = "";
+  private readonly stdoutLines: string[] = [];
+  private readonly stderrLines: string[] = [];
+  private readonly stdoutWaiters: Array<() => void> = [];
+  private readonly exitWaiters: Array<() => void> = [];
+  private processExited = false;
+  private processError: Error | null = null;
+  private exitCode: number | null = null;
+  private exitSignal: NodeJS.Signals | null = null;
+  private sessionId: string | null = null;
+
+  constructor(options: ClaudePersistentSmokeSessionOptions = {}) {
+    const resolved = resolveClaudePersistentSmokeOptions(options);
+    this.requestedCommand = resolved.requestedCommand;
+    this.requestedArgs = resolved.requestedArgs;
+    this.spawnedCommand = resolved.spawnedCommand;
+    this.spawnedArgs = resolved.spawnedArgs;
+    this.model = resolved.model;
+    this.timeoutMs = resolved.timeoutMs;
+    this.spawnProcess = options.spawnProcess ?? defaultSpawnProcess;
+    this.now = options.now ?? Date.now;
+  }
+
+  get pid(): number | null {
+    return this.child?.pid ?? null;
+  }
+
+  get capturedSessionId(): string | null {
+    return this.sessionId;
+  }
+
+  get stderrSnapshot(): string[] {
+    return [...this.stderrLines];
+  }
+
+  start(): void {
+    if (this.child && this.isAlive()) {
+      return;
+    }
+
+    this.stdoutBuffer = "";
+    this.stderrBuffer = "";
+    this.stdoutLines.length = 0;
+    this.stderrLines.length = 0;
+    this.processExited = false;
+    this.processError = null;
+    this.exitCode = null;
+    this.exitSignal = null;
+
+    const child = this.spawnProcess(this.spawnedCommand, this.spawnedArgs, {
+      stdio: ["pipe", "pipe", "pipe"],
+      shell: false,
+      windowsHide: true,
+    });
+    this.child = child;
+
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string | Buffer) => {
+      this.pushStdout(String(chunk));
+    });
+    child.stdout.on("end", () => {
+      this.flushStdout();
+    });
+
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string | Buffer) => {
+      this.pushStderr(String(chunk));
+    });
+    child.stderr.on("end", () => {
+      this.flushStderr();
+    });
+
+    child.on("error", (error) => {
+      this.processError = error;
+      this.notifyStdoutWaiters();
+    });
+    child.on("exit", (code, signal) => {
+      this.flushStdout();
+      this.flushStderr();
+      this.processExited = true;
+      this.exitCode = code;
+      this.exitSignal = signal;
+      this.notifyStdoutWaiters();
+      this.notifyExitWaiters();
+    });
+  }
+
+  async request(
+    prompt: string,
+    options: { timeoutMs?: number; maxOutputBytes?: number } = {},
+  ): Promise<ClaudePersistentSmokeTurnResult> {
+    if (!prompt.trim()) {
+      throw new Error("Claude persistent smoke prompt must not be empty.");
+    }
+
+    this.start();
+
+    const child = this.child;
+    if (!child) {
+      throw new Error("Claude persistent smoke process was not started.");
+    }
+
+    const timeoutMs = options.timeoutMs ?? this.timeoutMs;
+    const startedAt = this.now();
+    const stderrStartIndex = this.stderrLines.length;
+    const payload = buildClaudePersistentSmokePayload(prompt);
+    const payloadWithNewline = `${payload}\n`;
+    const stdoutLines: string[] = [];
+    let assistantText = "";
+    let resultLine: string | null = null;
+    let resultReceived = false;
+    let timedOut = false;
+    let outputExceeded = false;
+    let outputBytes = 0;
+    let error: string | null = null;
+
+    const pidBeforeWrite = child.pid ?? null;
+    const writeError = await writeStdin(child.stdin, payloadWithNewline);
+    if (writeError) {
+      error = writeError.message;
+      return this.buildTurnResult({
+        prompt,
+        payload,
+        wroteBytes: Buffer.byteLength(payloadWithNewline),
+        pidBeforeWrite,
+        stdoutLines,
+        stderrStartIndex,
+        assistantText,
+        resultReceived,
+        resultLine,
+        timedOut,
+        outputExceeded,
+        startedAt,
+        error,
+      });
+    }
+
+    while (!resultReceived && !timedOut && !error) {
+      const elapsedMs = this.now() - startedAt;
+      const remainingMs = Math.max(1, timeoutMs - elapsedMs);
+      const next = await this.waitForNextStdoutLine(remainingMs);
+
+      if (next.kind === "timeout") {
+        timedOut = true;
+        this.kill();
+        break;
+      }
+      if (next.kind === "exit") {
+        error = "Claude persistent smoke process exited before result.";
+        break;
+      }
+      if (next.kind === "error") {
+        error = next.error.message;
+        break;
+      }
+
+      stdoutLines.push(next.line);
+      outputBytes += Buffer.byteLength(`${next.line}\n`, "utf8");
+      if (
+        options.maxOutputBytes !== undefined &&
+        outputBytes > options.maxOutputBytes
+      ) {
+        outputExceeded = true;
+        this.kill();
+        break;
+      }
+      const observation = parseClaudeStreamJsonLine(next.line);
+      if (observation.sessionId) {
+        this.sessionId = observation.sessionId;
+      }
+      if (observation.assistantText) {
+        assistantText += observation.assistantText;
+      }
+      if (observation.isResult) {
+        resultReceived = true;
+        resultLine = next.line;
+      }
+    }
+
+    return this.buildTurnResult({
+      prompt,
+      payload,
+      wroteBytes: Buffer.byteLength(payloadWithNewline),
+      pidBeforeWrite,
+      stdoutLines,
+      stderrStartIndex,
+      assistantText,
+      resultReceived,
+      resultLine,
+      timedOut,
+      outputExceeded,
+      startedAt,
+      error,
+    });
+  }
+
+  isAlive(): boolean {
+    return Boolean(this.child && !this.child.killed && !this.processExited);
+  }
+
+  kill(signal: NodeJS.Signals = "SIGTERM"): boolean {
+    const child = this.child;
+    if (!child || child.killed || this.processExited) {
+      return false;
+    }
+
+    const killRequested = child.kill(signal);
+    const forceKillTimer = setTimeout(() => {
+      if (this.child === child && !child.killed && !this.processExited) {
+        child.kill("SIGKILL");
+      }
+    }, 1_000);
+    forceKillTimer.unref?.();
+    return killRequested;
+  }
+
+  async killAndWait(timeoutMs = 1_000): Promise<ClaudePersistentSmokeKillResult> {
+    const killRequested = this.kill();
+    const exited = await this.waitForExit(timeoutMs);
+    return {
+      killRequested,
+      exited,
+      exitCode: this.exitCode,
+      exitSignal: this.exitSignal,
+    };
+  }
+
+  private buildTurnResult(input: {
+    prompt: string;
+    payload: string;
+    wroteBytes: number;
+    pidBeforeWrite: number | null;
+    stdoutLines: string[];
+    stderrStartIndex: number;
+    assistantText: string;
+    resultReceived: boolean;
+    resultLine: string | null;
+    timedOut: boolean;
+    outputExceeded: boolean;
+    startedAt: number;
+    error: string | null;
+  }): ClaudePersistentSmokeTurnResult {
+    return {
+      prompt: input.prompt,
+      requestPayload: input.payload,
+      wroteBytes: input.wroteBytes,
+      pidBeforeWrite: input.pidBeforeWrite,
+      pidAfterResult: this.child?.pid ?? null,
+      resultReceived: input.resultReceived,
+      resultLine: input.resultLine,
+      assistantText: input.assistantText,
+      sessionId: this.sessionId,
+      stdoutLines: input.stdoutLines,
+      stderrLines: this.stderrLines.slice(input.stderrStartIndex),
+      timedOut: input.timedOut,
+      outputExceeded: input.outputExceeded,
+      durationMs: this.now() - input.startedAt,
+      processAliveAfterResult: this.isAlive(),
+      exitCode: this.exitCode,
+      exitSignal: this.exitSignal,
+      error: input.error,
+    };
+  }
+
+  private pushStdout(chunk: string): void {
+    this.stdoutBuffer += chunk;
+    const lines = this.stdoutBuffer.split("\n");
+    this.stdoutBuffer = lines.pop() ?? "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed) {
+        this.stdoutLines.push(trimmed);
+      }
+    }
+    this.notifyStdoutWaiters();
+  }
+
+  private flushStdout(): void {
+    const trimmed = this.stdoutBuffer.trim();
+    if (trimmed) {
+      this.stdoutLines.push(trimmed);
+      this.stdoutBuffer = "";
+      this.notifyStdoutWaiters();
+    }
+  }
+
+  private pushStderr(chunk: string): void {
+    this.stderrBuffer += chunk;
+    const lines = this.stderrBuffer.split("\n");
+    this.stderrBuffer = lines.pop() ?? "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed) {
+        this.stderrLines.push(trimmed);
+      }
+    }
+  }
+
+  private flushStderr(): void {
+    const trimmed = this.stderrBuffer.trim();
+    if (trimmed) {
+      this.stderrLines.push(trimmed);
+      this.stderrBuffer = "";
+    }
+  }
+
+  private waitForNextStdoutLine(timeoutMs: number): Promise<WaitForLineResult> {
+    const existingLine = this.stdoutLines.shift();
+    if (existingLine !== undefined) {
+      return Promise.resolve({ kind: "line", line: existingLine });
+    }
+    if (this.processError) {
+      return Promise.resolve({ kind: "error", error: this.processError });
+    }
+    if (this.processExited) {
+      return Promise.resolve({ kind: "exit" });
+    }
+
+    return new Promise<WaitForLineResult>((resolve) => {
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const waiter = (): void => {
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        removeArrayValue(this.stdoutWaiters, waiter);
+        const line = this.stdoutLines.shift();
+        if (line !== undefined) {
+          resolve({ kind: "line", line });
+        } else if (this.processError) {
+          resolve({ kind: "error", error: this.processError });
+        } else if (this.processExited) {
+          resolve({ kind: "exit" });
+        } else {
+          resolve({ kind: "timeout" });
+        }
+      };
+
+      timer = setTimeout(() => {
+        removeArrayValue(this.stdoutWaiters, waiter);
+        resolve({ kind: "timeout" });
+      }, timeoutMs);
+      this.stdoutWaiters.push(waiter);
+    });
+  }
+
+  private waitForExit(timeoutMs: number): Promise<boolean> {
+    if (!this.child || this.processExited) {
+      return Promise.resolve(this.processExited);
+    }
+
+    return new Promise<boolean>((resolve) => {
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const waiter = (): void => {
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        removeArrayValue(this.exitWaiters, waiter);
+        resolve(true);
+      };
+
+      timer = setTimeout(() => {
+        removeArrayValue(this.exitWaiters, waiter);
+        resolve(false);
+      }, timeoutMs);
+      this.exitWaiters.push(waiter);
+    });
+  }
+
+  private notifyStdoutWaiters(): void {
+    for (const waiter of this.stdoutWaiters.splice(0)) {
+      waiter();
+    }
+  }
+
+  private notifyExitWaiters(): void {
+    for (const waiter of this.exitWaiters.splice(0)) {
+      waiter();
+    }
+  }
+}
+
+export function resolveClaudePersistentSmokeOptions(
+  options: ClaudePersistentSmokeSessionOptions = {},
+): ClaudePersistentSmokeResolvedOptions {
+  const env = options.env ?? process.env;
+  const requestedCommand =
+    options.command?.trim() || env.PHASE4_CLAUDE_COMMAND?.trim() || "claude";
+  const model =
+    options.model === undefined
+      ? env.PHASE4_CLAUDE_MODEL?.trim() || null
+      : options.model?.trim() || null;
+  const timeoutMs =
+    options.timeoutMs ?? DEFAULT_CLAUDE_PERSISTENT_SMOKE_TIMEOUT_MS;
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new Error("Claude persistent smoke timeoutMs must be a positive integer.");
+  }
+
+  const requestedArgs = buildClaudePersistentSmokeArgs(
+    model,
+    options.extraArgs ?? [],
+  );
+  const resolved = resolveShellFalseCommand(
+    requestedCommand,
+    requestedArgs,
+    options.platform ?? process.platform,
+  );
+
+  return {
+    requestedCommand,
+    requestedArgs,
+    spawnedCommand: resolved.command,
+    spawnedArgs: resolved.args,
+    model,
+    timeoutMs,
+  };
+}
+
+export function buildClaudePersistentSmokeArgs(
+  model: string | null,
+  extraArgs: string[] = [],
+): string[] {
+  const args: string[] = [
+    ...DEFAULT_CLAUDE_PERSISTENT_SMOKE_ARGS,
+    ...extraArgs,
+  ];
+  if (model && model !== "default") {
+    args.push("--model", model);
+  }
+  return args;
+}
+
+export function buildClaudePersistentSmokePayload(prompt: string): string {
+  return JSON.stringify({
+    type: "user",
+    message: {
+      role: "user",
+      content: prompt,
+    },
+  });
+}
+
+export function parseClaudeStreamJsonLine(
+  line: string,
+): ClaudePersistentSmokeLineObservation {
+  try {
+    const parsed: unknown = JSON.parse(line);
+    if (!isRecord(parsed)) {
+      return {
+        rawLine: line,
+        parsed: null,
+        type: null,
+        assistantText: "",
+        sessionId: null,
+        isResult: false,
+        parseError: "JSON line is not an object.",
+      };
+    }
+
+    const type = typeof parsed.type === "string" ? parsed.type : null;
+    const sessionId =
+      typeof parsed.session_id === "string" ? parsed.session_id : null;
+    return {
+      rawLine: line,
+      parsed,
+      type,
+      assistantText: type === "assistant" ? extractAssistantText(parsed) : "",
+      sessionId,
+      isResult: type === "result",
+      parseError: null,
+    };
+  } catch (error) {
+    return {
+      rawLine: line,
+      parsed: null,
+      type: null,
+      assistantText: "",
+      sessionId: null,
+      isResult: false,
+      parseError: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export function renderCommandDisplay(command: string, args: string[]): string {
+  return [command, ...args.map(renderCommandArg)].join(" ");
+}
+
+export function resolveShellFalseCommand(
+  command: string,
+  args: string[],
+  platform: NodeJS.Platform = process.platform,
+): { command: string; args: string[] } {
+  if (platform !== "win32") {
+    return { command, args };
+  }
+
+  const lower = command.toLowerCase();
+  if (lower.endsWith(".exe") || lower.endsWith(".com")) {
+    return { command, args };
+  }
+  if (lower.endsWith(".ps1")) {
+    return {
+      command: "pwsh.exe",
+      args: ["-NoProfile", "-File", command, ...args],
+    };
+  }
+  if (lower.endsWith(".cmd") || lower.endsWith(".bat")) {
+    return {
+      command: "cmd.exe",
+      args: ["/C", command, ...args.map(escapeWindowsArg)],
+    };
+  }
+
+  const resolvedExecutable = resolveWindowsExecutable(command);
+  if (resolvedExecutable) {
+    return { command: resolvedExecutable, args };
+  }
+
+  return {
+    command: "cmd.exe",
+    args: ["/C", command, ...args.map(escapeWindowsArg)],
+  };
+}
+
+function resolveWindowsExecutable(command: string): string | null {
+  if (/[\\/]/.test(command)) {
+    return null;
+  }
+  const result = spawnSync("where.exe", [command], {
+    encoding: "utf8",
+    shell: false,
+    windowsHide: true,
+  });
+  if (result.status !== 0 || !result.stdout) {
+    return null;
+  }
+
+  for (const line of result.stdout.split(/\r?\n/)) {
+    const candidate = line.trim();
+    const lower = candidate.toLowerCase();
+    if (lower.endsWith(".exe") || lower.endsWith(".com")) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function extractAssistantText(event: Record<string, unknown>): string {
+  const message = event.message;
+  if (isRecord(message)) {
+    const contentText = extractTextContentBlocks(message.content);
+    if (contentText) {
+      return contentText;
+    }
+  }
+
+  return (
+    extractTextContentBlocks(event.content) ||
+    extractAnyText(event.text) ||
+    extractAnyText(event.output)
+  );
+}
+
+function extractTextContentBlocks(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (!isRecord(item)) {
+          return extractAnyText(item);
+        }
+        if (item.type && item.type !== "text") {
+          return "";
+        }
+        return extractAnyText(item.text) || extractAnyText(item.content);
+      })
+      .filter((text) => text.length > 0)
+      .join("");
+  }
+  if (isRecord(value)) {
+    if (value.type && value.type !== "text") {
+      return "";
+    }
+    return extractAnyText(value.text) || extractAnyText(value.content);
+  }
+  return "";
+}
+
+function extractAnyText(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(extractAnyText).join("");
+  }
+  if (isRecord(value)) {
+    return (
+      extractAnyText(value.text) ||
+      extractAnyText(value.content) ||
+      extractAnyText(value.value) ||
+      extractAnyText(value.output_text) ||
+      extractAnyText(value.delta) ||
+      extractAnyText(value.message)
+    );
+  }
+  return "";
+}
+
+function escapeWindowsArg(arg: string): string {
+  if (!/[\s"&|<>^()]/.test(arg)) {
+    return arg;
+  }
+  return `"${arg.replace(/"/g, '\\"')}"`;
+}
+
+function renderCommandArg(arg: string): string {
+  if (arg.length === 0) {
+    return '""';
+  }
+  return /\s/.test(arg) ? JSON.stringify(arg) : arg;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function defaultSpawnProcess(
+  command: string,
+  args: string[],
+  options: ClaudePersistentSmokeSpawnOptions,
+): ClaudePersistentSmokeChildProcess {
+  return spawn(command, args, options) as unknown as ClaudePersistentSmokeChildProcess;
+}
+
+function writeStdin(stream: Writable, payload: string): Promise<Error | null> {
+  return new Promise((resolve) => {
+    stream.write(payload, "utf8", (error: Error | null | undefined) => {
+      resolve(error ?? null);
+    });
+  });
+}
+
+function removeArrayValue<T>(values: T[], value: T): void {
+  const index = values.indexOf(value);
+  if (index >= 0) {
+    values.splice(index, 1);
+  }
+}

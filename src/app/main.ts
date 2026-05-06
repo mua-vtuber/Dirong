@@ -13,7 +13,8 @@ import {
   loadPhase1Config,
   snapshotPhase1Config,
 } from "../config.js";
-import { ClaudeCliCleanupProvider } from "../ai/cleanup/claude-cli-provider.js";
+import { loadAppSettingsFromEnv } from "../settings/env-settings-loader.js";
+import { ClaudePersistentCliCleanupProvider } from "../ai/cleanup/claude-persistent-cli-provider.js";
 import {
   AiCleanupAutomationService,
   formatAiCleanupAutomationForStatus,
@@ -41,6 +42,12 @@ import { RecordingProducer } from "../recording/recording-producer.js";
 import { runStartupRepair } from "../storage/repair-scan.js";
 import { SessionStore } from "../storage/session-store.js";
 import { DirongDatabase } from "../storage/sqlite.js";
+import {
+  SttAutomationService,
+  formatSttAutomationForStatus,
+} from "../stt/automation-service.js";
+import { createPhase3SttProvider } from "../stt/provider-factory.js";
+import type { SttProvider } from "../stt/provider.js";
 import { backupDatabaseSnapshot } from "./sqlite-backup.js";
 
 const config = (() => {
@@ -55,11 +62,18 @@ const config = (() => {
 const database = new DirongDatabase(config.dbPath, config.dbBusyTimeoutMs);
 const store = new SessionStore(database);
 const repairSummary = await runStartupRepair(store, config);
+const appSettings = loadAppSettingsFromEnv();
+const sttProviderSelection = createPhase3SttProvider(appSettings.stt);
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
 });
 const producer = new RecordingProducer(client, config, store);
 const aloneFinalize = createAloneFinalizeService();
+const sttAutomation = createSttAutomationService(
+  sttProviderSelection.provider,
+  sttProviderSelection.settings.language,
+  sttProviderSelection.settings.timeoutMs,
+);
 const aiCleanupProvider = createAiCleanupProvider();
 const aiLifecycle = createAiLifecycleService(aiCleanupProvider);
 const aiCleanupAutomation = createAiCleanupAutomationService(
@@ -70,12 +84,14 @@ const dashboard = new DashboardServer(config, store, producer, {
   aiReadiness: aiLifecycle,
   aiCleanupAutomation,
   aloneFinalize,
+  sttAutomation,
 });
 const dashboardUrl = await dashboard.start();
 let shutdownPromise: Promise<void> | null = null;
 
 console.log("디롱이 Recording + STT dashboard 시작:", dashboardUrl);
 console.log("startup repair:", JSON.stringify(repairSummary, null, 2));
+startSttAutomation();
 startAiPrepareInBackground();
 startAiCleanupAutomation();
 startAloneFinalizeService();
@@ -299,6 +315,11 @@ async function shutdown(reason: string): Promise<void> {
     await aloneFinalize.stop();
     await producer.shutdown();
     try {
+      await sttAutomation.stop();
+    } catch (error) {
+      printCliError(error, { prefix: "STT 자동화 종료 실패" });
+    }
+    try {
       await aiCleanupAutomation.stop();
     } catch (error) {
       printCliError(error, { prefix: "AI cleanup 자동화 종료 실패" });
@@ -327,9 +348,29 @@ function createAloneFinalizeService(): AloneFinalizeService {
 }
 
 function createAiCleanupProvider(): AiCleanupProvider {
-  return new ClaudeCliCleanupProvider({
+  return new ClaudePersistentCliCleanupProvider({
     command: process.env.PHASE4_CLAUDE_COMMAND?.trim() || "claude",
     model: process.env.PHASE4_CLAUDE_MODEL?.trim() ?? null,
+  });
+}
+
+function createSttAutomationService(
+  provider: SttProvider,
+  language: string | null,
+  timeoutMs: number,
+): SttAutomationService {
+  return new SttAutomationService(store, {
+    enabled: readBooleanEnv("PHASE3_STT_AUTO_ENABLED", true),
+    provider,
+    pollIntervalMs: readPositiveEnvNumber("PHASE3_STT_AUTO_POLL_MS", 5000),
+    batchLimit: readPositiveEnvNumber("PHASE3_STT_AUTO_BATCH_LIMIT", 1),
+    runner: {
+      workerId: `phase3-stt-auto-${provider.providerName}-${process.pid}`,
+      leaseMs: readPositiveEnvNumber("PHASE3_STT_LEASE_MS", config.sttLeaseMs),
+      language,
+      timeoutMs,
+      contextSegments: readPositiveEnvNumber("PHASE3_STT_CONTEXT_SEGMENTS", 2),
+    },
   });
 }
 
@@ -401,6 +442,16 @@ function startAiPrepareInBackground(): void {
   });
 }
 
+function startSttAutomation(): void {
+  const snapshot = sttAutomation.getSnapshot();
+  if (!snapshot.enabled) {
+    console.log("STT 자동 실행이 꺼져 있습니다. 수동 Phase 3 STT CLI는 계속 사용할 수 있습니다.");
+    return;
+  }
+  sttAutomation.start();
+  console.log("STT 자동 실행 대기 시작: queued STT job을 처리합니다.");
+}
+
 function startAiCleanupAutomation(): void {
   const snapshot = aiCleanupAutomation.getSnapshot();
   if (!snapshot.enabled) {
@@ -425,6 +476,8 @@ function statusTextWithAiReadiness(): string {
     store.statusText(producer.getRuntimeState(), dashboard.getUrl()),
     "",
     formatAloneFinalizeForStatus(aloneFinalize.getSnapshot()),
+    "",
+    formatSttAutomationForStatus(sttAutomation.getSnapshot()),
     "",
     formatAiReadinessForStatus(aiLifecycle.getSnapshot()),
     "",

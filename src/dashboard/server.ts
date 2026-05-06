@@ -7,6 +7,7 @@ import type { Phase1Config } from "../config.js";
 import type { AloneFinalizeSnapshot } from "../recording/alone-finalize-service.js";
 import type { RecordingProducer } from "../recording/recording-producer.js";
 import { relativeDisplayPath, type SessionStore } from "../storage/session-store.js";
+import type { SttAutomationSnapshot } from "../stt/automation-service.js";
 
 export type DashboardAiReadinessSource = {
   getSnapshot(): AiProviderRuntimeReadinessSnapshot;
@@ -20,10 +21,15 @@ export type DashboardAloneFinalizeSource = {
   getSnapshot(): AloneFinalizeSnapshot;
 };
 
+export type DashboardSttAutomationSource = {
+  getSnapshot(): SttAutomationSnapshot;
+};
+
 export type DashboardRuntimeSources = {
   aiReadiness?: DashboardAiReadinessSource;
   aiCleanupAutomation?: DashboardAiCleanupAutomationSource;
   aloneFinalize?: DashboardAloneFinalizeSource;
+  sttAutomation?: DashboardSttAutomationSource;
 };
 
 export class DashboardServer {
@@ -187,7 +193,12 @@ export function appendDashboardRuntimeSnapshots(
   if (!isRecord(state)) {
     return state;
   }
-  if (!sources.aiReadiness && !sources.aiCleanupAutomation && !sources.aloneFinalize) {
+  if (
+    !sources.aiReadiness &&
+    !sources.aiCleanupAutomation &&
+    !sources.aloneFinalize &&
+    !sources.sttAutomation
+  ) {
     return state;
   }
 
@@ -201,6 +212,9 @@ export function appendDashboardRuntimeSnapshots(
       : {}),
     ...(sources.aloneFinalize
       ? { aloneFinalize: sources.aloneFinalize.getSnapshot() }
+      : {}),
+    ...(sources.sttAutomation
+      ? { sttAutomation: sources.sttAutomation.getSnapshot() }
       : {}),
   };
 }
@@ -242,6 +256,7 @@ function renderDashboardHtml(): string {
     section { margin: 0 0 22px; }
     h2 { font-size: 16px; margin: 0 0 10px; }
     .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .pipeline-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
     .metric {
       background: var(--panel);
       border: 1px solid var(--line);
@@ -290,6 +305,7 @@ function renderDashboardHtml(): string {
     .muted { color: var(--muted); }
     @media (max-width: 860px) {
       .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .pipeline-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); }
       main { padding: 14px; }
       th, td { font-size: 12px; padding: 7px; }
     }
@@ -302,6 +318,10 @@ function renderDashboardHtml(): string {
   </header>
   <main>
     <section class="grid" id="metrics"></section>
+    <section>
+      <h2>Pipeline Runtime</h2>
+      <div class="pipeline-grid" id="pipeline"></div>
+    </section>
     <section>
       <h2>Speakers</h2>
       <div id="speakers"></div>
@@ -364,12 +384,21 @@ function renderDashboardHtml(): string {
         metric('Open Chunks', runtime.openChunks ?? 0),
         metric('Session Status', session?.status ?? '-'),
         metric('DB', rel(state.dbPath)),
+        metric('STT Auto', state.sttAutomation?.message ?? '-'),
         metric('AI Status', state.aiReadiness?.message ?? '-'),
         metric('AI Cleanup', state.aiCleanupAutomation?.message ?? '-'),
         metric('Alone Finalize', state.aloneFinalize?.message ?? '-'),
         metric('AI Provider', state.aiReadiness ? state.aiReadiness.provider + ' / ' + state.aiReadiness.model : '-'),
         metric('Queue', queueSummary(state.queueStats ?? [])),
         metric('Repair Open', (state.recentRepairItems ?? []).filter((row) => row.status === 'open').length)
+      ].join(''));
+
+      setHtml('pipeline', [
+        renderPipelineSummary(state),
+        renderAloneFinalize(state.aloneFinalize),
+        renderSttAutomation(state.sttAutomation),
+        renderAiReadiness(state.aiReadiness),
+        renderAiCleanupAutomation(state.aiCleanupAutomation)
       ].join(''));
 
       setHtml('speakers', table(
@@ -414,9 +443,7 @@ function renderDashboardHtml(): string {
           escapeHtml((t.speech_status === 'no_speech' && !t.text) ? '(no speech)' : t.text) + '</td></tr>')
       ));
 
-      setHtml('aiCleanup', renderAiReadiness(state.aiReadiness) +
-        renderAiCleanupAutomation(state.aiCleanupAutomation) +
-        renderAloneFinalize(state.aloneFinalize) + table(
+      setHtml('aiCleanup', table(
         ['job', 'status', 'provider/model', 'attempts', 'input', 'error'],
         (state.recentAiCleanupJobs ?? []).map((j) => '<tr><td><code>' + escapeHtml(j.id) +
           '</code></td><td>' + escapeHtml(j.status) +
@@ -459,6 +486,53 @@ function renderDashboardHtml(): string {
       return '<div class="metric"><div class="label">' + escapeHtml(label) +
         '</div><div class="value">' + escapeHtml(value) + '</div></div>';
     }
+    function renderPipelineSummary(state) {
+      const session = state.currentSession;
+      if (!session) {
+        return '<div class="metric"><div class="label">current session · idle</div>' +
+          '<div class="value">최근 세션 없음</div><div class="muted">녹음이 시작되면 여기에 진행 상태가 표시됩니다.</div></div>';
+      }
+      const sttCounts = countStatuses(state.recentSttJobs ?? []);
+      const latestAiJob = (state.recentAiCleanupJobs ?? [])[0];
+      const draft = state.latestMeetingNotesDraft;
+      const queuedOrProcessingStt =
+        (sttCounts.get('queued') ?? 0) + (sttCounts.get('processing') ?? 0);
+      const failedStt =
+        (sttCounts.get('failed') ?? 0) + (sttCounts.get('failed_missing_file') ?? 0);
+      let status = 'recording';
+      let message = '녹음 중';
+      if (draft) {
+        status = 'done';
+        message = '회의록 draft 생성 완료';
+      } else if (latestAiJob?.status === 'processing') {
+        status = 'running';
+        message = '회의록 생성 중';
+      } else if (latestAiJob?.status === 'queued') {
+        status = 'queued';
+        message = 'AI cleanup job 대기 중';
+      } else if (latestAiJob?.status === 'failed' || latestAiJob?.status === 'blocked') {
+        status = latestAiJob.status;
+        message = latestAiJob.status === 'blocked' ? '회의록 생성 보류' : '회의록 생성 실패';
+      } else if (queuedOrProcessingStt > 0) {
+        status = 'stt';
+        message = 'STT 처리 중';
+      } else if (session.status === 'finalized') {
+        status = 'waiting_ai';
+        message = failedStt > 0 ? 'STT 확인 필요' : 'AI cleanup 대기 중';
+      }
+      const aiJob = latestAiJob
+        ? '<br>AI job: ' + escapeHtml(latestAiJob.status) + ' / ' + escapeHtml(latestAiJob.provider) +
+          ' / ' + escapeHtml(latestAiJob.model)
+        : '';
+      return '<div class="metric"><div class="label">current session · ' + escapeHtml(status) +
+        '</div><div class="value ' + runtimeValueClass(status) + '">' + escapeHtml(message) + '</div>' +
+        '<div class="muted"><code>' + escapeHtml(session.id) + '</code><br>' +
+        'session: ' + escapeHtml(session.status) +
+        '<br>STT: queued ' + escapeHtml(sttCounts.get('queued') ?? 0) +
+        ' / processing ' + escapeHtml(sttCounts.get('processing') ?? 0) +
+        ' / done ' + escapeHtml(sttCounts.get('done') ?? 0) +
+        ' / failed ' + escapeHtml(failedStt) + aiJob + '</div></div>';
+    }
     function renderAiReadiness(readiness) {
       if (!readiness) {
         return '<div class="muted">AI readiness snapshot이 아직 없습니다.</div>';
@@ -472,8 +546,32 @@ function renderDashboardHtml(): string {
       return '<div class="metric" style="margin-bottom:10px">' +
         '<div class="label">' + escapeHtml(readiness.provider) + ' / ' + escapeHtml(readiness.model) +
         ' · ' + escapeHtml(readiness.status) + ' · ' + escapeHtml(readiness.checkedAt ?? 'not checked') +
-        '</div><div class="value status">' + escapeHtml(readiness.message) + '</div>' +
+        '</div><div class="value ' + runtimeValueClass(readiness.status) + '">' + escapeHtml(readiness.message) + '</div>' +
         action + technical + '</div>';
+    }
+    function renderSttAutomation(automation) {
+      if (!automation) {
+        return '<div class="metric"><div class="label">STT automation · unavailable</div>' +
+          '<div class="value">STT 자동화 snapshot이 아직 없습니다.</div></div>';
+      }
+      const run = automation.lastRun
+        ? '<div class="muted">examined ' + escapeHtml(automation.lastRun.examined) +
+          ' / done ' + escapeHtml(automation.lastRun.done) +
+          ' / missing ' + escapeHtml(automation.lastRun.missingAudio) +
+          ' / failed ' + escapeHtml(automation.lastRun.failed) +
+          ' / more ' + escapeHtml(automation.lastRun.remainingQueuedHint > 0 ? 'yes' : 'no') + '</div>'
+        : '';
+      const action = automation.userAction
+        ? '<div class="value">' + escapeHtml(automation.userAction) + '</div>'
+        : '';
+      const technical = automation.technicalDetail
+        ? '<details><summary class="muted">STT 자동화 세부정보</summary><pre>' + escapeHtml(automation.technicalDetail) + '</pre></details>'
+        : '';
+      return '<div class="metric" style="margin-bottom:10px">' +
+        '<div class="label">' + escapeHtml(automation.provider) + ' / ' + escapeHtml(automation.model) +
+        ' · ' + escapeHtml(automation.status) + ' · ' + escapeHtml(automation.checkedAt ?? 'not checked') +
+        '</div><div class="value ' + runtimeValueClass(automation.status) + '">' + escapeHtml(automation.message) + '</div>' +
+        run + action + technical + '</div>';
     }
     function renderAiCleanupAutomation(automation) {
       if (!automation) {
@@ -497,7 +595,7 @@ function renderDashboardHtml(): string {
       return '<div class="metric" style="margin-bottom:10px">' +
         '<div class="label">' + escapeHtml(automation.provider) + ' / ' + escapeHtml(automation.model) +
         ' · ' + escapeHtml(automation.status) + ' · ' + escapeHtml(automation.checkedAt ?? 'not checked') +
-        '</div><div class="value status">' + escapeHtml(automation.message) + '</div>' +
+        '</div><div class="value ' + runtimeValueClass(automation.status) + '">' + escapeHtml(automation.message) + '</div>' +
         stt + warnings + action + technical + '</div>';
     }
     function renderAloneFinalize(aloneFinalize) {
@@ -519,7 +617,7 @@ function renderDashboardHtml(): string {
       return '<div class="metric" style="margin-bottom:10px">' +
         '<div class="label">alone finalize · ' + escapeHtml(aloneFinalize.status) +
         ' · ' + escapeHtml(aloneFinalize.checkedAt ?? 'not checked') +
-        '</div><div class="value status">' + escapeHtml(aloneFinalize.message) + '</div>' +
+        '</div><div class="value ' + runtimeValueClass(aloneFinalize.status) + '">' + escapeHtml(aloneFinalize.message) + '</div>' +
         countdown + action + warnings + technical + '</div>';
     }
     function renderAudioControls(c) {
@@ -541,6 +639,32 @@ function renderDashboardHtml(): string {
       return ['queued', 'processing', 'done', 'failed', 'failed_missing_file']
         .map((status) => status + ':' + (counts.get(status) ?? 0))
         .join(' / ');
+    }
+    function countStatuses(rows) {
+      const counts = new Map();
+      for (const row of rows) {
+        counts.set(row.status, (counts.get(row.status) ?? 0) + 1);
+      }
+      return counts;
+    }
+    function runtimeValueClass(status) {
+      if (['failed', 'blocked', 'not_installed', 'failed_missing_file'].includes(String(status))) {
+        return 'error';
+      }
+      if ([
+        'running',
+        'queued',
+        'processing',
+        'countdown',
+        'checking',
+        'waiting_for_stt',
+        'waiting_for_ai_provider',
+        'waiting_ai',
+        'stt',
+      ].includes(String(status))) {
+        return 'warn';
+      }
+      return 'status';
     }
     refresh();
     setInterval(refresh, 3000);

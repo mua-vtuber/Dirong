@@ -1,6 +1,7 @@
 import { AiCleanupProviderError } from "./provider.js";
 import type {
   AiCleanupProvider,
+  AiCleanupProviderResetReason,
   AiCleanupProviderInput,
   AiCleanupProviderOptions,
   AiCleanupProviderResult,
@@ -57,7 +58,7 @@ export type AiProviderLifecycleCallOptions = {
   timeoutMs?: number;
 };
 
-export type AiProviderResetReason = "success" | "failure" | "timeout";
+export type AiProviderResetReason = AiCleanupProviderResetReason;
 
 export interface AiMeetingNotesProvider {
   readonly providerName: string;
@@ -178,11 +179,13 @@ export class AiCleanupProviderLifecycleAdapter implements AiMeetingNotesProvider
   }
 
   async resetAfterRequest(
-    _reason: AiProviderResetReason,
+    reason: AiProviderResetReason,
     options?: AiProviderLifecycleCallOptions,
   ): Promise<void> {
     await runWithLifecycleControls(
-      async () => undefined,
+      async () => {
+        await this.provider.resetAfterRequest?.(reason);
+      },
       options,
       "AI provider request reset timed out.",
     );
@@ -190,7 +193,9 @@ export class AiCleanupProviderLifecycleAdapter implements AiMeetingNotesProvider
 
   async stop(options?: AiProviderLifecycleCallOptions): Promise<void> {
     await runWithLifecycleControls(
-      async () => undefined,
+      async () => {
+        await this.provider.stop?.();
+      },
       options,
       "AI provider stop timed out.",
     );
@@ -218,7 +223,7 @@ function inferLegacyProviderCapabilities(
 ): AiProviderCapabilityProfile {
   const readinessKind = inferReadinessKind(provider.providerName);
   return {
-    supportsWarmSession: false,
+    supportsWarmSession: provider.supportsWarmSession ?? false,
     supportsJsonSchema: provider.supportsJsonSchema,
     supportsStructuredOutput: provider.supportsJsonSchema,
     requiresApiKey: false,

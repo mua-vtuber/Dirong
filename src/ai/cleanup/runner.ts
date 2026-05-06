@@ -16,7 +16,11 @@ import {
   validateMeetingNotesDraftV1,
 } from "./draft.js";
 import { renderMeetingNotesDraftMarkdown } from "./markdown-renderer.js";
-import type { AiCleanupProvider, AiCleanupProviderInput } from "./provider.js";
+import type {
+  AiCleanupProvider,
+  AiCleanupProviderInput,
+  AiCleanupProviderResetReason,
+} from "./provider.js";
 import { AiCleanupProviderError } from "./provider.js";
 import {
   PHASE4_AI_CLEANUP_PROMPT_VERSION,
@@ -71,6 +75,23 @@ export type AiCleanupRunOptions = {
 };
 
 export async function runAiCleanupForSession(
+  store: SessionStore,
+  options: AiCleanupRunOptions,
+): Promise<AiCleanupRunResult> {
+  let resetReason: AiCleanupProviderResetReason = "success";
+  try {
+    const result = await runAiCleanupForSessionCore(store, options);
+    resetReason = resetReasonForRunResult(result);
+    return result;
+  } catch (error) {
+    resetReason = resetReasonForThrownError(error);
+    throw error;
+  } finally {
+    await resetProviderAfterRun(options.provider, resetReason);
+  }
+}
+
+async function runAiCleanupForSessionCore(
   store: SessionStore,
   options: AiCleanupRunOptions,
 ): Promise<AiCleanupRunResult> {
@@ -398,6 +419,39 @@ export async function runAiCleanupForSession(
     job: store.getAiCleanupJob(claimed.id),
     draft: savedDraft,
   };
+}
+
+async function resetProviderAfterRun(
+  provider: AiCleanupProvider,
+  reason: AiCleanupProviderResetReason,
+): Promise<void> {
+  try {
+    await provider.resetAfterRequest?.(reason);
+  } catch (error) {
+    console.warn(
+      `AI cleanup provider reset failed after ${reason}: ${summarizeError(error)}`,
+    );
+  }
+}
+
+function resetReasonForRunResult(
+  result: AiCleanupRunResult,
+): AiCleanupProviderResetReason {
+  if (result.status !== "failed") {
+    return "success";
+  }
+  return result.job?.failure_kind === "provider_timeout"
+    ? "timeout"
+    : "failure";
+}
+
+function resetReasonForThrownError(
+  error: unknown,
+): AiCleanupProviderResetReason {
+  return error instanceof AiCleanupProviderError &&
+    error.failureKind === "provider_timeout"
+    ? "timeout"
+    : "failure";
 }
 
 function makeBaseResult(

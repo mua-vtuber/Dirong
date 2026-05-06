@@ -141,3 +141,73 @@ test("appendDashboardRuntimeSnapshots includes alone finalize snapshot", () => {
     },
   });
 });
+
+test("appendDashboardRuntimeSnapshots includes STT automation snapshot", () => {
+  const state = {
+    generatedAt: "2026-05-06T00:00:00.000Z",
+    recentSttJobs: [{ id: "stt_job_1", status: "done" }],
+  };
+
+  const withSttAutomation = appendDashboardRuntimeSnapshots(state, {
+    sttAutomation: {
+      getSnapshot: () => ({
+        enabled: true,
+        status: "done",
+        provider: "whisper-cli",
+        model: "tiny",
+        checkedAt: "2026-05-06T00:00:01.000Z",
+        message: "STT batch 처리 완료",
+        userAction: null,
+        technicalDetail: null,
+        lastRun: {
+          workerId: "phase3-stt-auto-whisper-cli-123",
+          dryRun: false,
+          limit: 1,
+          sessionId: null,
+          source: "real",
+          provider: "whisper-cli",
+          model: "tiny",
+          language: "ko",
+          expiredLeasesReleased: 0,
+          examined: 1,
+          done: 1,
+          missingAudio: 0,
+          failed: 0,
+          remainingQueuedHint: 0,
+          samples: [],
+        },
+      }),
+    },
+  });
+
+  assert.deepEqual(withSttAutomation, {
+    ...state,
+    sttAutomation: {
+      enabled: true,
+      status: "done",
+      provider: "whisper-cli",
+      model: "tiny",
+      checkedAt: "2026-05-06T00:00:01.000Z",
+      message: "STT batch 처리 완료",
+      userAction: null,
+      technicalDetail: null,
+      lastRun: {
+        workerId: "phase3-stt-auto-whisper-cli-123",
+        dryRun: false,
+        limit: 1,
+        sessionId: null,
+        source: "real",
+        provider: "whisper-cli",
+        model: "tiny",
+        language: "ko",
+        expiredLeasesReleased: 0,
+        examined: 1,
+        done: 1,
+        missingAudio: 0,
+        failed: 0,
+        remainingQueuedHint: 0,
+        samples: [],
+      },
+    },
+  });
+});

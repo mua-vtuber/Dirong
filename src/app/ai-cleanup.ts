@@ -1,6 +1,6 @@
 import process from "node:process";
 import { FakeAiCleanupProvider } from "../ai/cleanup/fake-provider.js";
-import { ClaudeCliCleanupProvider } from "../ai/cleanup/claude-cli-provider.js";
+import { ClaudePersistentCliCleanupProvider } from "../ai/cleanup/claude-persistent-cli-provider.js";
 import { runAiCleanupForSession } from "../ai/cleanup/runner.js";
 import type { AiCleanupProvider } from "../ai/cleanup/provider.js";
 import { printCliError } from "../cli/error-output.js";
@@ -64,7 +64,7 @@ function createProvider(options: Phase4AiCleanupCliOptions): AiCleanupProvider {
     return new FakeAiCleanupProvider();
   }
 
-  return new ClaudeCliCleanupProvider({
+  return new ClaudePersistentCliCleanupProvider({
     command: process.env.PHASE4_CLAUDE_COMMAND?.trim() || "claude",
     model: options.model ?? process.env.PHASE4_CLAUDE_MODEL?.trim() ?? null,
   });

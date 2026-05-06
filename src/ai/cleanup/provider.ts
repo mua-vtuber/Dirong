@@ -28,15 +28,20 @@ export type AiCleanupProviderResult = {
   durationMs: number;
 };
 
+export type AiCleanupProviderResetReason = "success" | "failure" | "timeout";
+
 export interface AiCleanupProvider {
   readonly providerName: string;
   readonly modelName: string;
   readonly supportsJsonSchema: boolean;
+  readonly supportsWarmSession?: boolean;
   preflight?(): Promise<void>;
   generate(
     input: AiCleanupProviderInput,
     options: AiCleanupProviderOptions,
   ): Promise<AiCleanupProviderResult>;
+  resetAfterRequest?(reason: AiCleanupProviderResetReason): Promise<void>;
+  stop?(): Promise<void>;
 }
 
 export class AiCleanupProviderError extends Error {

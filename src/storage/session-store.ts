@@ -3,12 +3,15 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { redactForJson } from "../errors.js";
+import { buildAiCleanupSttTerminalSnapshot } from "./ai-cleanup-terminal-read-model.js";
 import { buildDashboardReadModel } from "./dashboard-read-model.js";
 import {
   createStoragePathResolver,
   type StoragePathResolver,
 } from "./path-resolver.js";
+import { SqlRunner } from "./sql-runner.js";
 import { DirongDatabase, type SqlValue } from "./sqlite.js";
+import { buildStatusTextReadModel } from "./status-text-read-model.js";
 
 export type SessionStatus =
   | "created"
@@ -240,12 +243,14 @@ export type SessionStoreOptions = {
 
 export class SessionStore {
   private readonly paths: StoragePathResolver;
+  private readonly sql: SqlRunner;
 
   constructor(
     private readonly database: DirongDatabase,
     options: SessionStoreOptions = {},
   ) {
     this.paths = createStoragePathResolver(options.storageRoot);
+    this.sql = new SqlRunner(database);
     if (options.normalizeStoredPaths && this.paths.storageRoot) {
       this.normalizeStoredPaths();
     }
@@ -1118,116 +1123,13 @@ export class SessionStore {
   getAiCleanupSttTerminalSnapshot(
     sessionId: string,
   ): AiCleanupSttTerminalSnapshot | null {
-    const session = this.getSession(sessionId);
-    if (!session || session.status !== "finalized") {
-      return null;
-    }
-
-    const openChunkCount = this.get<{ count: number }>(
-      "SELECT COUNT(*) AS count FROM chunks WHERE session_id = ? AND status = 'writing'",
+    return buildAiCleanupSttTerminalSnapshot({
+      sql: this.sql,
       sessionId,
-    )?.count ?? 0;
-
-    const statusRows = this.all<{ status: string; count: number }>(
-      `SELECT status, COUNT(*) AS count
-       FROM stt_jobs
-       WHERE session_id = ?
-       GROUP BY status`,
-      sessionId,
-    );
-    const sttStatusCounts = new Map(
-      statusRows.map((row) => [row.status, row.count]),
-    );
-    const sttQueuedCount = sttStatusCounts.get("queued") ?? 0;
-    const sttProcessingCount = sttStatusCounts.get("processing") ?? 0;
-    const sttDoneCount = sttStatusCounts.get("done") ?? 0;
-    const sttFailedCount = sttStatusCounts.get("failed") ?? 0;
-    const sttFailedMissingFileCount =
-      sttStatusCounts.get("failed_missing_file") ?? 0;
-    const terminalSttStatuses = new Set([
-      "done",
-      "failed",
-      "failed_missing_file",
-    ]);
-    const waitingSttStatuses = new Set(["queued", "processing"]);
-    const sttOtherNonTerminalCount = statusRows
-      .filter(
-        (row) =>
-          !terminalSttStatuses.has(row.status) &&
-          !waitingSttStatuses.has(row.status),
-      )
-      .reduce((sum, row) => sum + row.count, 0);
-
-    const chunksMissingSttJobCount = this.get<{ count: number }>(
-      `SELECT COUNT(*) AS count
-       FROM chunks c
-       LEFT JOIN stt_jobs j ON j.chunk_id = c.id
-       WHERE c.session_id = ?
-         AND c.status IN ('finalized', 'queued', 'transcode_failed')
-         AND j.id IS NULL`,
-      sessionId,
-    )?.count ?? 0;
-
-    const chunksWithTranscodeFailedCount = this.get<{ count: number }>(
-      `SELECT COUNT(*) AS count
-       FROM chunks
-       WHERE session_id = ?
-         AND (transcode_status = 'failed' OR status = 'transcode_failed')`,
-      sessionId,
-    )?.count ?? 0;
-
-    const chunksMissingSttAudioCount = this.get<{ count: number }>(
-      `SELECT COUNT(*) AS count
-       FROM chunks
-       WHERE session_id = ?
-         AND status IN ('finalized', 'queued', 'transcode_failed')
-         AND (stt_audio_path IS NULL OR length(trim(stt_audio_path)) = 0)`,
-      sessionId,
-    )?.count ?? 0;
-
-    const realTranscriptEntryCount = this.listTranscriptTimelineSegments({
-      sessionId,
-      includeNoSpeech: false,
-      includeFakeStt: false,
-    }).length;
-
-    const isTerminal =
-      openChunkCount === 0 &&
-      sttQueuedCount === 0 &&
-      sttProcessingCount === 0 &&
-      sttOtherNonTerminalCount === 0;
-    const canGenerateDraft = realTranscriptEntryCount > 0;
-    const shouldRecordEmptyTimelineBlock =
-      isTerminal && realTranscriptEntryCount === 0;
-    const canInvokeRunner =
-      isTerminal && (canGenerateDraft || shouldRecordEmptyTimelineBlock);
-
-    return {
-      sessionId,
-      sessionStatus: "finalized",
-      openChunkCount,
-      sttQueuedCount,
-      sttProcessingCount,
-      sttDoneCount,
-      sttFailedCount,
-      sttFailedMissingFileCount,
-      sttOtherNonTerminalCount,
-      chunksMissingSttJobCount,
-      chunksWithTranscodeFailedCount,
-      chunksMissingSttAudioCount,
-      realTranscriptEntryCount,
-      isTerminal,
-      canGenerateDraft,
-      shouldRecordEmptyTimelineBlock,
-      canInvokeRunner,
-      warnings: makeAiCleanupSttWarnings({
-        sttFailedCount,
-        sttFailedMissingFileCount,
-        chunksMissingSttJobCount,
-        chunksWithTranscodeFailedCount,
-        chunksMissingSttAudioCount,
-      }),
-    };
+      session: this.getSession(sessionId),
+      listTranscriptTimelineSegments: (input) =>
+        this.listTranscriptTimelineSegments(input),
+    });
   }
 
   getOrCreateAiCleanupJob(input: {
@@ -1782,49 +1684,13 @@ export class SessionStore {
   }
 
   statusText(runtime: RecordingRuntimeState, dashboardUrl: string): string {
-    const session =
-      runtime.sessionId !== null
-        ? this.getSession(runtime.sessionId)
-        : this.getLatestSession();
-    if (!session) {
-      return [
-        "진행 중이거나 최근 생성된 녹음 세션이 없습니다.",
-        `Dashboard: ${dashboardUrl}`,
-      ].join("\n");
-    }
-
-    const speakerCount = this.get<{ count: number }>(
-      "SELECT COUNT(*) AS count FROM session_speakers WHERE session_id = ? AND is_bot = 0",
-      session.id,
-    )?.count ?? 0;
-    const chunkCount = this.get<{ count: number }>(
-      "SELECT COUNT(*) AS count FROM chunks WHERE session_id = ?",
-      session.id,
-    )?.count ?? 0;
-    const queueStats = this.all<{ status: string; count: number }>(
-      `SELECT status, COUNT(*) AS count
-       FROM stt_jobs
-       WHERE session_id = ?
-       GROUP BY status
-       ORDER BY status ASC`,
-      session.id,
-    );
-    const openRepairs = this.get<{ count: number }>(
-      "SELECT COUNT(*) AS count FROM repair_items WHERE status = 'open'",
-    )?.count ?? 0;
-
-    return [
-      `Recording + STT 상태: ${session.status}`,
-      `세션: ${session.id}`,
-      `음성 채널: ${session.voice_channel_name ?? session.voice_channel_id}`,
-      `현재 녹음: ${runtime.isRecording ? "yes" : "no"}`,
-      `열려 있는 chunk: ${runtime.openChunks}`,
-      `speaker: ${speakerCount}명`,
-      `chunk: ${chunkCount}개`,
-      `STT queue: ${formatQueueStats(queueStats)}`,
-      `open repair item: ${openRepairs}개`,
-      `Dashboard: ${dashboardUrl}`,
-    ].join("\n");
+    return buildStatusTextReadModel({
+      sql: this.sql,
+      runtime,
+      dashboardUrl,
+      getSession: (sessionId) => this.getSession(sessionId),
+      getLatestSession: () => this.getLatestSession(),
+    });
   }
 
   private insertSttJobForChunk(
@@ -2042,16 +1908,15 @@ export class SessionStore {
   }
 
   private run(sql: string, ...params: SqlValue[]): void {
-    this.database.db.prepare(sql).run(...params);
+    this.sql.run(sql, ...params);
   }
 
   private get<T>(sql: string, ...params: SqlValue[]): T | null {
-    const row = this.database.db.prepare(sql).get(...params);
-    return row === undefined ? null : (row as T);
+    return this.sql.get<T>(sql, ...params);
   }
 
   private all<T = Record<string, unknown>>(sql: string, ...params: SqlValue[]): T[] {
-    return this.database.db.prepare(sql).all(...params) as T[];
+    return this.sql.all<T>(sql, ...params);
   }
 }
 
@@ -2081,39 +1946,6 @@ function makeRepairItemDedupeKey(input: {
     input.chunkId ?? "",
     input.sttJobId ?? "",
   ].join(":");
-}
-
-function formatQueueStats(rows: Array<{ status: string; count: number }>): string {
-  const counts = new Map(rows.map((row) => [row.status, row.count]));
-  return ["queued", "processing", "done", "failed", "failed_missing_file"]
-    .map((status) => `${status}:${counts.get(status) ?? 0}`)
-    .join(" / ");
-}
-
-function makeAiCleanupSttWarnings(input: {
-  sttFailedCount: number;
-  sttFailedMissingFileCount: number;
-  chunksMissingSttJobCount: number;
-  chunksWithTranscodeFailedCount: number;
-  chunksMissingSttAudioCount: number;
-}): string[] {
-  const warnings: string[] = [];
-  if (input.sttFailedCount > 0) {
-    warnings.push(`STT 실패 ${input.sttFailedCount}건`);
-  }
-  if (input.sttFailedMissingFileCount > 0) {
-    warnings.push(`STT 입력 파일 누락 ${input.sttFailedMissingFileCount}건`);
-  }
-  if (input.chunksMissingSttJobCount > 0) {
-    warnings.push(`STT job 없는 chunk ${input.chunksMissingSttJobCount}개`);
-  }
-  if (input.chunksWithTranscodeFailedCount > 0) {
-    warnings.push(`transcode 실패 chunk ${input.chunksWithTranscodeFailedCount}개`);
-  }
-  if (input.chunksMissingSttAudioCount > 0) {
-    warnings.push(`STT audio path 없는 chunk ${input.chunksMissingSttAudioCount}개`);
-  }
-  return warnings;
 }
 
 export function relativeDisplayPath(filePath: string | null): string | null {

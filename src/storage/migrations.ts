@@ -12,24 +12,28 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   },
 ];
 
-export function applySchemaMigrations(db: DatabaseSync): void {
-  db.exec(`
-CREATE TABLE IF NOT EXISTS dirong_migrations (
-  id TEXT PRIMARY KEY,
-  applied_at TEXT NOT NULL
-);
-`);
-
+export function listPendingSchemaMigrationIds(db: DatabaseSync): string[] {
   const appliedMigrationIds = new Set(
-    (
-      db.prepare("SELECT id FROM dirong_migrations;").all() as Array<{
-        id: string;
-      }>
-    ).map((row) => row.id),
+    tableExists(db, "dirong_migrations")
+      ? (
+          db.prepare("SELECT id FROM dirong_migrations;").all() as Array<{
+            id: string;
+          }>
+        ).map((row) => row.id)
+      : [],
   );
 
+  return SCHEMA_MIGRATIONS
+    .filter((migration) => !appliedMigrationIds.has(migration.id))
+    .map((migration) => migration.id);
+}
+
+export function applySchemaMigrations(db: DatabaseSync): void {
+  ensureMigrationTable(db);
+
+  const pendingMigrationIds = new Set(listPendingSchemaMigrationIds(db));
   for (const migration of SCHEMA_MIGRATIONS) {
-    if (appliedMigrationIds.has(migration.id)) {
+    if (!pendingMigrationIds.has(migration.id)) {
       continue;
     }
 
@@ -45,6 +49,22 @@ CREATE TABLE IF NOT EXISTS dirong_migrations (
       throw error;
     }
   }
+}
+
+function ensureMigrationTable(db: DatabaseSync): void {
+  db.exec(`
+CREATE TABLE IF NOT EXISTS dirong_migrations (
+  id TEXT PRIMARY KEY,
+  applied_at TEXT NOT NULL
+);
+`);
+}
+
+function tableExists(db: DatabaseSync, tableName: string): boolean {
+  const row = db.prepare(
+    "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?;",
+  ).get(tableName) as { ok: number } | undefined;
+  return row?.ok === 1;
 }
 
 function migrateTranscriptSegmentsSpeechStatus(db: DatabaseSync): void {

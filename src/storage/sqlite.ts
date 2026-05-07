@@ -1,8 +1,12 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { applySchemaMigrations } from "./migrations.js";
+import {
+  applySchemaMigrations,
+  listPendingSchemaMigrationIds,
+} from "./migrations.js";
 import { SCHEMA_SQL } from "./schema.js";
+import { backupOpenDatabaseSnapshot } from "./sqlite-backup.js";
 
 export type SqlValue = null | number | bigint | string | NodeJS.ArrayBufferView;
 
@@ -12,20 +16,43 @@ export class DirongDatabase {
   constructor(
     readonly dbPath: string,
     busyTimeoutMs: number,
-    options?: { readOnly?: boolean },
+    options?: {
+      readOnly?: boolean;
+      migrationBackup?: false | { targetPath?: string };
+    },
   ) {
+    const databaseExisted = existsSync(dbPath);
     if (!options?.readOnly) {
       mkdirSync(path.dirname(dbPath), { recursive: true });
     }
     this.db = new DatabaseSync(dbPath, { readOnly: options?.readOnly ?? false });
-    if (!options?.readOnly) {
-      this.db.exec("PRAGMA journal_mode = WAL;");
-    }
-    this.db.exec(`PRAGMA busy_timeout = ${Math.trunc(busyTimeoutMs)};`);
-    this.db.exec("PRAGMA foreign_keys = ON;");
-    if (!options?.readOnly) {
-      this.db.exec(SCHEMA_SQL);
-      applySchemaMigrations(this.db);
+    try {
+      this.db.exec(`PRAGMA busy_timeout = ${Math.trunc(busyTimeoutMs)};`);
+      this.db.exec("PRAGMA foreign_keys = ON;");
+      if (!options?.readOnly) {
+        const pendingMigrationIds = listPendingSchemaMigrationIds(this.db);
+        if (
+          databaseExisted &&
+          pendingMigrationIds.length > 0 &&
+          options?.migrationBackup !== false
+        ) {
+          backupOpenDatabaseSnapshot(this.db, dbPath, {
+            busyTimeoutMs,
+            targetPath: options?.migrationBackup?.targetPath,
+            failureMessageLines: [
+              "SQLite migration backup 생성에 실패했습니다.",
+              "migration을 적용하지 않고 시작을 중단합니다.",
+              "backup이 실패했으므로 DB schema는 변경하지 않았습니다.",
+            ],
+          });
+        }
+        this.db.exec("PRAGMA journal_mode = WAL;");
+        this.db.exec(SCHEMA_SQL);
+        applySchemaMigrations(this.db);
+      }
+    } catch (error) {
+      this.db.close();
+      throw error;
     }
   }
 

@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import {
+  closeSync,
+  mkdtempSync,
+  openSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -21,6 +27,60 @@ test("DirongDatabase upgrades legacy transcript_segments speech_status", () => {
       assert.deepEqual(readMigrationIds(database.db), [
         "001_transcript_segments_speech_status",
       ]);
+    } finally {
+      database.close();
+    }
+  } finally {
+    fixture.close();
+  }
+});
+
+test("DirongDatabase backs up existing DB before pending migrations", () => {
+  const fixture = createLegacyTranscriptFixture();
+  try {
+    const database = new DirongDatabase(fixture.dbPath, 1000);
+    database.close();
+
+    const backupPath = findSingleBackupPath(fixture.dir);
+    const backup = new DatabaseSync(backupPath, { readOnly: true });
+    const migrated = new DatabaseSync(fixture.dbPath, { readOnly: true });
+    try {
+      assert.equal(
+        getColumnNames(backup, "transcript_segments").includes("speech_status"),
+        false,
+      );
+      assert.deepEqual(readMigrationIds(migrated), [
+        "001_transcript_segments_speech_status",
+      ]);
+    } finally {
+      migrated.close();
+      backup.close();
+    }
+  } finally {
+    fixture.close();
+  }
+});
+
+test("DirongDatabase aborts pending migrations when backup fails", () => {
+  const fixture = createLegacyTranscriptFixture();
+  const existingTarget = path.join(fixture.dir, "already-exists.sqlite");
+  closeSync(openSync(existingTarget, "w"));
+  try {
+    assert.throws(
+      () =>
+        new DirongDatabase(fixture.dbPath, 1000, {
+          migrationBackup: { targetPath: existingTarget },
+        }),
+      /SQLite backup target already exists/,
+    );
+
+    const database = new DatabaseSync(fixture.dbPath, { readOnly: true });
+    try {
+      assert.equal(
+        getColumnNames(database, "transcript_segments").includes("speech_status"),
+        false,
+      );
+      assert.equal(tableExists(database, "dirong_migrations"), false);
     } finally {
       database.close();
     }
@@ -71,6 +131,7 @@ test("DirongDatabase records migrations on a fresh baseline schema", () => {
 });
 
 function createLegacyTranscriptFixture(): {
+  dir: string;
   dbPath: string;
   close: () => void;
 } {
@@ -114,11 +175,13 @@ INSERT INTO transcript_segments (
 }
 
 function createEmptyFixture(): {
+  dir: string;
   dbPath: string;
   close: () => void;
 } {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-migrations-"));
   return {
+    dir,
     dbPath: path.join(dir, "dirong.sqlite"),
     close: () => {
       rmSync(dir, { recursive: true, force: true });
@@ -140,6 +203,21 @@ function readMigrationIds(db: DatabaseSync): string[] {
       id: string;
     }>
   ).map((row) => row.id);
+}
+
+function findSingleBackupPath(dir: string): string {
+  const backupNames = readdirSync(dir).filter((name) =>
+    name.startsWith("dirong.sqlite.backup-"),
+  );
+  assert.equal(backupNames.length, 1);
+  return path.join(dir, backupNames[0] ?? "");
+}
+
+function tableExists(db: DatabaseSync, tableName: string): boolean {
+  const row = db.prepare(
+    "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?;",
+  ).get(tableName) as { ok: number } | undefined;
+  return row?.ok === 1;
 }
 
 function readTranscriptSpeechStatuses(

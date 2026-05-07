@@ -184,7 +184,12 @@ function readDbSummary(dbPath: string, busyTimeoutMs: number): DbSummary {
       doneJobs: countWhere(db, "stt_jobs", "status = 'done'"),
       failedJobs: countWhere(db, "stt_jobs", "status IN ('failed', 'failed_missing_file')"),
       transcriptSegments: countRows(db, "transcript_segments"),
-      noSpeechSegments: countWhere(db, "transcript_segments", "speech_status = 'no_speech'"),
+      noSpeechSegments: countWhere(
+        db,
+        "transcript_segments",
+        "speech_status = 'no_speech'",
+        ["speech_status"],
+      ),
       openRepairItems: countWhere(db, "repair_items", "status = 'open'"),
     };
   } finally {
@@ -218,8 +223,20 @@ function countRows(db: DatabaseSync, tableName: string): number {
   return row.count;
 }
 
-function countWhere(db: DatabaseSync, tableName: string, whereClause: string): number {
+function countWhere(
+  db: DatabaseSync,
+  tableName: string,
+  whereClause: string,
+  requiredColumns: string[] = [],
+): number {
   if (!tableExists(db, tableName)) {
+    return 0;
+  }
+  if (
+    requiredColumns.some((columnName) =>
+      !tableColumnExists(db, tableName, columnName)
+    )
+  ) {
     return 0;
   }
   const row = db.prepare(
@@ -233,4 +250,15 @@ function tableExists(db: DatabaseSync, tableName: string): boolean {
     "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
   ).get(tableName);
   return row !== undefined;
+}
+
+function tableColumnExists(
+  db: DatabaseSync,
+  tableName: string,
+  columnName: string,
+): boolean {
+  const row = db.prepare(`PRAGMA table_info(${tableName});`).all() as Array<{
+    name: string;
+  }>;
+  return row.some((column) => column.name === columnName);
 }

@@ -28,8 +28,6 @@ export type ClaudeStreamJsonCliCleanupProviderOptions = {
   spawnProcess?: ClaudePersistentSmokeSpawn;
   versionRunner?: CommandExitRunner;
 };
-export type ClaudePersistentCliCleanupProviderOptions =
-  ClaudeStreamJsonCliCleanupProviderOptions;
 
 export type CommandExitResult = {
   stdout: string;

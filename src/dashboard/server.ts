@@ -6,7 +6,7 @@ import type { AiProviderRuntimeReadinessSnapshot } from "../ai/cleanup/provider-
 import type { Phase1Config } from "../config.js";
 import type { AloneFinalizeSnapshot } from "../recording/alone-finalize-service.js";
 import type { RecordingProducer } from "../recording/recording-producer.js";
-import { relativeDisplayPath, type SessionStore } from "../storage/session-store.js";
+import type { SessionStore } from "../storage/session-store.js";
 import type { SttAutomationSnapshot } from "../stt/automation-service.js";
 
 export type DashboardAiReadinessSource = {

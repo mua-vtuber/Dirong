@@ -1,8 +1,6 @@
 import path from "node:path";
 import dotenv from "dotenv";
 import { MissingRequiredConfigError } from "./errors.js";
-import { loadSttSettingsFromEnv } from "./settings/env-settings-loader.js";
-import type { SttProviderName, SttSettings } from "./settings/app-settings.js";
 
 export type SttSafeFormat = "webm" | "wav";
 
@@ -29,21 +27,6 @@ export type Phase1Config = {
   openDashboard: boolean;
   aloneFinalizeEnabled: boolean;
   aloneFinalizeGraceMs: number;
-};
-
-export type Phase3SttProviderName = SttProviderName;
-
-export type Phase3SttConfig = {
-  openAiApiKey: string;
-  provider: Phase3SttProviderName;
-  openAiModel: string;
-  language: string;
-  timeoutMs: number;
-  localWhisperCommand: string;
-  localWhisperArgs: string[];
-  localWhisperModel: string;
-  localWhisperDevice: string;
-  localWhisperComputeType: string;
 };
 
 export type Phase1ConfigSnapshot = Omit<Phase1Config, "discordBotToken"> & {
@@ -147,26 +130,6 @@ export function snapshotPhase1Config(config: Phase1Config): Phase1ConfigSnapshot
   };
 }
 
-export function loadPhase3SttConfig(): Phase3SttConfig {
-  loadDotEnv();
-  const sttSettings = loadSttSettingsFromEnv(process.env);
-  const openAiSettings = resolveOpenAiSettings(sttSettings);
-  const localWhisperSettings = resolveLocalWhisperSettings(sttSettings);
-
-  return {
-    openAiApiKey: openAiSettings.apiKey,
-    provider: sttSettings.provider,
-    openAiModel: openAiSettings.model,
-    language: sttSettings.language,
-    timeoutMs: sttSettings.timeoutMs,
-    localWhisperCommand: localWhisperSettings.command,
-    localWhisperArgs: localWhisperSettings.args,
-    localWhisperModel: localWhisperSettings.model,
-    localWhisperDevice: localWhisperSettings.device,
-    localWhisperComputeType: localWhisperSettings.computeType,
-  };
-}
-
 function readBoolean(key: string, fallback: boolean): boolean {
   const raw = process.env[key]?.trim().toLowerCase();
   if (!raw) {
@@ -187,34 +150,4 @@ function readNumber(key: string, fallback: number): number {
   }
 
   return parsed;
-}
-
-function resolveOpenAiSettings(settings: SttSettings): {
-  apiKey: string;
-  model: string;
-} {
-  return settings.provider === "openai"
-    ? settings.openai
-    : {
-        apiKey: process.env.OPENAI_API_KEY?.trim() ?? "",
-        model: process.env.PHASE3_STT_MODEL?.trim() || "gpt-4o-mini-transcribe",
-      };
-}
-
-function resolveLocalWhisperSettings(settings: SttSettings): {
-  command: string;
-  args: string[];
-  model: string;
-  device: string;
-  computeType: string;
-} {
-  return settings.provider === "local-whisper"
-    ? settings.localWhisper
-    : {
-        command: process.env.PHASE3_LOCAL_WHISPER_COMMAND?.trim() || "python",
-        args: ["scripts/local-whisper-json.py"],
-        model: process.env.PHASE3_LOCAL_WHISPER_MODEL?.trim() || "small",
-        device: process.env.PHASE3_LOCAL_WHISPER_DEVICE?.trim() || "cpu",
-        computeType: process.env.PHASE3_LOCAL_WHISPER_COMPUTE_TYPE?.trim() || "int8",
-      };
 }

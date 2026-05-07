@@ -1,4 +1,5 @@
 import { redactSensitiveText } from "../errors.js";
+import { PollingLoop } from "../runtime/polling-loop.js";
 import type { SessionStore } from "../storage/session-store.js";
 import type { SttProvider } from "./provider.js";
 import { runSttBatch, type SttRunResult } from "./runner.js";
@@ -38,10 +39,7 @@ export type SttAutomationServiceOptions = {
 };
 
 export class SttAutomationService {
-  private timer: ReturnType<typeof setTimeout> | null = null;
-  private tickPromise: Promise<SttAutomationSnapshot> | null = null;
-  private started = false;
-  private stopping = false;
+  private readonly loop: PollingLoop<SttAutomationSnapshot>;
   private snapshot: SttAutomationSnapshot;
 
   constructor(
@@ -61,27 +59,31 @@ export class SttAutomationService {
       technicalDetail: null,
       lastRun: null,
     });
+    this.loop = new PollingLoop({
+      intervalMs: options.pollIntervalMs,
+      runTick: () => this.tick(),
+      onScheduledError: (error) => {
+        this.snapshot = makeSnapshot({
+          ...this.snapshot,
+          status: "failed",
+          checkedAt: new Date().toISOString(),
+          message: "STT 자동 실행 중 오류가 발생했습니다.",
+          userAction: "녹음 파일은 보존됩니다. STT 설정과 로그를 확인해 주세요.",
+          technicalDetail: summarizeError(error),
+        });
+      },
+    });
   }
 
   start(): void {
-    if (this.started || !this.options.enabled) {
+    if (!this.options.enabled) {
       return;
     }
-    this.started = true;
-    this.stopping = false;
-    this.schedule(0);
+    this.loop.start();
   }
 
   async stop(): Promise<void> {
-    this.started = false;
-    this.stopping = true;
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
-    if (this.tickPromise) {
-      await this.tickPromise;
-    }
+    await this.loop.stop();
     this.snapshot = makeSnapshot({
       ...this.snapshot,
       status: "stopped",
@@ -107,44 +109,7 @@ export class SttAutomationService {
       return this.getSnapshot();
     }
 
-    if (this.tickPromise) {
-      return await this.tickPromise;
-    }
-
-    this.tickPromise = this.tick();
-    try {
-      return await this.tickPromise;
-    } finally {
-      this.tickPromise = null;
-    }
-  }
-
-  private schedule(delayMs: number): void {
-    if (!this.started || this.stopping) {
-      return;
-    }
-    this.timer = setTimeout(() => {
-      this.timer = null;
-      void this.runScheduledTick();
-    }, Math.max(0, delayMs));
-    this.timer.unref?.();
-  }
-
-  private async runScheduledTick(): Promise<void> {
-    try {
-      await this.runOnce();
-    } catch (error) {
-      this.snapshot = makeSnapshot({
-        ...this.snapshot,
-        status: "failed",
-        checkedAt: new Date().toISOString(),
-        message: "STT 자동 실행 중 오류가 발생했습니다.",
-        userAction: "녹음 파일은 보존됩니다. STT 설정과 로그를 확인해 주세요.",
-        technicalDetail: summarizeError(error),
-      });
-    } finally {
-      this.schedule(this.options.pollIntervalMs);
-    }
+    return await this.loop.runOnce();
   }
 
   private async tick(): Promise<SttAutomationSnapshot> {

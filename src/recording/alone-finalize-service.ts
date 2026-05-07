@@ -1,5 +1,12 @@
 import type { VoiceState } from "discord.js";
 import { redactSensitiveText } from "../errors.js";
+import {
+  cloneAloneFinalizeSnapshot,
+  createInitialAloneFinalizeSnapshot,
+  reduceAloneFinalizeSnapshot,
+  withDynamicAloneFinalizeCountdown,
+  type AloneFinalizeCountdownState,
+} from "./alone-finalize-state.js";
 import type {
   RecordingRuntimeState,
   SessionStatus,
@@ -78,19 +85,12 @@ type AloneFinalizeTimer = ReturnType<typeof setTimeout> & {
   unref?: () => void;
 };
 
-type CountdownState = {
-  sessionId: string;
-  voiceChannelId: string;
-  aloneSinceMs: number;
-  finalizeAtMs: number;
-};
-
 type VoiceStateLike = Pick<VoiceState, "channelId">;
 
 export class AloneFinalizeService {
   private started = false;
   private timer: AloneFinalizeTimer | null = null;
-  private countdown: CountdownState | null = null;
+  private countdown: AloneFinalizeCountdownState | null = null;
   private finalizePromise: Promise<void> | null = null;
   private snapshot: AloneFinalizeSnapshot;
   private readonly now: () => number;
@@ -104,25 +104,7 @@ export class AloneFinalizeService {
     this.now = options.now ?? (() => Date.now());
     this.setTimer = options.setTimeout ?? setTimeout;
     this.clearTimer = options.clearTimeout ?? clearTimeout;
-    this.snapshot = makeSnapshot({
-      enabled: options.enabled,
-      status: options.enabled ? "idle" : "disabled",
-      checkedAt: null,
-      sessionId: null,
-      voiceChannelId: null,
-      aloneSince: null,
-      finalizeAt: null,
-      remainingMs: null,
-      nonBotMemberCount: null,
-      message: options.enabled
-        ? "혼자 남음 자동 종료 대기 중"
-        : "혼자 남음 자동 종료가 꺼져 있습니다.",
-      userAction: options.enabled
-        ? null
-        : "DIRONG_ALONE_FINALIZE_ENABLED=true로 명시 opt-in해야 동작합니다.",
-      technicalDetail: null,
-      warnings: [],
-    });
+    this.snapshot = createInitialAloneFinalizeSnapshot(options.enabled);
   }
 
   start(): void {
@@ -138,19 +120,15 @@ export class AloneFinalizeService {
     if (this.finalizePromise) {
       await this.finalizePromise;
     }
-    this.snapshot = makeSnapshot({
-      ...this.snapshot,
-      status: this.options.enabled ? "stopped" : "disabled",
+    this.snapshot = reduceAloneFinalizeSnapshot(this.snapshot, {
+      type: "stopped",
+      enabled: this.options.enabled,
       checkedAt: this.isoNow(),
-      message: this.options.enabled
-        ? "혼자 남음 자동 종료 중지됨"
-        : "혼자 남음 자동 종료가 꺼져 있습니다.",
-      userAction: null,
     });
   }
 
   getSnapshot(): AloneFinalizeSnapshot {
-    return cloneSnapshot(this.withDynamicCountdown(this.snapshot));
+    return cloneAloneFinalizeSnapshot(this.withDynamicCountdown(this.snapshot));
   }
 
   async handleVoiceStateUpdate(
@@ -164,17 +142,13 @@ export class AloneFinalizeService {
     const runtime = this.options.producer.getRuntimeState();
     if (!runtime.sessionId || !runtime.voiceChannelId) {
       this.cancelCountdown({ recordEvent: true, reason: "no_active_session" });
-      this.snapshot = makeSnapshot({
-        ...this.snapshot,
-        status: "idle",
+      this.snapshot = reduceAloneFinalizeSnapshot(this.snapshot, {
+        type: "idle",
         checkedAt: this.isoNow(),
         sessionId: null,
         voiceChannelId: null,
         nonBotMemberCount: null,
-        message: "혼자 남음 자동 종료 대기 중",
-        userAction: null,
-        technicalDetail: null,
-        warnings: [],
+        clearCountdown: false,
       });
       return;
     }
@@ -205,16 +179,17 @@ export class AloneFinalizeService {
         reason: "session_not_found",
         level: "warn",
       });
-      this.snapshot = makeSnapshot({
-        ...this.snapshot,
-        status: "skipped",
+      this.snapshot = reduceAloneFinalizeSnapshot(this.snapshot, {
+        type: "skipped",
         checkedAt: this.isoNow(),
         sessionId: runtime.sessionId,
         voiceChannelId: runtime.voiceChannelId,
+        nonBotMemberCount: this.snapshot.nonBotMemberCount,
         message: "혼자 남음 자동 종료 건너뜀: 세션을 찾지 못했습니다.",
         userAction: "녹음 상태와 dashboard를 확인해 주세요.",
         technicalDetail: null,
         warnings: ["session_not_found"],
+        clearCountdown: false,
       });
       return;
     }
@@ -227,9 +202,8 @@ export class AloneFinalizeService {
         reason: `session_${session.status}`,
         level: "info",
       });
-      this.snapshot = makeSnapshot({
-        ...this.snapshot,
-        status: "skipped",
+      this.snapshot = reduceAloneFinalizeSnapshot(this.snapshot, {
+        type: "skipped",
         checkedAt: this.isoNow(),
         sessionId: session.id,
         voiceChannelId: runtime.voiceChannelId,
@@ -238,6 +212,7 @@ export class AloneFinalizeService {
         userAction: null,
         technicalDetail: null,
         warnings: [],
+        clearCountdown: false,
       });
       return;
     }
@@ -252,9 +227,8 @@ export class AloneFinalizeService {
         level: "warn",
         technicalDetail: memberCount.technicalDetail ?? null,
       });
-      this.snapshot = makeSnapshot({
-        ...this.snapshot,
-        status: "skipped",
+      this.snapshot = reduceAloneFinalizeSnapshot(this.snapshot, {
+        type: "skipped",
         checkedAt: this.isoNow(),
         sessionId: session.id,
         voiceChannelId: runtime.voiceChannelId,
@@ -263,6 +237,7 @@ export class AloneFinalizeService {
         userAction: "녹음은 계속됩니다. dashboard와 Discord 채널 상태를 확인해 주세요.",
         technicalDetail: memberCount.technicalDetail ?? memberCount.reason,
         warnings: [memberCount.reason],
+        clearCountdown: false,
       });
       return;
     }
@@ -273,17 +248,13 @@ export class AloneFinalizeService {
         reason: "human_returned",
         nonBotMemberCount: memberCount.nonBotMemberCount,
       });
-      this.snapshot = makeSnapshot({
-        ...this.snapshot,
-        status: "idle",
+      this.snapshot = reduceAloneFinalizeSnapshot(this.snapshot, {
+        type: "idle",
         checkedAt: this.isoNow(),
         sessionId: session.id,
         voiceChannelId: runtime.voiceChannelId,
         nonBotMemberCount: memberCount.nonBotMemberCount,
-        message: "혼자 남음 자동 종료 대기 중",
-        userAction: null,
-        technicalDetail: null,
-        warnings: [],
+        clearCountdown: false,
       });
       return;
     }
@@ -299,20 +270,11 @@ export class AloneFinalizeService {
           nonBotMemberCount: memberCount.nonBotMemberCount,
         },
       });
-      this.snapshot = makeSnapshot({
-        ...this.snapshot,
-        status: "deferred_reconnecting",
+      this.snapshot = reduceAloneFinalizeSnapshot(this.snapshot, {
+        type: "deferred_reconnecting",
         checkedAt: this.isoNow(),
         sessionId: session.id,
         voiceChannelId: runtime.voiceChannelId,
-        aloneSince: null,
-        finalizeAt: null,
-        remainingMs: null,
-        nonBotMemberCount: 0,
-        message: "혼자 남음 감지됨: Discord 재연결 중이라 자동 종료를 보류했습니다.",
-        userAction: "연결이 안정되면 다시 확인합니다. 녹음 데이터는 보존됩니다.",
-        technicalDetail: null,
-        warnings: ["reconnecting"],
       });
       return;
     }
@@ -325,9 +287,8 @@ export class AloneFinalizeService {
         reason: `session_${session.status}`,
         level: "info",
       });
-      this.snapshot = makeSnapshot({
-        ...this.snapshot,
-        status: "skipped",
+      this.snapshot = reduceAloneFinalizeSnapshot(this.snapshot, {
+        type: "skipped",
         checkedAt: this.isoNow(),
         sessionId: session.id,
         voiceChannelId: runtime.voiceChannelId,
@@ -336,6 +297,7 @@ export class AloneFinalizeService {
         userAction: null,
         technicalDetail: null,
         warnings: [],
+        clearCountdown: false,
       });
       return;
     }
@@ -352,8 +314,8 @@ export class AloneFinalizeService {
       this.countdown?.sessionId === sessionId &&
       this.countdown.voiceChannelId === voiceChannelId
     ) {
-      this.snapshot = makeSnapshot({
-        ...this.snapshot,
+      this.snapshot = reduceAloneFinalizeSnapshot(this.snapshot, {
+        type: "countdown_refreshed",
         checkedAt: this.isoNow(),
         nonBotMemberCount: memberCount.nonBotMemberCount,
       });
@@ -396,24 +358,20 @@ export class AloneFinalizeService {
       },
     });
 
-    this.snapshot = makeSnapshot({
-      ...this.snapshot,
-      status: "countdown",
+    this.snapshot = reduceAloneFinalizeSnapshot(this.snapshot, {
+      type: "countdown_started",
       checkedAt: this.isoNow(),
       sessionId,
       voiceChannelId,
       aloneSince: this.isoFromMs(aloneSinceMs),
       finalizeAt: this.isoFromMs(finalizeAtMs),
       remainingMs: Math.max(0, finalizeAtMs - this.now()),
-      nonBotMemberCount: 0,
-      message: countdownMessage(Math.max(0, finalizeAtMs - this.now())),
-      userAction: "grace 시간 안에 사람이 돌아오면 자동 종료가 취소됩니다.",
-      technicalDetail: null,
-      warnings: [],
     });
   }
 
-  private async handleGraceExpired(countdown: CountdownState): Promise<void> {
+  private async handleGraceExpired(
+    countdown: AloneFinalizeCountdownState,
+  ): Promise<void> {
     this.countdown = null;
     const runtime = this.options.producer.getRuntimeState();
     if (
@@ -437,20 +395,11 @@ export class AloneFinalizeService {
         level: "warn",
         details: { voiceChannelId: countdown.voiceChannelId },
       });
-      this.snapshot = makeSnapshot({
-        ...this.snapshot,
-        status: "deferred_reconnecting",
+      this.snapshot = reduceAloneFinalizeSnapshot(this.snapshot, {
+        type: "deferred_reconnecting",
         checkedAt: this.isoNow(),
         sessionId: session.id,
         voiceChannelId: countdown.voiceChannelId,
-        aloneSince: null,
-        finalizeAt: null,
-        remainingMs: null,
-        nonBotMemberCount: 0,
-        message: "혼자 남음 감지됨: Discord 재연결 중이라 자동 종료를 보류했습니다.",
-        userAction: "연결이 안정되면 다시 확인합니다. 녹음 데이터는 보존됩니다.",
-        technicalDetail: null,
-        warnings: ["reconnecting"],
       });
       return;
     }
@@ -480,20 +429,13 @@ export class AloneFinalizeService {
           nonBotMemberCount: memberCount.nonBotMemberCount,
         },
       });
-      this.snapshot = makeSnapshot({
-        ...this.snapshot,
-        status: "idle",
+      this.snapshot = reduceAloneFinalizeSnapshot(this.snapshot, {
+        type: "idle",
         checkedAt: this.isoNow(),
         sessionId: countdown.sessionId,
         voiceChannelId: countdown.voiceChannelId,
-        aloneSince: null,
-        finalizeAt: null,
-        remainingMs: null,
         nonBotMemberCount: memberCount.nonBotMemberCount,
-        message: "혼자 남음 자동 종료 대기 중",
-        userAction: null,
-        technicalDetail: null,
-        warnings: [],
+        clearCountdown: true,
       });
       return;
     }
@@ -511,20 +453,11 @@ export class AloneFinalizeService {
         totalMemberCount: memberCount.totalMemberCount,
       },
     });
-    this.snapshot = makeSnapshot({
-      ...this.snapshot,
-      status: "triggering",
+    this.snapshot = reduceAloneFinalizeSnapshot(this.snapshot, {
+      type: "triggering",
       checkedAt: this.isoNow(),
       sessionId: countdown.sessionId,
       voiceChannelId: countdown.voiceChannelId,
-      aloneSince: null,
-      finalizeAt: null,
-      remainingMs: null,
-      nonBotMemberCount: 0,
-      message: "혼자 남음 grace가 끝나 녹음을 자동 종료하는 중",
-      userAction: null,
-      technicalDetail: null,
-      warnings: [],
     });
 
     try {
@@ -532,16 +465,12 @@ export class AloneFinalizeService {
         stoppedByUserId: "system_alone",
         stoppedByDisplayName: "디롱이 자동 종료",
       });
-      this.snapshot = makeSnapshot({
-        ...this.snapshot,
-        status: "finalized",
+      this.snapshot = reduceAloneFinalizeSnapshot(this.snapshot, {
+        type: "finalized",
         checkedAt: this.isoNow(),
         sessionId: result.sessionId,
         voiceChannelId: countdown.voiceChannelId,
-        message: `혼자 남음으로 녹음을 자동 종료했습니다. 상태: ${result.status}`,
-        userAction: null,
-        technicalDetail: null,
-        warnings: result.status === "finalized" ? [] : [`session_${result.status}`],
+        resultStatus: result.status,
       });
     } catch (error) {
       const detail = summarizeError(error);
@@ -551,22 +480,18 @@ export class AloneFinalizeService {
         level: "error",
         details: { error: detail },
       });
-      this.snapshot = makeSnapshot({
-        ...this.snapshot,
-        status: "failed",
+      this.snapshot = reduceAloneFinalizeSnapshot(this.snapshot, {
+        type: "failed",
         checkedAt: this.isoNow(),
         sessionId: countdown.sessionId,
         voiceChannelId: countdown.voiceChannelId,
-        message: "혼자 남음 자동 종료 실패. 녹음/STT 데이터는 보존됩니다.",
-        userAction: "dashboard와 로그를 확인한 뒤 필요하면 /dirong stop을 실행해 주세요.",
         technicalDetail: detail,
-        warnings: ["alone_finalize_failed"],
       });
     }
   }
 
   private recordSkipped(
-    countdown: CountdownState,
+    countdown: AloneFinalizeCountdownState,
     reason: string,
     level: "info" | "warn",
     technicalDetail: string | null = null,
@@ -581,20 +506,17 @@ export class AloneFinalizeService {
         technicalDetail,
       },
     });
-    this.snapshot = makeSnapshot({
-      ...this.snapshot,
-      status: "skipped",
+    this.snapshot = reduceAloneFinalizeSnapshot(this.snapshot, {
+      type: "skipped",
       checkedAt: this.isoNow(),
       sessionId: countdown.sessionId,
       voiceChannelId: countdown.voiceChannelId,
-      aloneSince: null,
-      finalizeAt: null,
-      remainingMs: null,
       nonBotMemberCount: null,
       message: "혼자 남음 자동 종료를 건너뛰었습니다. 녹음은 계속됩니다.",
       userAction: "자동 종료 조건을 안전하게 확인하지 못했습니다. dashboard 상태를 확인해 주세요.",
       technicalDetail,
       warnings: [reason],
+      clearCountdown: true,
     });
   }
 
@@ -650,15 +572,11 @@ export class AloneFinalizeService {
   private withDynamicCountdown(
     snapshot: AloneFinalizeSnapshot,
   ): AloneFinalizeSnapshot {
-    if (snapshot.status !== "countdown" || !this.countdown) {
-      return snapshot;
-    }
-    const remainingMs = Math.max(0, this.countdown.finalizeAtMs - this.now());
-    return {
-      ...snapshot,
-      remainingMs,
-      message: countdownMessage(remainingMs),
-    };
+    return withDynamicAloneFinalizeCountdown(
+      snapshot,
+      this.countdown,
+      this.now(),
+    );
   }
 
   private isoNow(): string {
@@ -690,27 +608,6 @@ export function formatAloneFinalizeForStatus(
 
 function isFinalStopState(status: SessionStatus): boolean {
   return ["stopping", "finalized", "failed", "needs_repair"].includes(status);
-}
-
-function countdownMessage(remainingMs: number): string {
-  return `혼자 남음 감지, ${Math.ceil(remainingMs / 1000)}초 후 자동 종료`;
-}
-
-function makeSnapshot(snapshot: AloneFinalizeSnapshot): AloneFinalizeSnapshot {
-  return cloneSnapshot({
-    ...snapshot,
-    technicalDetail:
-      snapshot.technicalDetail === null
-        ? null
-        : redactSensitiveText(snapshot.technicalDetail),
-  });
-}
-
-function cloneSnapshot(snapshot: AloneFinalizeSnapshot): AloneFinalizeSnapshot {
-  return {
-    ...snapshot,
-    warnings: [...snapshot.warnings],
-  };
 }
 
 function summarizeError(error: unknown): string {

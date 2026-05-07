@@ -5,6 +5,7 @@ import type {
   AiCleanupSttTerminalSnapshot,
   SessionStore,
 } from "../../storage/session-store.js";
+import { PollingLoop } from "../../runtime/polling-loop.js";
 import { buildPhase4TimelineInput } from "./timeline-input.js";
 import type { AiCleanupProvider } from "./provider.js";
 import { AiCleanupProviderError } from "./provider.js";
@@ -85,10 +86,7 @@ export type AiCleanupAutomationServiceOptions = {
  * runtime progress and durable job state.
  */
 export class AiCleanupAutomationService {
-  private timer: ReturnType<typeof setTimeout> | null = null;
-  private tickPromise: Promise<AiCleanupAutomationSnapshot> | null = null;
-  private started = false;
-  private stopping = false;
+  private readonly loop: PollingLoop<AiCleanupAutomationSnapshot>;
   private lastReadinessRetryAt = 0;
   private readonly inFlightSessionIds = new Set<string>();
   private snapshot: AiCleanupAutomationSnapshot;
@@ -118,27 +116,32 @@ export class AiCleanupAutomationService {
       warnings: [],
       progress: null,
     });
+    this.loop = new PollingLoop({
+      intervalMs: options.pollIntervalMs,
+      runTick: () => this.tick(),
+      onScheduledError: (error) => {
+        this.snapshot = makeSnapshot({
+          ...this.snapshot,
+          status: "failed",
+          checkedAt: new Date().toISOString(),
+          message: "AI cleanup 자동 실행 확인 중 오류가 발생했습니다.",
+          userAction: "녹음/STT는 보존됩니다. 로그와 dashboard 상태를 확인해 주세요.",
+          technicalDetail: summarizeError(error),
+          progress: null,
+        });
+      },
+    });
   }
 
   start(): void {
-    if (this.started || !this.options.enabled) {
+    if (!this.options.enabled) {
       return;
     }
-    this.started = true;
-    this.stopping = false;
-    this.schedule(0);
+    this.loop.start();
   }
 
   async stop(): Promise<void> {
-    this.started = false;
-    this.stopping = true;
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
-    if (this.tickPromise) {
-      await this.tickPromise;
-    }
+    await this.loop.stop();
     this.snapshot = makeSnapshot({
       ...this.snapshot,
       status: "stopped",
@@ -167,45 +170,7 @@ export class AiCleanupAutomationService {
       return this.getSnapshot();
     }
 
-    if (this.tickPromise) {
-      return await this.tickPromise;
-    }
-
-    this.tickPromise = this.tick();
-    try {
-      return await this.tickPromise;
-    } finally {
-      this.tickPromise = null;
-    }
-  }
-
-  private schedule(delayMs: number): void {
-    if (!this.started || this.stopping) {
-      return;
-    }
-    this.timer = setTimeout(() => {
-      this.timer = null;
-      void this.runScheduledTick();
-    }, Math.max(0, delayMs));
-    this.timer.unref?.();
-  }
-
-  private async runScheduledTick(): Promise<void> {
-    try {
-      await this.runOnce();
-    } catch (error) {
-      this.snapshot = makeSnapshot({
-        ...this.snapshot,
-        status: "failed",
-        checkedAt: new Date().toISOString(),
-        message: "AI cleanup 자동 실행 확인 중 오류가 발생했습니다.",
-        userAction: "녹음/STT는 보존됩니다. 로그와 dashboard 상태를 확인해 주세요.",
-        technicalDetail: summarizeError(error),
-        progress: null,
-      });
-    } finally {
-      this.schedule(this.options.pollIntervalMs);
-    }
+    return await this.loop.runOnce();
   }
 
   private async tick(): Promise<AiCleanupAutomationSnapshot> {

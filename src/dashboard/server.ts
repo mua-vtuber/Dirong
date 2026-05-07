@@ -12,6 +12,7 @@ import type {
   NotionDashboardActionResult,
   NotionDashboardSnapshot,
 } from "../notion/dashboard-service.js";
+import type { NotionAutomationSnapshot } from "../notion/automation-service.js";
 
 export type DashboardAiReadinessSource = {
   getSnapshot(): AiProviderRuntimeReadinessSnapshot;
@@ -38,11 +39,16 @@ export type DashboardNotionSource = {
   }): Promise<NotionDashboardActionResult>;
 };
 
+export type DashboardNotionAutomationSource = {
+  getSnapshot(): NotionAutomationSnapshot;
+};
+
 export type DashboardRuntimeSources = {
   aiReadiness?: DashboardAiReadinessSource;
   aiCleanupAutomation?: DashboardAiCleanupAutomationSource;
   aloneFinalize?: DashboardAloneFinalizeSource;
   notion?: DashboardNotionSource;
+  notionAutomation?: DashboardNotionAutomationSource;
   sttAutomation?: DashboardSttAutomationSource;
 };
 
@@ -263,6 +269,7 @@ export function appendDashboardRuntimeSnapshots(
     !sources.aiCleanupAutomation &&
     !sources.aloneFinalize &&
     !sources.notion &&
+    !sources.notionAutomation &&
     !sources.sttAutomation
   ) {
     return state;
@@ -281,6 +288,9 @@ export function appendDashboardRuntimeSnapshots(
       : {}),
     ...(sources.notion
       ? { notion: sources.notion.getSnapshot() }
+      : {}),
+    ...(sources.notionAutomation
+      ? { notionAutomation: sources.notionAutomation.getSnapshot() }
       : {}),
     ...(sources.sttAutomation
       ? { sttAutomation: sources.sttAutomation.getSnapshot() }

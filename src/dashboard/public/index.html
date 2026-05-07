@@ -419,6 +419,10 @@
       const action = notion.userAction
         ? '<div class="value">' + escapeHtml(notion.userAction) + '</div>'
         : '';
+      const automation = state.notionAutomation
+        ? '<div class="muted">automation: ' + escapeHtml(state.notionAutomation.status) +
+          ' · ' + escapeHtml(state.notionAutomation.message) + '</div>'
+        : '';
       const buttons = renderNotionButtons(state);
       return '<div class="metric">' +
         '<div class="label">notion · ' + escapeHtml(notion.status) + ' · ' + escapeHtml(notion.uploadMode) + '</div>' +
@@ -428,14 +432,15 @@
         '<br>write: ' + escapeHtml(latest?.id ?? '-') +
         '<br>draft: ' + escapeHtml(latest?.draft_id ?? state.latestMeetingNotesDraft?.id ?? '-') +
         '<br>hash: ' + escapeHtml(shortHash(latest?.content_hash)) + '</div>' +
-        page + action + buttons + error + '</div>';
+        page + automation + action + buttons + error + '</div>';
     }
     function renderNotionMetric(state) {
       const latest = state.latestNotionWrite;
       if (latest) {
-        return latest.status + (latest.notion_page_url ? ' / page ready' : '');
+        const auto = state.notionAutomation?.status ? ' / auto ' + state.notionAutomation.status : '';
+        return latest.status + (latest.notion_page_url ? ' / page ready' : '') + auto;
       }
-      return state.notion?.message ?? '-';
+      return state.notionAutomation?.message ?? state.notion?.message ?? '-';
     }
     function renderNotionButtons(state) {
       const draftId = state.latestMeetingNotesDraft?.id ?? '';

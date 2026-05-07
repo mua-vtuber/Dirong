@@ -3,6 +3,13 @@ import { SqlRunner } from "../storage/sql-runner.js";
 import type { MeetingNotesDraftRow, SessionRow } from "../storage/session-store.js";
 import type { NotionDraftInput, NotionDraftSpeaker } from "./draft-input.js";
 
+export type NotionDraftCandidateRow = {
+  id: string;
+  session_id: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export class NotionDraftInputReadModel {
   constructor(private readonly runner: SqlRunner) {}
 
@@ -27,6 +34,32 @@ export class NotionDraftInputReadModel {
       sessionId,
     );
     return draft ? this.loadFromDraft(draft) : null;
+  }
+
+  listLatestValidDraftsMissingDoneWrite(input: {
+    targetId: string;
+    limit: number;
+  }): NotionDraftCandidateRow[] {
+    return this.runner.all<NotionDraftCandidateRow>(
+      `SELECT d.id, d.session_id, d.created_at, d.updated_at
+       FROM meeting_notes_drafts d
+       INNER JOIN ai_cleanup_jobs j
+         ON j.id = d.ai_cleanup_job_id
+        AND j.status = 'done'
+       WHERE d.validation_status = 'valid'
+         AND NOT EXISTS (
+           SELECT 1
+           FROM notion_writes w
+           WHERE w.draft_id = d.id
+             AND w.target_type = 'data_source'
+             AND w.target_id = ?
+             AND w.status = 'done'
+         )
+       ORDER BY d.created_at DESC, d.id DESC
+       LIMIT ?`,
+      input.targetId,
+      input.limit,
+    );
   }
 
   private loadFromDraft(draft: MeetingNotesDraftRow): NotionDraftInput | null {

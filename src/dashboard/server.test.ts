@@ -7,7 +7,10 @@ import test from "node:test";
 import type { Phase1Config } from "../config.js";
 import type { RecordingProducer } from "../recording/recording-producer.js";
 import type { SessionStore } from "../storage/session-store.js";
-import type { DashboardNotionSource } from "./server.js";
+import type {
+  DashboardNotionAutomationSource,
+  DashboardNotionSource,
+} from "./server.js";
 import {
   appendAiReadinessToDashboardState,
   appendDashboardRuntimeSnapshots,
@@ -232,6 +235,7 @@ test("appendDashboardRuntimeSnapshots includes redacted Notion snapshot", () => 
 
   const withNotion = appendDashboardRuntimeSnapshots(state, {
     notion: makeNotionSource(),
+    notionAutomation: makeNotionAutomationSource(),
   }) as { notion: { settings: { apiKey: string } } };
   const serialized = JSON.stringify(withNotion);
 
@@ -479,6 +483,29 @@ function makeNotionSource(
         pageUrl: "https://notion.so/page",
       };
     },
+  };
+}
+
+function makeNotionAutomationSource(): DashboardNotionAutomationSource {
+  return {
+    getSnapshot: () => ({
+      enabled: true,
+      configured: true,
+      uploadMode: "automatic_after_ai_cleanup",
+      status: "idle",
+      checkedAt: "2026-05-07T00:00:00.000Z",
+      sessionId: null,
+      draftId: null,
+      targetId: "target-1",
+      writeId: null,
+      pageUrl: null,
+      message: "Notion 자동 업로드 대기 중",
+      userAction: null,
+      technicalDetail: null,
+      lastRunStatus: null,
+      inFlightDraftIds: [],
+      repairedExpiredLeases: 0,
+    }),
   };
 }
 

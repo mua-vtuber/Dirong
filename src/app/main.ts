@@ -42,10 +42,18 @@ import {
   formatAloneFinalizeForStatus,
   type AloneFinalizeMemberCountResult,
 } from "../recording/alone-finalize-service.js";
+import {
+  NotionAutomationService,
+  formatNotionAutomationForStatus,
+} from "../notion/automation-service.js";
+import { createNotionClient } from "../notion/client.js";
 import { NotionDashboardService } from "../notion/dashboard-service.js";
+import { NotionDraftInputReadModel } from "../notion/draft-input-read-model.js";
+import { NotionWriteStore } from "../notion/write-store.js";
 import { RecordingProducer } from "../recording/recording-producer.js";
 import { runStartupRepair } from "../storage/repair-scan.js";
 import { SessionStore } from "../storage/session-store.js";
+import { SqlRunner } from "../storage/sql-runner.js";
 import { DirongDatabase } from "../storage/sqlite.js";
 import {
   SttAutomationService,
@@ -98,17 +106,20 @@ const aiCleanupAutomation = createAiCleanupAutomationService(
   aiCleanupProvider,
   aiLifecycle,
 );
+const notionSqlRunner = new SqlRunner(database);
 const notionDashboard = new NotionDashboardService({
   settings: appSettings.notion,
   database,
   config,
   workerId: `phase5-notion-dashboard-${process.pid}`,
 });
+const notionAutomation = createNotionAutomationService(notionSqlRunner);
 const dashboard = new DashboardServer(config, store, producer, {
   aiReadiness: aiLifecycle,
   aiCleanupAutomation,
   aloneFinalize,
   notion: notionDashboard,
+  notionAutomation,
   sttAutomation,
 });
 const dashboardUrl = await dashboard.start();
@@ -119,6 +130,7 @@ console.log("startup repair:", JSON.stringify(repairSummary, null, 2));
 startSttAutomation();
 startAiPrepareInBackground();
 startAiCleanupAutomation();
+startNotionAutomation();
 startAloneFinalizeService();
 if (config.openDashboard) {
   openDashboardUrl(dashboardUrl);
@@ -350,6 +362,11 @@ async function shutdown(reason: string): Promise<void> {
       printCliError(error, { prefix: "AI cleanup 자동화 종료 실패" });
     }
     try {
+      await notionAutomation.stop();
+    } catch (error) {
+      printCliError(error, { prefix: "Notion 자동 업로드 종료 실패" });
+    }
+    try {
       await aiLifecycle.stop();
     } catch (error) {
       printCliError(error, { prefix: "AI lifecycle 종료 실패" });
@@ -436,6 +453,29 @@ function createAiCleanupAutomationService(
   });
 }
 
+function createNotionAutomationService(
+  runner: SqlRunner,
+): NotionAutomationService {
+  const settings = appSettings.notion;
+  const notionClient = settings.apiKey
+    ? createNotionClient({
+        apiKey: settings.apiKey,
+        apiVersion: settings.apiVersion,
+        baseUrl: settings.baseUrl,
+      })
+    : null;
+  return new NotionAutomationService({
+    settings,
+    client: notionClient,
+    readModel: new NotionDraftInputReadModel(runner),
+    writeStore: new NotionWriteStore(runner),
+    pollIntervalMs: settings.autoPollMs,
+    batchLimit: 1,
+    workerId: `phase5-notion-auto-${process.pid}`,
+    leaseMs: settings.leaseMs || config.sttLeaseMs,
+  });
+}
+
 function startAiPrepareInBackground(): void {
   const snapshot = aiLifecycle.getSnapshot();
   console.log(`AI 준비 중: ${snapshot.provider} / ${snapshot.model}`);
@@ -469,6 +509,16 @@ function startAiCleanupAutomation(): void {
   console.log("AI cleanup 자동 실행 대기 시작: finalized 세션과 STT 완료를 기다립니다.");
 }
 
+function startNotionAutomation(): void {
+  const snapshot = notionAutomation.getSnapshot();
+  if (snapshot.status !== "idle") {
+    console.log(`Notion 자동 업로드 대기 안 함: ${snapshot.message}`);
+    return;
+  }
+  notionAutomation.start();
+  console.log("Notion 자동 업로드 대기 시작: completed valid draft를 기다립니다.");
+}
+
 function startAloneFinalizeService(): void {
   if (!config.aloneFinalizeEnabled) {
     console.log("혼자 남음 자동 종료가 꺼져 있습니다. DIRONG_ALONE_FINALIZE_ENABLED=true로 켤 수 있습니다.");
@@ -489,6 +539,8 @@ function statusTextWithAiReadiness(): string {
     formatAiReadinessForStatus(aiLifecycle.getSnapshot()),
     "",
     formatAiCleanupAutomationForStatus(aiCleanupAutomation.getSnapshot()),
+    "",
+    formatNotionAutomationForStatus(notionAutomation.getSnapshot()),
   ].join("\n");
 }
 

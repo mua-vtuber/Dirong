@@ -15,6 +15,10 @@ import {
   type AiCleanupRunResult,
 } from "./runner.js";
 import type { AiProviderLifecycleService } from "./provider-lifecycle-service.js";
+import {
+  cloneAiCleanupProgressSnapshot,
+  type AiCleanupProgressSnapshot,
+} from "./progress.js";
 
 export type AiCleanupAutomationStatus =
   | "disabled"
@@ -59,6 +63,7 @@ export type AiCleanupAutomationSnapshot = {
   repairedExpiredJobs: AiCleanupLeaseRepairSummary;
   repairedExpiredSttLeases: number;
   warnings: string[];
+  progress: AiCleanupProgressSnapshot | null;
 };
 
 export type AiCleanupAutomationServiceOptions = {
@@ -75,8 +80,9 @@ export type AiCleanupAutomationServiceOptions = {
  * Runtime-only Phase C automation coordinator.
  *
  * It does not persist readiness or automation state. Durable truth remains in
- * ai_cleanup_jobs and meeting_notes_drafts. Timeout/cancel is still delegated to
- * the existing one-shot provider path; Phase C does not hard-kill provider work.
+ * ai_cleanup_jobs and meeting_notes_drafts. Provider timeout/cancel remains
+ * owned by the selected provider implementation; this coordinator only observes
+ * runtime progress and durable job state.
  */
 export class AiCleanupAutomationService {
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -110,6 +116,7 @@ export class AiCleanupAutomationService {
       repairedExpiredJobs: { requeued: 0, failed: 0 },
       repairedExpiredSttLeases: 0,
       warnings: [],
+      progress: null,
     });
   }
 
@@ -139,6 +146,7 @@ export class AiCleanupAutomationService {
       message: "AI cleanup 자동 실행 중지됨",
       userAction: null,
       inFlightSessionIds: this.getInFlightSessionIds(),
+      progress: null,
     });
   }
 
@@ -154,6 +162,7 @@ export class AiCleanupAutomationService {
         checkedAt: new Date().toISOString(),
         message: "AI cleanup 자동 실행이 꺼져 있습니다.",
         userAction: "필요하면 수동 Phase 4 CLI를 실행해 주세요.",
+        progress: null,
       });
       return this.getSnapshot();
     }
@@ -192,6 +201,7 @@ export class AiCleanupAutomationService {
         message: "AI cleanup 자동 실행 확인 중 오류가 발생했습니다.",
         userAction: "녹음/STT는 보존됩니다. 로그와 dashboard 상태를 확인해 주세요.",
         technicalDetail: summarizeError(error),
+        progress: null,
       });
     } finally {
       this.schedule(this.options.pollIntervalMs);
@@ -237,6 +247,7 @@ export class AiCleanupAutomationService {
         repairedExpiredJobs,
         repairedExpiredSttLeases,
         warnings: [],
+        progress: null,
       });
       return this.getSnapshot();
     }
@@ -262,6 +273,7 @@ export class AiCleanupAutomationService {
         repairedExpiredJobs,
         repairedExpiredSttLeases,
         warnings: [],
+        progress: null,
       });
       return this.getSnapshot();
     }
@@ -290,6 +302,7 @@ export class AiCleanupAutomationService {
           repairedExpiredJobs,
           repairedExpiredSttLeases,
           warnings: stt.warnings,
+          progress: null,
         });
         continue;
       }
@@ -320,6 +333,7 @@ export class AiCleanupAutomationService {
           repairedExpiredJobs,
           repairedExpiredSttLeases,
           warnings: stt.warnings,
+          progress: null,
         });
         return this.getSnapshot();
       }
@@ -341,6 +355,7 @@ export class AiCleanupAutomationService {
           repairedExpiredJobs,
           repairedExpiredSttLeases,
           warnings: stt.warnings,
+          progress: null,
         });
         continue;
       }
@@ -362,6 +377,7 @@ export class AiCleanupAutomationService {
           repairedExpiredJobs,
           repairedExpiredSttLeases,
           warnings: stt.warnings,
+          progress: null,
         });
         continue;
       }
@@ -380,6 +396,7 @@ export class AiCleanupAutomationService {
           repairedExpiredJobs,
           repairedExpiredSttLeases,
           warnings: stt.warnings,
+          progress: null,
         });
         continue;
       }
@@ -408,6 +425,7 @@ export class AiCleanupAutomationService {
         repairedExpiredJobs,
         repairedExpiredSttLeases,
         warnings: [],
+        progress: null,
       });
     return this.getSnapshot();
   }
@@ -437,6 +455,7 @@ export class AiCleanupAutomationService {
       repairedExpiredSttLeases,
       warnings: stt.warnings,
       inFlightSessionIds: this.getInFlightSessionIds(),
+      progress: null,
     });
 
     try {
@@ -445,6 +464,7 @@ export class AiCleanupAutomationService {
         sessionId,
         dryRun: false,
         provider: this.options.provider,
+        progress: (progress) => this.acceptProgress(progress),
       });
       this.snapshot = snapshotFromRunResult({
         previous: this.snapshot,
@@ -476,6 +496,7 @@ export class AiCleanupAutomationService {
         repairedExpiredJobs,
         repairedExpiredSttLeases,
         warnings: stt.warnings,
+        progress: this.snapshot.progress,
       });
     } finally {
       this.inFlightSessionIds.delete(sessionId);
@@ -500,6 +521,23 @@ export class AiCleanupAutomationService {
   private getInFlightSessionIds(): string[] {
     return [...this.inFlightSessionIds].sort();
   }
+
+  private acceptProgress(progress: AiCleanupProgressSnapshot): void {
+    if (
+      this.inFlightSessionIds.size > 0 &&
+      !this.inFlightSessionIds.has(progress.sessionId)
+    ) {
+      return;
+    }
+    this.snapshot = makeSnapshot({
+      ...this.snapshot,
+      sessionId: progress.sessionId,
+      status: progress.phase === "failed" ? "failed" : "running",
+      message: progress.message,
+      checkedAt: progress.updatedAt,
+      progress,
+    });
+  }
 }
 
 export function formatAiCleanupAutomationForStatus(
@@ -520,6 +558,18 @@ export function formatAiCleanupAutomationForStatus(
         `failed:${snapshot.stt.sttFailedCount}`,
         `missing_file:${snapshot.stt.sttFailedMissingFileCount}`,
         `real_transcript:${snapshot.stt.realTranscriptEntryCount}`,
+      ].join(" "),
+    );
+  }
+  if (snapshot.progress) {
+    lines.push(
+      [
+        "AI cleanup 진행:",
+        snapshot.progress.phase,
+        `elapsed:${snapshot.progress.elapsedMs}ms`,
+        `lines:${snapshot.progress.streamLineCount}`,
+        `bytes:${snapshot.progress.stdoutBytes}`,
+        snapshot.progress.repairAttempt ? "repair:true" : "repair:false",
       ].join(" "),
     );
   }
@@ -560,6 +610,7 @@ function snapshotFromRunResult(input: {
     repairedExpiredSttLeases: input.repairedExpiredSttLeases,
     inFlightSessionIds: input.inFlightSessionIds,
     warnings: input.stt.warnings,
+    progress: input.previous.progress,
   });
 }
 
@@ -687,6 +738,7 @@ function cloneSnapshot(
         }
       : null,
     job: snapshot.job ? { ...snapshot.job } : null,
+    progress: cloneAiCleanupProgressSnapshot(snapshot.progress),
     inFlightSessionIds: [...snapshot.inFlightSessionIds],
     repairedExpiredJobs: { ...snapshot.repairedExpiredJobs },
     warnings: [...snapshot.warnings],

@@ -93,6 +93,31 @@ export type ClaudePersistentSmokeTurnResult = {
   exitCode: number | null;
   exitSignal: NodeJS.Signals | null;
   error: string | null;
+  diagnostics: ClaudeStreamJsonDiagnostics;
+};
+
+export type ClaudeStreamJsonDiagnostics = {
+  stdoutLineCount: number;
+  stdoutBytes: number;
+  stderrLineCount: number;
+  eventTypeCounts: Record<string, number>;
+  lastEventType: string | null;
+  firstStdoutAfterMs: number | null;
+  lastStdoutAfterMs: number | null;
+  malformedLineCount: number;
+  resultReceived: boolean;
+};
+
+export type ClaudePersistentSmokeRequestProgress = {
+  kind:
+    | "started"
+    | "waiting_for_first_stream_event"
+    | "stream_event"
+    | "result_boundary_received"
+    | "failed";
+  pid: number | null;
+  diagnostics: ClaudeStreamJsonDiagnostics;
+  warning: string | null;
 };
 
 export type ClaudePersistentSmokeKillResult = {
@@ -209,7 +234,11 @@ export class ClaudePersistentSmokeSession {
 
   async request(
     prompt: string,
-    options: { timeoutMs?: number; maxOutputBytes?: number } = {},
+    options: {
+      timeoutMs?: number;
+      maxOutputBytes?: number;
+      progress?: (progress: ClaudePersistentSmokeRequestProgress) => void;
+    } = {},
   ): Promise<ClaudePersistentSmokeTurnResult> {
     if (!prompt.trim()) {
       throw new Error("Claude persistent smoke prompt must not be empty.");
@@ -235,11 +264,45 @@ export class ClaudePersistentSmokeSession {
     let outputExceeded = false;
     let outputBytes = 0;
     let error: string | null = null;
+    const eventTypeCounts: Record<string, number> = {};
+    let lastEventType: string | null = null;
+    let firstStdoutAfterMs: number | null = null;
+    let lastStdoutAfterMs: number | null = null;
+    let malformedLineCount = 0;
+
+    const makeDiagnostics = (): ClaudeStreamJsonDiagnostics => ({
+      stdoutLineCount: stdoutLines.length,
+      stdoutBytes: outputBytes,
+      stderrLineCount: this.stderrLines.length - stderrStartIndex,
+      eventTypeCounts: { ...eventTypeCounts },
+      lastEventType,
+      firstStdoutAfterMs,
+      lastStdoutAfterMs,
+      malformedLineCount,
+      resultReceived,
+    });
+    const emitProgress = (
+      kind: ClaudePersistentSmokeRequestProgress["kind"],
+      warning: string | null = null,
+    ): void => {
+      try {
+        options.progress?.({
+          kind,
+          pid: this.child?.pid ?? null,
+          diagnostics: makeDiagnostics(),
+          warning,
+        });
+      } catch {
+        // Progress observation must never affect protocol handling.
+      }
+    };
 
     const pidBeforeWrite = child.pid ?? null;
+    emitProgress("started");
     const writeError = await writeStdin(child.stdin, payloadWithNewline);
     if (writeError) {
       error = writeError.message;
+      emitProgress("failed", error);
       return this.buildTurnResult({
         prompt,
         payload,
@@ -254,8 +317,10 @@ export class ClaudePersistentSmokeSession {
         outputExceeded,
         startedAt,
         error,
+        diagnostics: makeDiagnostics(),
       });
     }
+    emitProgress("waiting_for_first_stream_event");
 
     while (!resultReceived && !timedOut && !error) {
       const elapsedMs = this.now() - startedAt;
@@ -264,29 +329,48 @@ export class ClaudePersistentSmokeSession {
 
       if (next.kind === "timeout") {
         timedOut = true;
+        error = `stream-json timeout: result not received; ${formatClaudeStreamJsonDiagnostics(makeDiagnostics())}`;
+        emitProgress("failed", error);
         this.kill();
         break;
       }
       if (next.kind === "exit") {
         error = "Claude persistent smoke process exited before result.";
+        emitProgress("failed", `${error} ${formatClaudeStreamJsonDiagnostics(makeDiagnostics())}`);
         break;
       }
       if (next.kind === "error") {
         error = next.error.message;
+        emitProgress("failed", error);
         break;
       }
 
       stdoutLines.push(next.line);
       outputBytes += Buffer.byteLength(`${next.line}\n`, "utf8");
+      const observedAtMs = this.now() - startedAt;
+      firstStdoutAfterMs ??= observedAtMs;
+      lastStdoutAfterMs = observedAtMs;
       if (
         options.maxOutputBytes !== undefined &&
         outputBytes > options.maxOutputBytes
       ) {
         outputExceeded = true;
+        error = `stream-json output exceeded max bytes; ${formatClaudeStreamJsonDiagnostics(makeDiagnostics())}`;
+        emitProgress("failed", error);
         this.kill();
         break;
       }
       const observation = parseClaudeStreamJsonLine(next.line);
+      if (observation.parseError) {
+        malformedLineCount += 1;
+        error = `stream-json protocol error: malformed stdout line; ${formatClaudeStreamJsonDiagnostics(makeDiagnostics())}`;
+        emitProgress("failed", error);
+        this.kill();
+        break;
+      }
+      lastEventType = observation.type ?? "unknown";
+      eventTypeCounts[lastEventType] =
+        (eventTypeCounts[lastEventType] ?? 0) + 1;
       if (observation.sessionId) {
         this.sessionId = observation.sessionId;
       }
@@ -296,6 +380,9 @@ export class ClaudePersistentSmokeSession {
       if (observation.isResult) {
         resultReceived = true;
         resultLine = next.line;
+        emitProgress("result_boundary_received");
+      } else {
+        emitProgress("stream_event");
       }
     }
 
@@ -313,6 +400,7 @@ export class ClaudePersistentSmokeSession {
       outputExceeded,
       startedAt,
       error,
+      diagnostics: makeDiagnostics(),
     });
   }
 
@@ -361,6 +449,7 @@ export class ClaudePersistentSmokeSession {
     outputExceeded: boolean;
     startedAt: number;
     error: string | null;
+    diagnostics: ClaudeStreamJsonDiagnostics;
   }): ClaudePersistentSmokeTurnResult {
     return {
       prompt: input.prompt,
@@ -381,6 +470,7 @@ export class ClaudePersistentSmokeSession {
       exitCode: this.exitCode,
       exitSignal: this.exitSignal,
       error: input.error,
+      diagnostics: input.diagnostics,
     };
   }
 
@@ -603,6 +693,22 @@ export function parseClaudeStreamJsonLine(
       parseError: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+export function formatClaudeStreamJsonDiagnostics(
+  diagnostics: ClaudeStreamJsonDiagnostics,
+): string {
+  const eventTypes = Object.entries(diagnostics.eventTypeCounts)
+    .map(([type, count]) => `${type}:${count}`)
+    .join(",");
+  return [
+    `eventTypes=${eventTypes || "none"}`,
+    `stdoutLines=${diagnostics.stdoutLineCount}`,
+    `stdoutBytes=${diagnostics.stdoutBytes}`,
+    `stderrLines=${diagnostics.stderrLineCount}`,
+    `lastEvent=${diagnostics.lastEventType ?? "none"}`,
+    `resultReceived=${diagnostics.resultReceived}`,
+  ].join("; ");
 }
 
 export function renderCommandDisplay(command: string, args: string[]): string {

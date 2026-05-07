@@ -29,6 +29,13 @@ import {
   buildPhase4UserPrompt,
 } from "./prompts.js";
 import {
+  makeAiCleanupProgressContext,
+  safeEmitAiCleanupProgress,
+  type AiCleanupProgressContext,
+  type AiCleanupProgressObserver,
+  type AiCleanupProgressUpdate,
+} from "./progress.js";
+import {
   buildPhase4TimelineInput,
   sha256Text,
   stableStringify,
@@ -72,13 +79,14 @@ export type AiCleanupRunOptions = {
   maxOutputBytes: number;
   includeFakeStt?: boolean;
   backup?: () => string[];
+  progress?: AiCleanupProgressObserver;
 };
 
 export async function runAiCleanupForSession(
   store: SessionStore,
   options: AiCleanupRunOptions,
 ): Promise<AiCleanupRunResult> {
-  let resetReason: AiCleanupProviderResetReason = "success";
+  let resetReason: AiCleanupProviderResetReason = "request_success";
   try {
     const result = await runAiCleanupForSessionCore(store, options);
     resetReason = resetReasonForRunResult(result);
@@ -116,6 +124,24 @@ async function runAiCleanupForSessionCore(
   const systemPrompt = buildPhase4SystemPrompt();
   const userPrompt = buildPhase4UserPrompt(timelineInput);
   const inputChars = timelineInput.canonicalJson.length + timelineInput.markdown.length;
+  let progressContext = makeAiCleanupProgressContext({
+    sessionId: options.sessionId,
+    provider: options.provider.providerName,
+    model: options.provider.modelName,
+  });
+  const emitProgress = (update: AiCleanupProgressUpdate): void => {
+    safeEmitAiCleanupProgress(options.progress, progressContext, update);
+  };
+  const updateProgressContext = (
+    patch: Partial<AiCleanupProgressContext>,
+  ): void => {
+    progressContext = { ...progressContext, ...patch };
+  };
+
+  emitProgress({
+    phase: "preparing_input",
+    message: "AI cleanup 입력 준비 중",
+  });
 
   const baseResult = makeBaseResult(options, timelineInput, inputChars);
   if (options.dryRun) {
@@ -138,6 +164,12 @@ async function runAiCleanupForSessionCore(
       promptVersion: PHASE4_AI_CLEANUP_PROMPT_VERSION,
       inputHash: timelineInput.inputHash,
     }),
+  });
+  updateProgressContext({ jobId: artifactPaths.jobId });
+  emitProgress({
+    phase: "claiming_job",
+    message: "AI cleanup job 확인 중",
+    jobId: artifactPaths.jobId,
   });
 
   const blockedReason = getInputBlockedReason(timelineInput, inputChars, options);
@@ -165,6 +197,12 @@ async function runAiCleanupForSessionCore(
   });
 
   if (job.status === "done") {
+    emitProgress({
+      phase: "completed",
+      message: "이미 회의록 초안이 있습니다.",
+      jobId: job.id,
+      attempt: job.attempts,
+    });
     return {
       ...baseResult,
       status: "already_done",
@@ -180,6 +218,13 @@ async function runAiCleanupForSessionCore(
       jobId: job.id,
       failureKind: blockedReason.kind,
       error: blockedReason.message,
+    });
+    emitProgress({
+      phase: "failed",
+      message: "회의록 생성 보류",
+      jobId: job.id,
+      attempt: job.attempts,
+      warning: blockedReason.message,
     });
     return {
       ...baseResult,
@@ -198,6 +243,12 @@ async function runAiCleanupForSessionCore(
     leaseMs: options.leaseMs,
   });
   if (!claimed) {
+    emitProgress({
+      phase: "failed",
+      message: "AI cleanup job을 아직 실행할 수 없습니다.",
+      jobId: job.id,
+      attempt: job.attempts,
+    });
     return {
       ...baseResult,
       status: "not_claimed",
@@ -207,8 +258,15 @@ async function runAiCleanupForSessionCore(
       error: "AI cleanup job을 claim하지 못했습니다. 이미 처리 중이거나 재시도 시간이 아직 오지 않았습니다.",
     };
   }
+  updateProgressContext({ jobId: claimed.id, attempt: claimed.attempts });
 
   try {
+    emitProgress({
+      phase: "writing_prompt_artifacts",
+      message: "AI cleanup prompt artifact 저장 중",
+      jobId: claimed.id,
+      attempt: claimed.attempts,
+    });
     writeTextAtomic(artifactPaths.promptPath, `${userPrompt}\n`);
     store.updateAiCleanupJobArtifacts({
       jobId: claimed.id,
@@ -220,6 +278,13 @@ async function runAiCleanupForSessionCore(
       jobId: claimed.id,
       failureKind: "file_io",
       error: message,
+    });
+    emitProgress({
+      phase: "failed",
+      message: "AI cleanup artifact 저장 실패",
+      jobId: claimed.id,
+      attempt: claimed.attempts,
+      warning: message,
     });
     return failedResult(baseResult, backupPaths, store.getAiCleanupJob(claimed.id), message);
   }
@@ -236,6 +301,12 @@ async function runAiCleanupForSessionCore(
 
   let providerResult;
   try {
+    emitProgress({
+      phase: "starting_claude",
+      message: "Claude stream-json 요청 시작",
+      jobId: claimed.id,
+      attempt: claimed.attempts,
+    });
     providerResult = await options.provider.generate(
       providerInput,
       {
@@ -244,6 +315,8 @@ async function runAiCleanupForSessionCore(
         systemPrompt,
         userPrompt,
         jsonSchema: MEETING_NOTES_DRAFT_JSON_SCHEMA,
+        progress: options.progress,
+        progressContext,
       },
     );
   } catch (error) {
@@ -254,9 +327,22 @@ async function runAiCleanupForSessionCore(
       failureKind,
       error: message,
     });
+    emitProgress({
+      phase: "failed",
+      message: "Claude stream-json 요청 실패",
+      jobId: claimed.id,
+      attempt: claimed.attempts,
+      warning: message,
+    });
     return failedResult(baseResult, backupPaths, store.getAiCleanupJob(claimed.id), message);
   }
 
+  emitProgress({
+    phase: "writing_raw_artifacts",
+    message: "Claude raw output artifact 저장 중",
+    jobId: claimed.id,
+    attempt: claimed.attempts,
+  });
   writeTextAtomic(artifactPaths.rawOutputPath, providerResult.rawText);
   writeTextAtomic(artifactPaths.stderrPath, providerResult.stderrText);
   store.updateAiCleanupJobArtifacts({
@@ -277,6 +363,13 @@ async function runAiCleanupForSessionCore(
       failureKind,
       error: message,
     });
+    emitProgress({
+      phase: "failed",
+      message: "Claude stream-json 요청 실패",
+      jobId: claimed.id,
+      attempt: claimed.attempts,
+      warning: message,
+    });
     return failedResult(baseResult, backupPaths, store.getAiCleanupJob(claimed.id), message);
   }
 
@@ -287,11 +380,24 @@ async function runAiCleanupForSessionCore(
       failureKind: "empty_output",
       error: message,
     });
+    emitProgress({
+      phase: "failed",
+      message: "Claude output이 비어 있습니다.",
+      jobId: claimed.id,
+      attempt: claimed.attempts,
+      warning: message,
+    });
     return failedResult(baseResult, backupPaths, store.getAiCleanupJob(claimed.id), message);
   }
 
   let parsedDraft: unknown;
   try {
+    emitProgress({
+      phase: "parsing_json",
+      message: "회의록 JSON 파싱 중",
+      jobId: claimed.id,
+      attempt: claimed.attempts,
+    });
     parsedDraft = parseMeetingNotesDraftFromRawText(providerResult.rawText);
   } catch (error) {
     const message = summarizeError(error);
@@ -300,12 +406,25 @@ async function runAiCleanupForSessionCore(
       failureKind: "malformed_json",
       error: message,
     });
+    emitProgress({
+      phase: "failed",
+      message: "회의록 JSON 파싱 실패",
+      jobId: claimed.id,
+      attempt: claimed.attempts,
+      warning: message,
+    });
     return failedResult(baseResult, backupPaths, store.getAiCleanupJob(claimed.id), message);
   }
 
   let draft;
   let draftRawOutputPath = artifactPaths.rawOutputPath;
   try {
+    emitProgress({
+      phase: "validating_schema",
+      message: "회의록 schema 검증 중",
+      jobId: claimed.id,
+      attempt: claimed.attempts,
+    });
     draft = validateMeetingNotesDraftV1(parsedDraft, {
       sessionId: options.sessionId,
       inputHash: timelineInput.inputHash,
@@ -320,6 +439,18 @@ async function runAiCleanupForSessionCore(
       previousResponse: providerResult.rawText,
     });
     writeTextAtomic(artifactPaths.repairPromptPath, `${repairPrompt}\n`);
+    await resetProviderSession(options.provider, "before_repair");
+    const repairProgressContext = {
+      ...progressContext,
+      repairAttempt: true,
+    };
+    emitProgress({
+      phase: "repairing_schema",
+      message: "회의록 schema repair 요청 중",
+      jobId: claimed.id,
+      attempt: claimed.attempts,
+      repairAttempt: true,
+    });
 
     let repairResult;
     try {
@@ -329,6 +460,8 @@ async function runAiCleanupForSessionCore(
         systemPrompt,
         userPrompt: repairPrompt,
         jsonSchema: MEETING_NOTES_DRAFT_JSON_SCHEMA,
+        progress: options.progress,
+        progressContext: repairProgressContext,
       });
     } catch (repairError) {
       const failureKind = providerFailureKind(repairError);
@@ -338,9 +471,24 @@ async function runAiCleanupForSessionCore(
         failureKind,
         error: message,
       });
+      emitProgress({
+        phase: "failed",
+        message: "회의록 schema repair 요청 실패",
+        jobId: claimed.id,
+        attempt: claimed.attempts,
+        repairAttempt: true,
+        warning: message,
+      });
       return failedResult(baseResult, backupPaths, store.getAiCleanupJob(claimed.id), message);
     }
 
+    emitProgress({
+      phase: "writing_raw_artifacts",
+      message: "Claude repair raw output artifact 저장 중",
+      jobId: claimed.id,
+      attempt: claimed.attempts,
+      repairAttempt: true,
+    });
     writeTextAtomic(artifactPaths.repairRawOutputPath, repairResult.rawText);
     writeTextAtomic(artifactPaths.repairStderrPath, repairResult.stderrText);
     store.updateAiCleanupJobArtifacts({
@@ -361,10 +509,25 @@ async function runAiCleanupForSessionCore(
         failureKind,
         error: message,
       });
+      emitProgress({
+        phase: "failed",
+        message: "회의록 schema repair 실패",
+        jobId: claimed.id,
+        attempt: claimed.attempts,
+        repairAttempt: true,
+        warning: message,
+      });
       return failedResult(baseResult, backupPaths, store.getAiCleanupJob(claimed.id), message);
     }
 
     try {
+      emitProgress({
+        phase: "validating_schema",
+        message: "repair 결과 schema 검증 중",
+        jobId: claimed.id,
+        attempt: claimed.attempts,
+        repairAttempt: true,
+      });
       if (repairResult.rawText.trim().length === 0) {
         throw new DraftParseError("provider repair output is empty");
       }
@@ -382,10 +545,24 @@ async function runAiCleanupForSessionCore(
         failureKind: "schema_invalid",
         error: message,
       });
+      emitProgress({
+        phase: "failed",
+        message: "repair 결과 schema 검증 실패",
+        jobId: claimed.id,
+        attempt: claimed.attempts,
+        repairAttempt: true,
+        warning: message,
+      });
       return failedResult(baseResult, backupPaths, store.getAiCleanupJob(claimed.id), message);
     }
   }
 
+  emitProgress({
+    phase: "rendering_draft",
+    message: "회의록 draft 저장 중",
+    jobId: claimed.id,
+    attempt: claimed.attempts,
+  });
   const draftJson = stableStringify(draft);
   const draftMarkdown = renderMeetingNotesDraftMarkdown(draft);
   const outputHash = sha256Text(draftJson);
@@ -410,6 +587,12 @@ async function runAiCleanupForSessionCore(
     inputHash: timelineInput.inputHash,
     outputHash,
   });
+  emitProgress({
+    phase: "completed",
+    message: "회의록 초안 생성 완료",
+    jobId: claimed.id,
+    attempt: claimed.attempts,
+  });
 
   return {
     ...baseResult,
@@ -425,8 +608,19 @@ async function resetProviderAfterRun(
   provider: AiCleanupProvider,
   reason: AiCleanupProviderResetReason,
 ): Promise<void> {
+  await resetProviderSession(provider, reason);
+}
+
+async function resetProviderSession(
+  provider: AiCleanupProvider,
+  reason: AiCleanupProviderResetReason,
+): Promise<void> {
   try {
-    await provider.resetAfterRequest?.(reason);
+    if (provider.resetSession) {
+      await provider.resetSession(reason);
+      return;
+    }
+    await provider.resetAfterRequest?.(toLegacyResetReason(reason));
   } catch (error) {
     console.warn(
       `AI cleanup provider reset failed after ${reason}: ${summarizeError(error)}`,
@@ -438,11 +632,11 @@ function resetReasonForRunResult(
   result: AiCleanupRunResult,
 ): AiCleanupProviderResetReason {
   if (result.status !== "failed") {
-    return "success";
+    return "request_success";
   }
   return result.job?.failure_kind === "provider_timeout"
-    ? "timeout"
-    : "failure";
+    ? "request_timeout"
+    : "request_failure";
 }
 
 function resetReasonForThrownError(
@@ -450,8 +644,20 @@ function resetReasonForThrownError(
 ): AiCleanupProviderResetReason {
   return error instanceof AiCleanupProviderError &&
     error.failureKind === "provider_timeout"
-    ? "timeout"
-    : "failure";
+    ? "request_timeout"
+    : "request_failure";
+}
+
+function toLegacyResetReason(
+  reason: AiCleanupProviderResetReason,
+): "success" | "failure" | "timeout" {
+  if (reason === "request_timeout") {
+    return "timeout";
+  }
+  if (reason === "request_success") {
+    return "success";
+  }
+  return "failure";
 }
 
 function makeBaseResult(

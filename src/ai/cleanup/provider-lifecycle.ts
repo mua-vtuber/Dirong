@@ -2,6 +2,7 @@ import { AiCleanupProviderError } from "./provider.js";
 import type {
   AiCleanupProvider,
   AiCleanupProviderResetReason,
+  LegacyAiCleanupProviderResetReason,
   AiCleanupProviderInput,
   AiCleanupProviderOptions,
   AiCleanupProviderResult,
@@ -17,6 +18,7 @@ export type AiProviderReadinessKind =
 
 export type AiProviderCapabilityProfile = {
   supportsWarmSession: boolean;
+  supportsStreamingProgress: boolean;
   supportsJsonSchema: boolean;
   supportsStructuredOutput: boolean;
   requiresApiKey: boolean;
@@ -58,7 +60,9 @@ export type AiProviderLifecycleCallOptions = {
   timeoutMs?: number;
 };
 
-export type AiProviderResetReason = AiCleanupProviderResetReason;
+export type AiProviderResetReason =
+  | AiCleanupProviderResetReason
+  | LegacyAiCleanupProviderResetReason;
 
 export interface AiMeetingNotesProvider {
   readonly providerName: string;
@@ -184,7 +188,12 @@ export class AiCleanupProviderLifecycleAdapter implements AiMeetingNotesProvider
   ): Promise<void> {
     await runWithLifecycleControls(
       async () => {
-        await this.provider.resetAfterRequest?.(reason);
+        const normalized = normalizeResetReason(reason);
+        if (this.provider.resetSession) {
+          await this.provider.resetSession(normalized);
+          return;
+        }
+        await this.provider.resetAfterRequest?.(toLegacyResetReason(normalized));
       },
       options,
       "AI provider request reset timed out.",
@@ -211,6 +220,33 @@ export class AiCleanupProviderLifecycleAdapter implements AiMeetingNotesProvider
   }
 }
 
+function normalizeResetReason(
+  reason: AiProviderResetReason,
+): AiCleanupProviderResetReason {
+  if (reason === "success") {
+    return "request_success";
+  }
+  if (reason === "failure") {
+    return "request_failure";
+  }
+  if (reason === "timeout") {
+    return "request_timeout";
+  }
+  return reason;
+}
+
+function toLegacyResetReason(
+  reason: AiCleanupProviderResetReason,
+): LegacyAiCleanupProviderResetReason {
+  if (reason === "request_timeout") {
+    return "timeout";
+  }
+  if (reason === "request_success") {
+    return "success";
+  }
+  return "failure";
+}
+
 export function wrapAiCleanupProviderWithLifecycle(
   provider: AiCleanupProvider,
   options?: AiCleanupProviderLifecycleAdapterOptions,
@@ -223,8 +259,9 @@ function inferLegacyProviderCapabilities(
 ): AiProviderCapabilityProfile {
   const readinessKind = inferReadinessKind(provider.providerName);
   return {
-    supportsWarmSession: provider.supportsWarmSession ?? false,
-    supportsJsonSchema: provider.supportsJsonSchema,
+      supportsWarmSession: provider.supportsWarmSession ?? false,
+      supportsStreamingProgress: provider.supportsStreamingProgress ?? false,
+      supportsJsonSchema: provider.supportsJsonSchema,
     supportsStructuredOutput: provider.supportsJsonSchema,
     requiresApiKey: false,
     requiresLocalServer: false,

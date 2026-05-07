@@ -82,6 +82,35 @@ test("ClaudePersistentSmokeSession kills process on timeout", async () => {
   assert.equal(fake.killCalls[0], "SIGTERM");
 });
 
+test("ClaudePersistentSmokeSession treats malformed stdout as stream-json protocol failure", async () => {
+  const fake = new FakeChildProcess(151);
+  const progressKinds: string[] = [];
+  const session = new ClaudePersistentSmokeSession({
+    command: "claude",
+    timeoutMs: 1_000,
+    platform: "linux",
+    spawnProcess: () => fake,
+  });
+
+  const resultPromise = session.request("hello", {
+    progress: (progress) => progressKinds.push(progress.kind),
+  });
+  fake.stdout.write("{not json}\n");
+  const result = await resultPromise;
+
+  assert.equal(result.resultReceived, false);
+  assert.equal(result.timedOut, false);
+  assert.match(result.error ?? "", /stream-json protocol error/);
+  assert.equal(result.diagnostics.malformedLineCount, 1);
+  assert.equal(result.diagnostics.stdoutLineCount, 1);
+  assert.equal(fake.killCalls[0], "SIGTERM");
+  assert.deepEqual(progressKinds, [
+    "started",
+    "waiting_for_first_stream_event",
+    "failed",
+  ]);
+});
+
 test("ClaudePersistentSmokeSession writes two turns to the same process", async () => {
   const fake = new FakeChildProcess(202);
   const spawnOptions: ClaudePersistentSmokeSpawnOptions[] = [];

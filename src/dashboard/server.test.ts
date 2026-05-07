@@ -72,6 +72,7 @@ test("appendDashboardRuntimeSnapshots includes AI cleanup automation snapshot", 
         repairedExpiredJobs: { requeued: 0, failed: 0 },
         repairedExpiredSttLeases: 0,
         warnings: [],
+        progress: null,
       }),
     },
   });
@@ -95,6 +96,7 @@ test("appendDashboardRuntimeSnapshots includes AI cleanup automation snapshot", 
       repairedExpiredJobs: { requeued: 0, failed: 0 },
       repairedExpiredSttLeases: 0,
       warnings: [],
+      progress: null,
     },
   });
 });

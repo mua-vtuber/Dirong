@@ -3,6 +3,7 @@ import {
   ClaudePersistentSmokeSession,
   renderCommandDisplay,
   resolveShellFalseCommand,
+  type ClaudePersistentSmokeRequestProgress,
   type ClaudePersistentSmokeSpawn,
   type ClaudePersistentSmokeTurnResult,
 } from "./claude-persistent-smoke.js";
@@ -12,16 +13,23 @@ import {
   type AiCleanupProviderInput,
   type AiCleanupProviderOptions,
   type AiCleanupProviderResetReason,
+  type LegacyAiCleanupProviderResetReason,
   type AiCleanupProviderResult,
 } from "./provider.js";
 import { DEFAULT_CLAUDE_CLEANUP_MODEL } from "./claude-models.js";
+import {
+  safeEmitAiCleanupProgress,
+  type AiCleanupProgressPhase,
+} from "./progress.js";
 
-export type ClaudePersistentCliCleanupProviderOptions = {
+export type ClaudeStreamJsonCliCleanupProviderOptions = {
   command?: string;
   model?: string | null;
   spawnProcess?: ClaudePersistentSmokeSpawn;
   versionRunner?: CommandExitRunner;
 };
+export type ClaudePersistentCliCleanupProviderOptions =
+  ClaudeStreamJsonCliCleanupProviderOptions;
 
 export type CommandExitResult = {
   stdout: string;
@@ -36,19 +44,19 @@ export type CommandExitRunner = (
   options: { timeoutMs: number },
 ) => Promise<CommandExitResult>;
 
-export class ClaudePersistentCliCleanupProvider implements AiCleanupProvider {
+export class ClaudeStreamJsonCliCleanupProvider implements AiCleanupProvider {
   readonly providerName = "claude-cli";
   readonly modelName: string;
   readonly supportsJsonSchema = true;
-  readonly supportsWarmSession = true;
+  readonly supportsWarmSession = false;
+  readonly supportsStreamingProgress = true;
 
   private readonly command: string;
   private readonly spawnProcess?: ClaudePersistentSmokeSpawn;
   private readonly versionRunner: CommandExitRunner;
   private session: ClaudePersistentSmokeSession | null = null;
-  private sessionArgsKey: string | null = null;
 
-  constructor(options: ClaudePersistentCliCleanupProviderOptions = {}) {
+  constructor(options: ClaudeStreamJsonCliCleanupProviderOptions = {}) {
     this.command = options.command?.trim() || "claude";
     this.modelName =
       options.model?.trim() || DEFAULT_CLAUDE_CLEANUP_MODEL;
@@ -89,11 +97,8 @@ export class ClaudePersistentCliCleanupProvider implements AiCleanupProvider {
   ): Promise<AiCleanupProviderResult> {
     const startedAt = Date.now();
     const extraArgs = buildPersistentCleanupExtraArgs(options);
-    const argsKey = JSON.stringify(extraArgs);
-    if (this.session && this.sessionArgsKey !== argsKey) {
+    try {
       await this.killSession();
-    }
-    if (!this.session) {
       this.session = new ClaudePersistentSmokeSession({
         command: this.command,
         extraArgs,
@@ -101,32 +106,40 @@ export class ClaudePersistentCliCleanupProvider implements AiCleanupProvider {
         spawnProcess: this.spawnProcess,
         timeoutMs: options.timeoutMs,
       });
-      this.sessionArgsKey = argsKey;
+
+      const turn = await this.session.request(options.userPrompt, {
+        timeoutMs: options.timeoutMs,
+        maxOutputBytes: options.maxOutputBytes,
+        progress: (progress) => emitClaudeProgress(options, progress),
+      });
+
+      return {
+        provider: this.providerName,
+        model: this.modelName,
+        commandDisplay: this.renderCommandDisplay(extraArgs),
+        rawText: turn.stdoutLines.join("\n"),
+        stderrText: buildStderrText(turn),
+        exitCode:
+          turn.timedOut || turn.outputExceeded
+            ? null
+            : turn.error
+              ? 1
+              : turn.exitCode ?? 0,
+        durationMs: Date.now() - startedAt,
+      };
+    } finally {
+      await this.killSession();
     }
+  }
 
-    const turn = await this.session.request(options.userPrompt, {
-      timeoutMs: options.timeoutMs,
-      maxOutputBytes: options.maxOutputBytes,
-    });
-
-    return {
-      provider: this.providerName,
-      model: this.modelName,
-      commandDisplay: this.renderCommandDisplay(extraArgs),
-      rawText: turn.stdoutLines.join("\n"),
-      stderrText: buildStderrText(turn),
-      exitCode:
-        turn.timedOut || turn.outputExceeded
-          ? null
-          : turn.error
-            ? 1
-            : turn.exitCode ?? 0,
-      durationMs: Date.now() - startedAt,
-    };
+  async resetSession(
+    _reason: AiCleanupProviderResetReason,
+  ): Promise<void> {
+    await this.killSession();
   }
 
   async resetAfterRequest(
-    _reason: AiCleanupProviderResetReason,
+    _reason: LegacyAiCleanupProviderResetReason,
   ): Promise<void> {
     await this.killSession();
   }
@@ -138,7 +151,6 @@ export class ClaudePersistentCliCleanupProvider implements AiCleanupProvider {
   private async killSession(): Promise<void> {
     const session = this.session;
     this.session = null;
-    this.sessionArgsKey = null;
     if (!session) {
       return;
     }
@@ -161,6 +173,10 @@ export class ClaudePersistentCliCleanupProvider implements AiCleanupProvider {
   }
 }
 
+export {
+  ClaudeStreamJsonCliCleanupProvider as ClaudePersistentCliCleanupProvider,
+};
+
 export function buildPersistentCleanupExtraArgs(
   options: AiCleanupProviderOptions,
 ): string[] {
@@ -172,6 +188,63 @@ export function buildPersistentCleanupExtraArgs(
     "--json-schema",
     JSON.stringify(options.jsonSchema),
   ];
+}
+
+function emitClaudeProgress(
+  options: AiCleanupProviderOptions,
+  progress: ClaudePersistentSmokeRequestProgress,
+): void {
+  if (!options.progress || !options.progressContext) {
+    return;
+  }
+  const diagnostics = progress.diagnostics;
+  safeEmitAiCleanupProgress(options.progress, options.progressContext, {
+    phase: phaseForClaudeProgress(progress.kind),
+    message: messageForClaudeProgress(progress.kind),
+    processPid: progress.pid,
+    streamLineCount: diagnostics.stdoutLineCount,
+    stdoutBytes: diagnostics.stdoutBytes,
+    stderrLineCount: diagnostics.stderrLineCount,
+    lastEventType: diagnostics.lastEventType,
+    resultReceived: diagnostics.resultReceived,
+    warning: progress.warning,
+  });
+}
+
+function phaseForClaudeProgress(
+  kind: ClaudePersistentSmokeRequestProgress["kind"],
+): AiCleanupProgressPhase {
+  if (kind === "started") {
+    return "starting_claude";
+  }
+  if (kind === "waiting_for_first_stream_event") {
+    return "waiting_for_first_stream_event";
+  }
+  if (kind === "result_boundary_received") {
+    return "result_boundary_received";
+  }
+  if (kind === "failed") {
+    return "failed";
+  }
+  return "receiving_stream";
+}
+
+function messageForClaudeProgress(
+  kind: ClaudePersistentSmokeRequestProgress["kind"],
+): string {
+  if (kind === "started") {
+    return "Claude stream-json process 시작";
+  }
+  if (kind === "waiting_for_first_stream_event") {
+    return "Claude 첫 stream 이벤트 대기 중";
+  }
+  if (kind === "result_boundary_received") {
+    return "Claude result boundary 수신";
+  }
+  if (kind === "failed") {
+    return "Claude stream-json protocol 실패";
+  }
+  return "Claude stream-json 응답 수신 중";
 }
 
 async function runCommandForExit(
@@ -215,10 +288,10 @@ async function runCommandForExit(
 function buildStderrText(turn: ClaudePersistentSmokeTurnResult): string {
   const lines = [...turn.stderrLines];
   if (turn.timedOut) {
-    lines.push("Claude persistent CLI timed out.");
+    lines.push("Claude stream-json CLI timed out.");
   }
   if (turn.outputExceeded) {
-    lines.push("Claude persistent CLI output exceeded the configured max output bytes.");
+    lines.push("Claude stream-json CLI output exceeded the configured max output bytes.");
   }
   if (turn.error) {
     lines.push(turn.error);

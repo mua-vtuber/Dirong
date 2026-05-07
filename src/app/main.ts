@@ -14,7 +14,7 @@ import {
   snapshotPhase1Config,
 } from "../config.js";
 import { loadAppSettingsFromEnv } from "../settings/env-settings-loader.js";
-import { ClaudePersistentCliCleanupProvider } from "../ai/cleanup/claude-persistent-cli-provider.js";
+import { ClaudeStreamJsonCliCleanupProvider } from "../ai/cleanup/claude-persistent-cli-provider.js";
 import {
   AiCleanupAutomationService,
   formatAiCleanupAutomationForStatus,
@@ -351,7 +351,7 @@ function createAloneFinalizeService(): AloneFinalizeService {
 }
 
 function createAiCleanupProvider(): AiCleanupProvider {
-  return new ClaudePersistentCliCleanupProvider({
+  return new ClaudeStreamJsonCliCleanupProvider({
     command: process.env.PHASE4_CLAUDE_COMMAND?.trim() || "claude",
     model: process.env.PHASE4_CLAUDE_MODEL?.trim() ?? null,
   });

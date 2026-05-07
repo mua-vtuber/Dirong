@@ -178,6 +178,32 @@ test("AiCleanupAutomationService runs Phase 4 after finalized STT terminal state
   }
 });
 
+test("AiCleanupAutomationService exposes progress metadata without transcript text", async () => {
+  const fixture = createSessionFixture();
+  try {
+    const provider = new CountingFakeAiCleanupProvider();
+    addCompletedRealSttChunk(
+      fixture,
+      1,
+      "SECRET_PROGRESS_TRANSCRIPT 회의록을 정리합니다.",
+    );
+    finalizeSession(fixture);
+    const service = await createReadyAutomationService(fixture, provider);
+
+    const snapshot = await service.runOnce();
+
+    assert.equal(snapshot.status, "done");
+    assert.equal(snapshot.progress?.phase, "completed");
+    assert.equal(snapshot.progress?.jobId, snapshot.job?.id);
+    assert.doesNotMatch(
+      JSON.stringify(snapshot.progress),
+      /SECRET_PROGRESS_TRANSCRIPT/,
+    );
+  } finally {
+    fixture.close();
+  }
+});
+
 test("AiCleanupAutomationService skips a queued AI job whose retry time is in the future", async () => {
   const fixture = createSessionFixture();
   try {
@@ -454,6 +480,7 @@ test("formatAiCleanupAutomationForStatus renders concise non-developer status", 
       repairedExpiredJobs: { requeued: 0, failed: 0 },
       repairedExpiredSttLeases: 0,
       warnings: [],
+      progress: null,
     }),
     /AI cleanup 자동화: STT 완료 대기 중/,
   );

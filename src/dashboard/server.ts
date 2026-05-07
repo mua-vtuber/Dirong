@@ -589,6 +589,14 @@ function renderDashboardHtml(): string {
       const warnings = automation.warnings?.length
         ? '<div class="warn">' + automation.warnings.map(escapeHtml).join(', ') + '</div>'
         : '';
+      const progress = automation.progress
+        ? '<div class="muted">progress ' + escapeHtml(automation.progress.phase) +
+          ' · elapsed ' + escapeHtml(automation.progress.elapsedMs) + 'ms' +
+          ' · lines ' + escapeHtml(automation.progress.streamLineCount) +
+          ' · bytes ' + escapeHtml(automation.progress.stdoutBytes) +
+          ' · last ' + escapeHtml(automation.progress.lastEventType ?? '-') +
+          (automation.progress.repairAttempt ? ' · repair' : '') + '</div>'
+        : '';
       const technical = automation.technicalDetail
         ? '<details><summary class="muted">자동화 세부정보</summary><pre>' + escapeHtml(automation.technicalDetail) + '</pre></details>'
         : '';
@@ -596,7 +604,7 @@ function renderDashboardHtml(): string {
         '<div class="label">' + escapeHtml(automation.provider) + ' / ' + escapeHtml(automation.model) +
         ' · ' + escapeHtml(automation.status) + ' · ' + escapeHtml(automation.checkedAt ?? 'not checked') +
         '</div><div class="value ' + runtimeValueClass(automation.status) + '">' + escapeHtml(automation.message) + '</div>' +
-        stt + warnings + action + technical + '</div>';
+        stt + progress + warnings + action + technical + '</div>';
     }
     function renderAloneFinalize(aloneFinalize) {
       if (!aloneFinalize) {

@@ -1,4 +1,8 @@
 import type { Phase4TranscriptTimeline } from "../../transcript/timeline.js";
+import type {
+  AiCleanupProgressContext,
+  AiCleanupProgressObserver,
+} from "./progress.js";
 
 export type AiCleanupProviderInput = {
   sessionId: string;
@@ -16,6 +20,8 @@ export type AiCleanupProviderOptions = {
   systemPrompt: string;
   userPrompt: string;
   jsonSchema: unknown;
+  progress?: AiCleanupProgressObserver;
+  progressContext?: AiCleanupProgressContext;
 };
 
 export type AiCleanupProviderResult = {
@@ -28,19 +34,30 @@ export type AiCleanupProviderResult = {
   durationMs: number;
 };
 
-export type AiCleanupProviderResetReason = "success" | "failure" | "timeout";
+export type AiCleanupProviderResetReason =
+  | "request_success"
+  | "request_failure"
+  | "request_timeout"
+  | "before_repair";
+
+export type LegacyAiCleanupProviderResetReason =
+  | "success"
+  | "failure"
+  | "timeout";
 
 export interface AiCleanupProvider {
   readonly providerName: string;
   readonly modelName: string;
   readonly supportsJsonSchema: boolean;
   readonly supportsWarmSession?: boolean;
+  readonly supportsStreamingProgress?: boolean;
   preflight?(): Promise<void>;
   generate(
     input: AiCleanupProviderInput,
     options: AiCleanupProviderOptions,
   ): Promise<AiCleanupProviderResult>;
-  resetAfterRequest?(reason: AiCleanupProviderResetReason): Promise<void>;
+  resetSession?(reason: AiCleanupProviderResetReason): Promise<void>;
+  resetAfterRequest?(reason: LegacyAiCleanupProviderResetReason): Promise<void>;
   stop?(): Promise<void>;
 }
 

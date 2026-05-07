@@ -15,6 +15,7 @@ import {
 import type {
   AiCleanupProviderInput,
   AiCleanupProviderOptions,
+  AiCleanupProviderResetReason,
   AiCleanupProviderResult,
 } from "./provider.js";
 import { PHASE4_AI_CLEANUP_PROMPT_VERSION } from "./prompts.js";
@@ -338,6 +339,27 @@ test("runAiCleanupForSession completes when schema repair succeeds", async () =>
   }
 });
 
+test("runAiCleanupForSession resets the provider before schema repair", async () => {
+  const fixture = createFinalizedTranscriptFixture();
+  const provider = new ResetAwareRepairingInvalidSchemaAiCleanupProvider();
+  try {
+    const result = await runAiCleanupForSession(fixture.store, {
+      ...baseRunOptions(fixture.sessionId),
+      provider,
+      maxAttempts: 1,
+      backup: () => [],
+    });
+
+    assert.equal(result.status, "done");
+    assert.deepEqual(provider.resetReasons, [
+      "before_repair",
+      "request_success",
+    ]);
+  } finally {
+    fixture.close();
+  }
+});
+
 test("runAiCleanupForSession marks schema invalid output as failed after repair fails", async () => {
   const fixture = createFinalizedTranscriptFixture();
   try {
@@ -523,6 +545,14 @@ class ResetCountingFakeAiCleanupProvider extends FakeAiCleanupProvider {
   readonly resetReasons: string[] = [];
 
   async resetAfterRequest(reason: "success" | "failure" | "timeout"): Promise<void> {
+    this.resetReasons.push(reason);
+  }
+}
+
+class ResetAwareRepairingInvalidSchemaAiCleanupProvider extends RepairingInvalidSchemaAiCleanupProvider {
+  readonly resetReasons: AiCleanupProviderResetReason[] = [];
+
+  async resetSession(reason: AiCleanupProviderResetReason): Promise<void> {
     this.resetReasons.push(reason);
   }
 }

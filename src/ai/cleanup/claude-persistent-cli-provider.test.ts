@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import test from "node:test";
 import {
-  ClaudePersistentCliCleanupProvider,
+  ClaudeStreamJsonCliCleanupProvider,
   buildPersistentCleanupExtraArgs,
   type CommandExitRunner,
 } from "./claude-persistent-cli-provider.js";
@@ -15,8 +15,9 @@ import type {
   ClaudePersistentSmokeChildProcess,
   ClaudePersistentSmokeSpawnOptions,
 } from "./claude-persistent-smoke.js";
+import { makeAiCleanupProgressContext } from "./progress.js";
 
-test("ClaudePersistentCliCleanupProvider preflight uses version command", async () => {
+test("ClaudeStreamJsonCliCleanupProvider preflight uses version command", async () => {
   let capturedCommand = "";
   let capturedArgs: string[] = [];
   const versionRunner: CommandExitRunner = async (command, args) => {
@@ -29,7 +30,7 @@ test("ClaudePersistentCliCleanupProvider preflight uses version command", async 
       timedOut: false,
     };
   };
-  const provider = new ClaudePersistentCliCleanupProvider({
+  const provider = new ClaudeStreamJsonCliCleanupProvider({
     command: "claude.exe",
     versionRunner,
   });
@@ -40,34 +41,43 @@ test("ClaudePersistentCliCleanupProvider preflight uses version command", async 
   assert.deepEqual(capturedArgs, ["--version"]);
 });
 
-test("ClaudePersistentCliCleanupProvider sends two requests to one persistent process and kills on reset", async () => {
-  const fake = new FakeChildProcess(303);
+test("ClaudeStreamJsonCliCleanupProvider uses a fresh stream-json process per request", async () => {
+  const fake1 = new FakeChildProcess(303);
+  const fake2 = new FakeChildProcess(404);
+  const fakes = [fake1, fake2];
+  const spawnedFakes: FakeChildProcess[] = [];
   const spawnCalls: Array<{
     command: string;
     args: string[];
     options: ClaudePersistentSmokeSpawnOptions;
   }> = [];
-  const provider = new ClaudePersistentCliCleanupProvider({
+  const provider = new ClaudeStreamJsonCliCleanupProvider({
     command: "claude.exe",
     spawnProcess: (command, args, options) => {
       spawnCalls.push({ command, args, options });
+      const fake = fakes.shift();
+      if (!fake) {
+        throw new Error("unexpected extra spawn");
+      }
+      spawnedFakes.push(fake);
       return fake;
     },
   });
-  assert.equal(provider.supportsWarmSession, true);
+  assert.equal(provider.supportsWarmSession, false);
+  assert.equal(provider.supportsStreamingProgress, true);
 
   const firstPromise = provider.generate(createProviderInput(), createProviderOptions());
-  emitClaudeTurn(fake, "session_1", '{"ok":true}');
+  emitClaudeTurn(fake1, "session_1", '{"ok":true}');
   const first = await firstPromise;
 
   const secondPromise = provider.generate(createProviderInput(), {
     ...createProviderOptions(),
     userPrompt: "repair prompt",
   });
-  emitClaudeTurn(fake, "session_1", '{"repaired":true}');
+  emitClaudeTurn(fake2, "session_2", '{"repaired":true}');
   const second = await secondPromise;
 
-  assert.equal(spawnCalls.length, 1);
+  assert.equal(spawnCalls.length, 2);
   assert.equal(spawnCalls[0]?.command, "claude.exe");
   assert.equal(spawnCalls[0]?.options.shell, false);
   assert.deepEqual(spawnCalls[0]?.args.slice(0, 5), [
@@ -80,18 +90,18 @@ test("ClaudePersistentCliCleanupProvider sends two requests to one persistent pr
   assert.ok(spawnCalls[0]?.args.includes("--system-prompt"));
   assert.ok(spawnCalls[0]?.args.includes("--json-schema"));
   assert.deepEqual(spawnCalls[0]?.args.slice(-2), ["--model", "haiku"]);
-  assert.equal(fake.stdinWrites.length, 2);
-  assert.match(fake.stdinWrites[0] ?? "", /meeting notes prompt/);
-  assert.match(fake.stdinWrites[1] ?? "", /repair prompt/);
+  assert.equal((spawnCalls[1]?.args ?? []).join(" "), (spawnCalls[0]?.args ?? []).join(" "));
   assert.match(first.rawText, /"type":"result"/);
   assert.match(second.rawText, /\\"repaired\\":true/);
   assert.equal(first.exitCode, 0);
   assert.equal(second.exitCode, 0);
-
-  await provider.resetAfterRequest("success");
-
-  assert.equal(fake.killCalls.length, 1);
-  assert.equal(fake.killCalls[0], "SIGTERM");
+  assert.deepEqual(spawnedFakes, [fake1, fake2]);
+  assert.equal(fake1.stdinWrites.length, 1);
+  assert.equal(fake2.stdinWrites.length, 1);
+  assert.match(fake1.stdinWrites[0] ?? "", /meeting notes prompt/);
+  assert.match(fake2.stdinWrites[0] ?? "", /repair prompt/);
+  assert.deepEqual(fake1.killCalls, ["SIGTERM"]);
+  assert.deepEqual(fake2.killCalls, ["SIGTERM"]);
 });
 
 test("buildPersistentCleanupExtraArgs keeps schema and system prompt in CLI args", () => {
@@ -103,6 +113,43 @@ test("buildPersistentCleanupExtraArgs keeps schema and system prompt in CLI args
     "--json-schema",
     '{"type":"object"}',
   ]);
+});
+
+test("ClaudeStreamJsonCliCleanupProvider emits redacted progress metadata", async () => {
+  const fake = new FakeChildProcess(505);
+  const snapshots: unknown[] = [];
+  const provider = new ClaudeStreamJsonCliCleanupProvider({
+    command: "claude.exe",
+    spawnProcess: () => fake,
+  });
+  const progressContext = makeAiCleanupProgressContext({
+    sessionId: "meeting_progress",
+    jobId: "ai_progress",
+    provider: "claude-cli",
+    model: "haiku",
+    attempt: 1,
+  });
+
+  const resultPromise = provider.generate(createProviderInput(), {
+    ...createProviderOptions(),
+    progressContext,
+    progress: (snapshot) => snapshots.push(snapshot),
+  });
+  emitClaudeTurn(fake, "session_progress", "SECRET_CANARY_RESPONSE");
+  const result = await resultPromise;
+
+  assert.equal(result.exitCode, 0);
+  assert.ok(
+    snapshots.some(
+      (snapshot) =>
+        isRecord(snapshot) && snapshot.phase === "result_boundary_received",
+    ),
+  );
+  assert.doesNotMatch(JSON.stringify(snapshots), /SECRET_CANARY_RESPONSE/);
+  const last = snapshots.at(-1);
+  assert.ok(isRecord(last));
+  assert.equal(last.lastEventType, "result");
+  assert.equal(last.resultReceived, true);
 });
 
 function emitClaudeTurn(
@@ -124,6 +171,10 @@ function emitClaudeTurn(
       session_id: sessionId,
     })}\n`,
   );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 class FakeChildProcess

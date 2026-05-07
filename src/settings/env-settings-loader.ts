@@ -7,12 +7,24 @@ import type {
   SttSettings,
 } from "./app-settings.js";
 import {
+  DEFAULT_NOTION_API_VERSION,
+  DEFAULT_NOTION_BASE_URL,
+  DEFAULT_NOTION_PROPERTY_NAMES,
+  validateNotionRuntimeSettings,
+  type NotionIncludeTranscript,
+  type NotionRuntimeSettings,
+  type NotionTargetType,
+  type NotionTemplateType,
+  type NotionUploadMode,
+} from "../notion/settings.js";
+import {
   readBooleanEnv,
   readOptionalStringEnv,
   readPositiveNumberEnv,
 } from "./env-readers.js";
 
 export type EnvSettingsLoaderOptions = {
+  allowTestNotionBaseUrl?: boolean;
   onInvalidBoolean?: (key: string, fallback: boolean) => void;
   onInvalidPositiveInteger?: (
     key: string,
@@ -28,6 +40,7 @@ export function loadAppSettingsFromEnv(
   return {
     stt: loadSttSettingsFromEnv(process.env),
     aiCleanup: loadAiCleanupSettingsFromEnv(process.env, options),
+    notion: loadNotionSettingsFromEnv(process.env, options),
   };
 }
 
@@ -145,12 +158,165 @@ export function loadAiCleanupSettingsFromEnv(
   };
 }
 
+export function loadNotionSettingsFromEnv(
+  env: NodeJS.ProcessEnv,
+  options: EnvSettingsLoaderOptions = {},
+): NotionRuntimeSettings {
+  const settings: NotionRuntimeSettings = {
+    enabled: readBooleanEnv(env, "NOTION_EXPORT_ENABLED", false, {
+      onInvalid: () =>
+        options.onInvalidBoolean?.("NOTION_EXPORT_ENABLED", false),
+    }),
+    apiKey: readOptionalStringEnv(env, "NOTION_API_KEY"),
+    apiVersion:
+      readOptionalStringEnv(env, "NOTION_API_VERSION") ??
+      DEFAULT_NOTION_API_VERSION,
+    baseUrl: readNotionBaseUrl(env, options),
+    targetUrl: readOptionalStringEnv(env, "NOTION_TARGET_URL"),
+    targetType: readNotionTargetType(env.NOTION_TARGET_TYPE),
+    uploadMode: readNotionUploadMode(env.NOTION_UPLOAD_MODE),
+    templateType: readNotionTemplateType(env.NOTION_TEMPLATE_TYPE),
+    includeTranscript: readNotionIncludeTranscript(
+      env.NOTION_INCLUDE_TRANSCRIPT,
+    ),
+    autoPollMs: readPositiveIntegerEnv(
+      env,
+      "NOTION_AUTO_POLL_MS",
+      5000,
+      options,
+    ),
+    leaseMs: readPositiveIntegerEnv(
+      env,
+      "NOTION_LEASE_MS",
+      600000,
+      options,
+    ),
+    maxAttempts: readPositiveIntegerEnv(
+      env,
+      "NOTION_MAX_ATTEMPTS",
+      3,
+      options,
+    ),
+    propertyNames: {
+      title:
+        readOptionalStringEnv(env, "NOTION_PROPERTY_TITLE") ??
+        DEFAULT_NOTION_PROPERTY_NAMES.title,
+      date:
+        readOptionalStringEnv(env, "NOTION_PROPERTY_DATE") ??
+        DEFAULT_NOTION_PROPERTY_NAMES.date,
+      meetingTime:
+        readOptionalStringEnv(env, "NOTION_PROPERTY_MEETING_TIME") ??
+        DEFAULT_NOTION_PROPERTY_NAMES.meetingTime,
+      channel:
+        readOptionalStringEnv(env, "NOTION_PROPERTY_CHANNEL") ??
+        DEFAULT_NOTION_PROPERTY_NAMES.channel,
+      participants:
+        readOptionalStringEnv(env, "NOTION_PROPERTY_PARTICIPANTS") ??
+        DEFAULT_NOTION_PROPERTY_NAMES.participants,
+      status:
+        readOptionalStringEnv(env, "NOTION_PROPERTY_STATUS") ??
+        DEFAULT_NOTION_PROPERTY_NAMES.status,
+      sessionId:
+        readOptionalStringEnv(env, "NOTION_PROPERTY_SESSION_ID") ??
+        DEFAULT_NOTION_PROPERTY_NAMES.sessionId,
+      draftId:
+        readOptionalStringEnv(env, "NOTION_PROPERTY_DRAFT_ID") ??
+        DEFAULT_NOTION_PROPERTY_NAMES.draftId,
+      contentHash:
+        readOptionalStringEnv(env, "NOTION_PROPERTY_CONTENT_HASH") ??
+        DEFAULT_NOTION_PROPERTY_NAMES.contentHash,
+      localStatus:
+        readOptionalStringEnv(env, "NOTION_PROPERTY_LOCAL_STATUS") ??
+        DEFAULT_NOTION_PROPERTY_NAMES.localStatus,
+    },
+  };
+
+  const validation = validateNotionRuntimeSettings(settings);
+  if (!validation.ok) {
+    throw new Error(
+      `${validation.userAction} 빠진 항목: ${validation.missingKeys.join(", ")}`,
+    );
+  }
+
+  return settings;
+}
+
 function readSttProvider(value: string | undefined): SttProviderName {
   const provider = value?.trim() || "local-whisper";
   if (provider !== "local-whisper" && provider !== "openai") {
     throw new Error("PHASE3_STT_PROVIDER는 local-whisper 또는 openai여야 합니다.");
   }
   return provider;
+}
+
+function readNotionTargetType(value: string | undefined): NotionTargetType {
+  const targetType = value?.trim() || "data_source";
+  if (targetType !== "data_source") {
+    throw new Error("NOTION_TARGET_TYPE은 data_source만 지원합니다.");
+  }
+  return targetType;
+}
+
+function readNotionUploadMode(value: string | undefined): NotionUploadMode {
+  const uploadMode = value?.trim() || "manual";
+  if (
+    uploadMode !== "manual" &&
+    uploadMode !== "automatic_after_ai_cleanup"
+  ) {
+    throw new Error(
+      "NOTION_UPLOAD_MODE는 manual 또는 automatic_after_ai_cleanup이어야 합니다.",
+    );
+  }
+  return uploadMode;
+}
+
+function readNotionTemplateType(value: string | undefined): NotionTemplateType {
+  const templateType = value?.trim() || "app";
+  if (templateType !== "app") {
+    throw new Error("NOTION_TEMPLATE_TYPE은 MVP에서 app만 지원합니다.");
+  }
+  return templateType;
+}
+
+function readNotionIncludeTranscript(
+  value: string | undefined,
+): NotionIncludeTranscript {
+  const includeTranscript = value?.trim() || "never";
+  if (includeTranscript !== "never") {
+    throw new Error("NOTION_INCLUDE_TRANSCRIPT는 MVP에서 never만 지원합니다.");
+  }
+  return includeTranscript;
+}
+
+function readNotionBaseUrl(
+  env: NodeJS.ProcessEnv,
+  options: EnvSettingsLoaderOptions,
+): string {
+  const baseUrl =
+    readOptionalStringEnv(env, "NOTION_BASE_URL") ?? DEFAULT_NOTION_BASE_URL;
+  if (baseUrl === DEFAULT_NOTION_BASE_URL) {
+    return baseUrl;
+  }
+
+  if (options.allowTestNotionBaseUrl && isLocalTestUrl(baseUrl)) {
+    return baseUrl.replace(/\/+$/, "");
+  }
+
+  throw new Error(
+    "NOTION_BASE_URL은 https://api.notion.com이어야 합니다. 테스트에서는 allowTestNotionBaseUrl 옵션으로 local fake server URL만 허용합니다.",
+  );
+}
+
+function isLocalTestUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      ["127.0.0.1", "localhost", "::1"].includes(url.hostname)
+    );
+  } catch {
+    return false;
+  }
 }
 
 function readCommandArgs(value: string | undefined, fallback: string): string[] {

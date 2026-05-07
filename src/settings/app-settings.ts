@@ -1,3 +1,5 @@
+import type { NotionRuntimeSettings } from "../notion/settings.js";
+
 export type SttProviderName = "local-whisper" | "openai";
 
 export type LocalWhisperSettings = {
@@ -43,6 +45,7 @@ export type AiCleanupRuntimeSettings = {
 export type AppSettings = {
   stt: SttSettings;
   aiCleanup: AiCleanupRuntimeSettings;
+  notion: NotionRuntimeSettings;
 };
 
 export type SttSettingsOverrides = {

@@ -2,10 +2,10 @@ import { createHash } from "node:crypto";
 import { createReadStream, existsSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { spawn } from "node:child_process";
 import path from "node:path";
 import { redactSensitiveText } from "./errors.js";
 import type { SttSafeFormat } from "./config.js";
+import { runChild } from "./process/run-child.js";
 
 const require = createRequire(import.meta.url);
 
@@ -143,57 +143,30 @@ export async function runProcess(
   args: string[],
   timeoutMs: number,
 ): Promise<ProcessResult> {
-  return await new Promise((resolve) => {
-    const child = spawn(command, args, {
-      windowsHide: true,
-      stdio: ["ignore", "pipe", "pipe"],
+  try {
+    const result = await runChild(command, args, {
+      timeoutMs,
+      maxStdoutBytes: 20000,
+      maxStderrBytes: 20000,
+      killSignal: "SIGKILL",
+      redact: redactSensitiveText,
     });
-
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    let timedOut = false;
-
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGKILL");
-    }, timeoutMs);
-
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout = limitText(stdout + chunk.toString("utf8"));
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr = limitText(stderr + chunk.toString("utf8"));
-    });
-    child.on("error", (error) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timer);
-      resolve({
-        ok: false,
-        exitCode: null,
-        stdout: redactSensitiveText(stdout),
-        stderr: redactSensitiveText(error.message),
-        timedOut,
-      });
-    });
-    child.on("close", (exitCode) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timer);
-      resolve({
-        ok: exitCode === 0 && !timedOut,
-        exitCode,
-        stdout: redactSensitiveText(stdout),
-        stderr: redactSensitiveText(stderr),
-        timedOut,
-      });
-    });
-  });
+    return {
+      ok: result.exitCode === 0 && !result.timedOut,
+      exitCode: result.exitCode,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      timedOut: result.timedOut,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      exitCode: null,
+      stdout: "",
+      stderr: redactSensitiveText(error instanceof Error ? error.message : String(error)),
+      timedOut: false,
+    };
+  }
 }
 
 async function tryTranscode(
@@ -269,8 +242,4 @@ function safeRequireString(packageName: string): string | null {
 
 function firstLine(value: string): string | undefined {
   return value.split(/\r?\n/).find((line) => line.trim().length > 0)?.trim();
-}
-
-function limitText(value: string): string {
-  return value.length > 20000 ? value.slice(-20000) : value;
 }

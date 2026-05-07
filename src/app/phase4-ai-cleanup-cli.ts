@@ -1,3 +1,10 @@
+import {
+  parseCliArgs,
+  readPositiveIntegerArg,
+  readRequiredStringArg,
+  type CliArgSpec,
+} from "../cli/arg-parser.js";
+
 export type Phase4AiCleanupProviderName = "fake" | "claude-cli";
 
 export type Phase4AiCleanupCliOptions = {
@@ -18,109 +25,25 @@ export type Phase4AiCleanupCliOptions = {
 export function parsePhase4AiCleanupArgs(
   args: string[],
 ): Phase4AiCleanupCliOptions {
-  const options: {
-    sessionId: string | null;
-    dryRun: boolean;
-    backup: boolean;
-    provider: Phase4AiCleanupProviderName;
-    model: string | null;
-    leaseMs: number | null;
-    timeoutMs: number | null;
-    maxInputChars: number | null;
-    maxOutputBytes: number | null;
-    includeFakeStt: boolean;
-    smokeTest: boolean;
-    debug: boolean;
-  } = {
-    sessionId: null,
-    dryRun: false,
-    backup: true,
-    provider: "claude-cli",
-    model: null,
-    leaseMs: null,
-    timeoutMs: null,
-    maxInputChars: null,
-    maxOutputBytes: null,
-    includeFakeStt: false,
-    smokeTest: false,
-    debug: false,
-  };
-
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-
-    if (arg === "--dry-run") {
-      options.dryRun = true;
-      continue;
-    }
-    if (arg === "--debug") {
-      options.debug = true;
-      continue;
-    }
-    if (arg === "--include-fake-stt") {
-      options.includeFakeStt = true;
-      continue;
-    }
-    if (arg === "--smoke-test") {
-      options.smokeTest = true;
-      continue;
-    }
-    if (arg === "--no-backup") {
-      options.backup = false;
-      continue;
-    }
-    if (arg === "--session") {
-      const value = args[index + 1]?.trim();
-      if (!value) {
-        throw new Error("--session 값이 필요합니다.");
-      }
-      options.sessionId = value;
-      index += 1;
-      continue;
-    }
-    if (arg === "--provider") {
-      options.provider = readProvider(args[index + 1]);
-      index += 1;
-      continue;
-    }
-    if (arg === "--model") {
-      const value = args[index + 1]?.trim();
-      if (!value) {
-        throw new Error("--model 값이 필요합니다.");
-      }
-      options.model = value;
-      index += 1;
-      continue;
-    }
-    if (arg === "--lease-ms") {
-      options.leaseMs = readPositiveNumber(args[index + 1], "--lease-ms");
-      index += 1;
-      continue;
-    }
-    if (arg === "--timeout-ms") {
-      options.timeoutMs = readPositiveNumber(args[index + 1], "--timeout-ms");
-      index += 1;
-      continue;
-    }
-    if (arg === "--max-input-chars") {
-      options.maxInputChars = readPositiveNumber(
-        args[index + 1],
-        "--max-input-chars",
-      );
-      index += 1;
-      continue;
-    }
-    if (arg === "--max-output-bytes") {
-      options.maxOutputBytes = readPositiveNumber(
-        args[index + 1],
-        "--max-output-bytes",
-      );
-      index += 1;
-      continue;
-    }
-
-    throw new Error(`알 수 없는 Phase 4 AI cleanup 옵션입니다: ${arg ?? ""}`);
-  }
+  const options = parseCliArgs(
+    args,
+    {
+      sessionId: null,
+      dryRun: false,
+      backup: true,
+      provider: "claude-cli",
+      model: null,
+      leaseMs: null,
+      timeoutMs: null,
+      maxInputChars: null,
+      maxOutputBytes: null,
+      includeFakeStt: false,
+      smokeTest: false,
+      debug: false,
+    },
+    PHASE4_ARG_SPEC,
+    (flag) => `알 수 없는 Phase 4 AI cleanup 옵션입니다: ${flag}`,
+  );
 
   if (!options.sessionId) {
     throw new Error("--session <session-id> 값이 필요합니다.");
@@ -152,17 +75,107 @@ export function parsePhase4AiCleanupArgs(
   };
 }
 
+const PHASE4_ARG_SPEC: Record<
+  string,
+  CliArgSpec<{
+    sessionId: string | null;
+    dryRun: boolean;
+    backup: boolean;
+    provider: Phase4AiCleanupProviderName;
+    model: string | null;
+    leaseMs: number | null;
+    timeoutMs: number | null;
+    maxInputChars: number | null;
+    maxOutputBytes: number | null;
+    includeFakeStt: boolean;
+    smokeTest: boolean;
+    debug: boolean;
+  }>
+> = {
+  "--dry-run": {
+    kind: "boolean",
+    apply: (options) => {
+      options.dryRun = true;
+    },
+  },
+  "--debug": {
+    kind: "boolean",
+    apply: (options) => {
+      options.debug = true;
+    },
+  },
+  "--include-fake-stt": {
+    kind: "boolean",
+    apply: (options) => {
+      options.includeFakeStt = true;
+    },
+  },
+  "--smoke-test": {
+    kind: "boolean",
+    apply: (options) => {
+      options.smokeTest = true;
+    },
+  },
+  "--no-backup": {
+    kind: "boolean",
+    apply: (options) => {
+      options.backup = false;
+    },
+  },
+  "--session": {
+    kind: "value",
+    read: (value) => readRequiredStringArg(value, "--session 값이 필요합니다."),
+    apply: (options, value) => {
+      options.sessionId = value;
+    },
+  },
+  "--provider": {
+    kind: "value",
+    read: readProvider,
+    apply: (options, value) => {
+      options.provider = value;
+    },
+  },
+  "--model": {
+    kind: "value",
+    read: (value) => readRequiredStringArg(value, "--model 값이 필요합니다."),
+    apply: (options, value) => {
+      options.model = value;
+    },
+  },
+  "--lease-ms": {
+    kind: "value",
+    read: readPositiveIntegerArg,
+    apply: (options, value) => {
+      options.leaseMs = value;
+    },
+  },
+  "--timeout-ms": {
+    kind: "value",
+    read: readPositiveIntegerArg,
+    apply: (options, value) => {
+      options.timeoutMs = value;
+    },
+  },
+  "--max-input-chars": {
+    kind: "value",
+    read: readPositiveIntegerArg,
+    apply: (options, value) => {
+      options.maxInputChars = value;
+    },
+  },
+  "--max-output-bytes": {
+    kind: "value",
+    read: readPositiveIntegerArg,
+    apply: (options, value) => {
+      options.maxOutputBytes = value;
+    },
+  },
+};
+
 function readProvider(value: string | undefined): Phase4AiCleanupProviderName {
   if (value === "fake" || value === "claude-cli") {
     return value;
   }
   throw new Error("--provider 값은 fake 또는 claude-cli 중 하나여야 합니다.");
-}
-
-function readPositiveNumber(value: string | undefined, flag: string): number {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${flag} 값은 1 이상의 정수여야 합니다.`);
-  }
-  return parsed;
 }

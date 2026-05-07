@@ -25,8 +25,24 @@ export type OpenAiSttSettings = {
 
 export type SttSettings = LocalWhisperSettings | OpenAiSttSettings;
 
+export type AiCleanupRuntimeSettings = {
+  claudeCommand: string;
+  claudeModel: string | null;
+  prepareTimeoutMs: number;
+  autoCleanupEnabled: boolean;
+  autoCleanupPollMs: number;
+  autoCleanupSessionBatchLimit: number;
+  readinessRetryMs: number;
+  leaseMs: number | null;
+  maxAttempts: number;
+  maxInputChars: number;
+  timeoutMs: number;
+  maxOutputBytes: number;
+};
+
 export type AppSettings = {
   stt: SttSettings;
+  aiCleanup: AiCleanupRuntimeSettings;
 };
 
 export type SttSettingsOverrides = {

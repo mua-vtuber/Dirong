@@ -14,6 +14,10 @@ import {
   snapshotPhase1Config,
 } from "../config.js";
 import { loadAppSettingsFromEnv } from "../settings/env-settings-loader.js";
+import {
+  readBooleanEnv,
+  readPositiveNumberEnv,
+} from "../settings/env-readers.js";
 import { ClaudeStreamJsonCliCleanupProvider } from "../ai/cleanup/claude-persistent-cli-provider.js";
 import {
   AiCleanupAutomationService,
@@ -65,7 +69,17 @@ const store = new SessionStore(database, {
   normalizeStoredPaths: true,
 });
 const repairSummary = await runStartupRepair(store, config);
-const appSettings = loadAppSettingsFromEnv();
+const appSettings = loadAppSettingsFromEnv({
+  onInvalidBoolean: warnInvalidBooleanEnv,
+  onInvalidPositiveInteger: (key, fallback) => {
+    warnInvalidNumberEnv(key, fallback);
+    return "fallback";
+  },
+  onInvalidOptionalPositiveInteger: (key) => {
+    warnInvalidNumberEnv(key, config.sttLeaseMs);
+    return "null";
+  },
+});
 const sttProviderSelection = createPhase3SttProvider(appSettings.stt);
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
@@ -352,8 +366,8 @@ function createAloneFinalizeService(): AloneFinalizeService {
 
 function createAiCleanupProvider(): AiCleanupProvider {
   return new ClaudeStreamJsonCliCleanupProvider({
-    command: process.env.PHASE4_CLAUDE_COMMAND?.trim() || "claude",
-    model: process.env.PHASE4_CLAUDE_MODEL?.trim() ?? null,
+    command: appSettings.aiCleanup.claudeCommand,
+    model: appSettings.aiCleanup.claudeModel,
   });
 }
 
@@ -363,7 +377,7 @@ function createSttAutomationService(
   timeoutMs: number,
 ): SttAutomationService {
   return new SttAutomationService(store, {
-    enabled: readBooleanEnv("PHASE3_STT_AUTO_ENABLED", true),
+    enabled: readBooleanEnvWithWarning("PHASE3_STT_AUTO_ENABLED", true),
     provider,
     pollIntervalMs: readPositiveEnvNumber("PHASE3_STT_AUTO_POLL_MS", 5000),
     batchLimit: readPositiveEnvNumber("PHASE3_STT_AUTO_BATCH_LIMIT", 1),
@@ -383,10 +397,7 @@ function createAiLifecycleService(
   return new AiProviderLifecycleService(
     wrapAiCleanupProviderWithLifecycle(provider),
     {
-      prepareTimeoutMs: readPositiveEnvNumber(
-        "PHASE4_AI_PREPARE_TIMEOUT_MS",
-        5000,
-      ),
+      prepareTimeoutMs: appSettings.aiCleanup.prepareTimeoutMs,
     },
   );
 }
@@ -396,34 +407,19 @@ function createAiCleanupAutomationService(
   lifecycle: AiProviderLifecycleService,
 ): AiCleanupAutomationService {
   return new AiCleanupAutomationService(store, {
-    enabled: readBooleanEnv("PHASE4_AI_AUTO_CLEANUP_ENABLED", true),
+    enabled: appSettings.aiCleanup.autoCleanupEnabled,
     provider,
     lifecycle,
-    pollIntervalMs: readPositiveEnvNumber(
-      "PHASE4_AI_AUTO_CLEANUP_POLL_MS",
-      5000,
-    ),
-    sessionBatchLimit: readPositiveEnvNumber(
-      "PHASE4_AI_AUTO_CLEANUP_SESSION_BATCH_LIMIT",
-      3,
-    ),
-    readinessRetryMs: readPositiveEnvNumber(
-      "PHASE4_AI_READINESS_RETRY_MS",
-      60000,
-    ),
+    pollIntervalMs: appSettings.aiCleanup.autoCleanupPollMs,
+    sessionBatchLimit: appSettings.aiCleanup.autoCleanupSessionBatchLimit,
+    readinessRetryMs: appSettings.aiCleanup.readinessRetryMs,
     runner: {
       workerId: `phase4-ai-auto-${provider.providerName}-${process.pid}`,
-      leaseMs: readPositiveEnvNumber("PHASE4_AI_LEASE_MS", config.sttLeaseMs),
-      maxAttempts: readPositiveEnvNumber("PHASE4_AI_MAX_ATTEMPTS", 3),
-      maxInputChars: readPositiveEnvNumber(
-        "PHASE4_AI_MAX_INPUT_CHARS",
-        120000,
-      ),
-      timeoutMs: readPositiveEnvNumber("PHASE4_AI_TIMEOUT_MS", 120000),
-      maxOutputBytes: readPositiveEnvNumber(
-        "PHASE4_AI_MAX_OUTPUT_BYTES",
-        2 * 1024 * 1024,
-      ),
+      leaseMs: appSettings.aiCleanup.leaseMs ?? config.sttLeaseMs,
+      maxAttempts: appSettings.aiCleanup.maxAttempts,
+      maxInputChars: appSettings.aiCleanup.maxInputChars,
+      timeoutMs: appSettings.aiCleanup.timeoutMs,
+      maxOutputBytes: appSettings.aiCleanup.maxOutputBytes,
       backup: () =>
         backupDatabaseSnapshot(config.dbPath, {
           busyTimeoutMs: config.dbBusyTimeoutMs,
@@ -544,31 +540,29 @@ async function countNonBotVoiceMembers(
 }
 
 function readPositiveEnvNumber(key: string, fallback: number): number {
-  const raw = process.env[key]?.trim();
-  if (!raw) {
+  try {
+    return readPositiveNumberEnv(process.env, key, fallback, {
+      integer: true,
+      invalidMessage: `${key} 값은 1 이상의 정수여야 합니다.`,
+    });
+  } catch {
+    warnInvalidNumberEnv(key, fallback);
     return fallback;
   }
-  const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    console.warn(`${key} 값이 올바르지 않아 기본값 ${fallback}를 사용합니다.`);
-    return fallback;
-  }
-  return parsed;
 }
 
-function readBooleanEnv(key: string, fallback: boolean): boolean {
-  const raw = process.env[key]?.trim().toLowerCase();
-  if (!raw) {
-    return fallback;
-  }
-  if (["1", "true", "yes", "on"].includes(raw)) {
-    return true;
-  }
-  if (["0", "false", "no", "off"].includes(raw)) {
-    return false;
-  }
+function readBooleanEnvWithWarning(key: string, fallback: boolean): boolean {
+  return readBooleanEnv(process.env, key, fallback, {
+    onInvalid: () => warnInvalidBooleanEnv(key, fallback),
+  });
+}
+
+function warnInvalidBooleanEnv(key: string, fallback: boolean): void {
   console.warn(`${key} 값이 올바르지 않아 기본값 ${fallback ? "true" : "false"}를 사용합니다.`);
-  return fallback;
+}
+
+function warnInvalidNumberEnv(key: string, fallback: number): void {
+  console.warn(`${key} 값이 올바르지 않아 기본값 ${fallback}를 사용합니다.`);
 }
 
 function displayNameForMember(member: GuildMember): string {

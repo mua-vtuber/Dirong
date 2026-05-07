@@ -1,6 +1,7 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import process from "node:process";
 import type { Readable, Writable } from "node:stream";
+import { resolveShellFalseCommand } from "../../process/run-child.js";
 
 export const DEFAULT_CLAUDE_PERSISTENT_SMOKE_ARGS = [
   "--input-format",
@@ -715,65 +716,8 @@ export function renderCommandDisplay(command: string, args: string[]): string {
   return [command, ...args.map(renderCommandArg)].join(" ");
 }
 
-export function resolveShellFalseCommand(
-  command: string,
-  args: string[],
-  platform: NodeJS.Platform = process.platform,
-): { command: string; args: string[] } {
-  if (platform !== "win32") {
-    return { command, args };
-  }
+export { resolveShellFalseCommand };
 
-  const lower = command.toLowerCase();
-  if (lower.endsWith(".exe") || lower.endsWith(".com")) {
-    return { command, args };
-  }
-  if (lower.endsWith(".ps1")) {
-    return {
-      command: "pwsh.exe",
-      args: ["-NoProfile", "-File", command, ...args],
-    };
-  }
-  if (lower.endsWith(".cmd") || lower.endsWith(".bat")) {
-    return {
-      command: "cmd.exe",
-      args: ["/C", command, ...args.map(escapeWindowsArg)],
-    };
-  }
-
-  const resolvedExecutable = resolveWindowsExecutable(command);
-  if (resolvedExecutable) {
-    return { command: resolvedExecutable, args };
-  }
-
-  return {
-    command: "cmd.exe",
-    args: ["/C", command, ...args.map(escapeWindowsArg)],
-  };
-}
-
-function resolveWindowsExecutable(command: string): string | null {
-  if (/[\\/]/.test(command)) {
-    return null;
-  }
-  const result = spawnSync("where.exe", [command], {
-    encoding: "utf8",
-    shell: false,
-    windowsHide: true,
-  });
-  if (result.status !== 0 || !result.stdout) {
-    return null;
-  }
-
-  for (const line of result.stdout.split(/\r?\n/)) {
-    const candidate = line.trim();
-    const lower = candidate.toLowerCase();
-    if (lower.endsWith(".exe") || lower.endsWith(".com")) {
-      return candidate;
-    }
-  }
-  return null;
-}
 
 function extractAssistantText(event: Record<string, unknown>): string {
   const message = event.message;
@@ -836,13 +780,6 @@ function extractAnyText(value: unknown): string {
     );
   }
   return "";
-}
-
-function escapeWindowsArg(arg: string): string {
-  if (!/[\s"&|<>^()]/.test(arg)) {
-    return arg;
-  }
-  return `"${arg.replace(/"/g, '\\"')}"`;
 }
 
 function renderCommandArg(arg: string): string {

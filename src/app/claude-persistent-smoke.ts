@@ -4,6 +4,11 @@ import {
   renderCommandDisplay,
   type ClaudePersistentSmokeTurnResult,
 } from "../ai/cleanup/claude-persistent-smoke.js";
+import {
+  parseCliArgs,
+  readRequiredStringArg,
+  type CliArgSpec,
+} from "../cli/arg-parser.js";
 import { printCliError } from "../cli/error-output.js";
 
 type ClaudePersistentSmokeCliOptions = {
@@ -71,55 +76,79 @@ try {
 export function parseClaudePersistentSmokeArgs(
   args: string[],
 ): ClaudePersistentSmokeCliOptions {
-  const options: ClaudePersistentSmokeCliOptions = {
-    prompt: 'Return exactly {"ok":true} as JSON.',
-    prompt2: 'Return exactly {"turn":2} as JSON.',
-    twoTurn: false,
-    command: null,
-    model: null,
-    timeoutMs: null,
-  };
-
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-    if (arg === "--help" || arg === "-h") {
-      throw new Error(helpText());
-    }
-    if (arg === "--two-turn") {
-      options.twoTurn = true;
-      continue;
-    }
-    if (arg === "--prompt") {
-      options.prompt = readRequiredValue(args[index + 1], "--prompt");
-      index += 1;
-      continue;
-    }
-    if (arg === "--prompt2") {
-      options.prompt2 = readRequiredValue(args[index + 1], "--prompt2");
-      index += 1;
-      continue;
-    }
-    if (arg === "--command") {
-      options.command = readRequiredValue(args[index + 1], "--command");
-      index += 1;
-      continue;
-    }
-    if (arg === "--model") {
-      options.model = readRequiredValue(args[index + 1], "--model");
-      index += 1;
-      continue;
-    }
-    if (arg === "--timeout-ms") {
-      options.timeoutMs = readPositiveNumber(args[index + 1], "--timeout-ms");
-      index += 1;
-      continue;
-    }
-
-    throw new Error(`Unknown Claude persistent smoke option: ${arg ?? ""}`);
-  }
-
-  return options;
+  return parseCliArgs(
+    args,
+    {
+      prompt: 'Return exactly {"ok":true} as JSON.',
+      prompt2: 'Return exactly {"turn":2} as JSON.',
+      twoTurn: false,
+      command: null,
+      model: null,
+      timeoutMs: null,
+    },
+    CLAUDE_SMOKE_ARG_SPEC,
+    (flag) => `Unknown Claude persistent smoke option: ${flag}`,
+  );
 }
+
+const CLAUDE_SMOKE_ARG_SPEC: Record<
+  string,
+  CliArgSpec<ClaudePersistentSmokeCliOptions>
+> = {
+  "--help": {
+    kind: "boolean",
+    apply: () => {
+      throw new Error(helpText());
+    },
+  },
+  "-h": {
+    kind: "boolean",
+    apply: () => {
+      throw new Error(helpText());
+    },
+  },
+  "--two-turn": {
+    kind: "boolean",
+    apply: (options) => {
+      options.twoTurn = true;
+    },
+  },
+  "--prompt": {
+    kind: "value",
+    read: readRequiredSmokeValue,
+    apply: (options, value) => {
+      options.prompt = value;
+    },
+  },
+  "--prompt2": {
+    kind: "value",
+    read: readRequiredSmokeValue,
+    apply: (options, value) => {
+      options.prompt2 = value;
+    },
+  },
+  "--command": {
+    kind: "value",
+    read: readRequiredSmokeValue,
+    apply: (options, value) => {
+      options.command = value;
+    },
+  },
+  "--model": {
+    kind: "value",
+    read: readRequiredSmokeValue,
+    apply: (options, value) => {
+      options.model = value;
+    },
+  },
+  "--timeout-ms": {
+    kind: "value",
+    read: readPositiveSmokeInteger,
+    apply: (options, value) => {
+      options.timeoutMs = value;
+    },
+  },
+};
 
 function printTurnResult(
   label: string,
@@ -161,15 +190,14 @@ function printIndentedBlock(value: string): void {
   }
 }
 
-function readRequiredValue(value: string | undefined, flag: string): string {
-  const trimmed = value?.trim();
-  if (!trimmed) {
-    throw new Error(`${flag} requires a value.`);
-  }
-  return trimmed;
+function readRequiredSmokeValue(
+  value: string | undefined,
+  flag: string,
+): string {
+  return readRequiredStringArg(value, `${flag} requires a value.`);
 }
 
-function readPositiveNumber(value: string | undefined, flag: string): number {
+function readPositiveSmokeInteger(value: string | undefined, flag: string): number {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed <= 0) {
     throw new Error(`${flag} must be a positive integer.`);

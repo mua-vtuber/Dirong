@@ -1,8 +1,6 @@
-import { spawn } from "node:child_process";
 import {
   ClaudePersistentSmokeSession,
   renderCommandDisplay,
-  resolveShellFalseCommand,
   type ClaudePersistentSmokeRequestProgress,
   type ClaudePersistentSmokeSpawn,
   type ClaudePersistentSmokeTurnResult,
@@ -21,6 +19,7 @@ import {
   safeEmitAiCleanupProgress,
   type AiCleanupProgressPhase,
 } from "./progress.js";
+import { runChild } from "../../process/run-child.js";
 
 export type ClaudeStreamJsonCliCleanupProviderOptions = {
   command?: string;
@@ -250,36 +249,8 @@ async function runCommandForExit(
   args: string[],
   options: { timeoutMs: number },
 ): Promise<CommandExitResult> {
-  const resolved = resolveShellFalseCommand(command, args);
-  return await new Promise<CommandExitResult>((resolve, reject) => {
-    const child = spawn(resolved.command, resolved.args, {
-      stdio: ["ignore", "pipe", "pipe"],
-      shell: false,
-      windowsHide: true,
-    });
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill();
-    }, options.timeoutMs);
-
-    child.on("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-    child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
-    child.on("close", (exitCode) => {
-      clearTimeout(timer);
-      resolve({
-        stdout: Buffer.concat(stdout).toString("utf8"),
-        stderr: Buffer.concat(stderr).toString("utf8"),
-        exitCode,
-        timedOut,
-      });
-    });
+  return await runChild(command, args, {
+    timeoutMs: options.timeoutMs,
   });
 }
 

@@ -5,6 +5,8 @@ import { runAiCleanupForSession } from "../ai/cleanup/runner.js";
 import type { AiCleanupProvider } from "../ai/cleanup/provider.js";
 import { printCliError } from "../cli/error-output.js";
 import { loadPhase1Config } from "../config.js";
+import { loadAiCleanupSettingsFromEnv } from "../settings/env-settings-loader.js";
+import type { AiCleanupRuntimeSettings } from "../settings/app-settings.js";
 import { SessionStore } from "../storage/session-store.js";
 import { DirongDatabase } from "../storage/sqlite.js";
 import {
@@ -18,7 +20,8 @@ let store: SessionStore | null = null;
 try {
   const options = parsePhase4AiCleanupArgs(process.argv.slice(2));
   const config = loadPhase1Config({ requireDiscordConfig: false });
-  const provider = createProvider(options);
+  const aiCleanupSettings = loadAiCleanupSettingsFromEnv(process.env);
+  const provider = createProvider(options, aiCleanupSettings);
   const database = new DirongDatabase(config.dbPath, config.dbBusyTimeoutMs, {
     readOnly: options.dryRun,
   });
@@ -34,16 +37,17 @@ try {
     workerId: `phase4-ai-cleanup-${provider.providerName}-${process.pid}`,
     leaseMs:
       options.leaseMs ??
-      readEnvNumber("PHASE4_AI_LEASE_MS", config.sttLeaseMs),
-    maxAttempts: readEnvNumber("PHASE4_AI_MAX_ATTEMPTS", 3),
+      aiCleanupSettings.leaseMs ??
+      config.sttLeaseMs,
+    maxAttempts: aiCleanupSettings.maxAttempts,
     maxInputChars:
       options.maxInputChars ??
-      readEnvNumber("PHASE4_AI_MAX_INPUT_CHARS", 120000),
+      aiCleanupSettings.maxInputChars,
     timeoutMs:
-      options.timeoutMs ?? readEnvNumber("PHASE4_AI_TIMEOUT_MS", 120000),
+      options.timeoutMs ?? aiCleanupSettings.timeoutMs,
     maxOutputBytes:
       options.maxOutputBytes ??
-      readEnvNumber("PHASE4_AI_MAX_OUTPUT_BYTES", 2 * 1024 * 1024),
+      aiCleanupSettings.maxOutputBytes,
     includeFakeStt: options.includeFakeStt,
     backup:
       !options.dryRun && options.backup
@@ -62,14 +66,17 @@ try {
   store?.close();
 }
 
-function createProvider(options: Phase4AiCleanupCliOptions): AiCleanupProvider {
+function createProvider(
+  options: Phase4AiCleanupCliOptions,
+  aiCleanupSettings: AiCleanupRuntimeSettings,
+): AiCleanupProvider {
   if (options.provider === "fake") {
     return new FakeAiCleanupProvider();
   }
 
   return new ClaudeStreamJsonCliCleanupProvider({
-    command: process.env.PHASE4_CLAUDE_COMMAND?.trim() || "claude",
-    model: options.model ?? process.env.PHASE4_CLAUDE_MODEL?.trim() ?? null,
+    command: aiCleanupSettings.claudeCommand,
+    model: options.model ?? aiCleanupSettings.claudeModel,
   });
 }
 
@@ -132,16 +139,4 @@ function printResult(
   for (const line of result.timelineMarkdownPreview) {
     console.log(`- ${line}`);
   }
-}
-
-function readEnvNumber(key: string, fallback: number): number {
-  const raw = process.env[key]?.trim();
-  if (!raw) {
-    return fallback;
-  }
-  const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${key} 값은 1 이상의 정수여야 합니다.`);
-  }
-  return parsed;
 }

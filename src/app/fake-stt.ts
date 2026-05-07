@@ -1,4 +1,10 @@
 import process from "node:process";
+import {
+  parseCliArgs,
+  readPositiveIntegerArg,
+  readRequiredStringArg,
+  type CliArgSpec,
+} from "../cli/arg-parser.js";
 import { printCliError } from "../cli/error-output.js";
 import { loadPhase1Config } from "../config.js";
 import { runFakeSttBatch } from "../stt/fake-runner.js";
@@ -68,60 +74,59 @@ try {
 }
 
 function parseArgs(args: string[]): CliOptions {
-  const options: CliOptions = {
-    limit: 10,
-    sessionId: null,
-    dryRun: false,
-    backup: true,
-    leaseMs: null,
-    debug: false,
-  };
+  return parseCliArgs(
+    args,
+    {
+      limit: 10,
+      sessionId: null,
+      dryRun: false,
+      backup: true,
+      leaseMs: null,
+      debug: false,
+    },
+    FAKE_STT_ARG_SPEC,
+    (flag) => `알 수 없는 Phase 2 fake STT 옵션입니다: ${flag}`,
+  );
+}
 
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-
-    if (arg === "--dry-run") {
+const FAKE_STT_ARG_SPEC: Record<string, CliArgSpec<CliOptions>> = {
+  "--dry-run": {
+    kind: "boolean",
+    apply: (options) => {
       options.dryRun = true;
-      continue;
-    }
-    if (arg === "--debug") {
+    },
+  },
+  "--debug": {
+    kind: "boolean",
+    apply: (options) => {
       options.debug = true;
-      continue;
-    }
-    if (arg === "--no-backup") {
+    },
+  },
+  "--no-backup": {
+    kind: "boolean",
+    apply: (options) => {
       options.backup = false;
-      continue;
-    }
-    if (arg === "--limit") {
-      options.limit = readPositiveNumber(args[index + 1], "--limit");
-      index += 1;
-      continue;
-    }
-    if (arg === "--session") {
-      const value = args[index + 1]?.trim();
-      if (!value) {
-        throw new Error("--session 값이 필요합니다.");
-      }
+    },
+  },
+  "--limit": {
+    kind: "value",
+    read: readPositiveIntegerArg,
+    apply: (options, value) => {
+      options.limit = value;
+    },
+  },
+  "--session": {
+    kind: "value",
+    read: (value) => readRequiredStringArg(value, "--session 값이 필요합니다."),
+    apply: (options, value) => {
       options.sessionId = value;
-      index += 1;
-      continue;
-    }
-    if (arg === "--lease-ms") {
-      options.leaseMs = readPositiveNumber(args[index + 1], "--lease-ms");
-      index += 1;
-      continue;
-    }
-
-    throw new Error(`알 수 없는 Phase 2 fake STT 옵션입니다: ${arg ?? ""}`);
-  }
-
-  return options;
-}
-
-function readPositiveNumber(value: string | undefined, flag: string): number {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${flag} 값은 1 이상의 정수여야 합니다.`);
-  }
-  return parsed;
-}
+    },
+  },
+  "--lease-ms": {
+    kind: "value",
+    read: readPositiveIntegerArg,
+    apply: (options, value) => {
+      options.leaseMs = value;
+    },
+  },
+};

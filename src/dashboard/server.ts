@@ -8,6 +8,10 @@ import type { AloneFinalizeSnapshot } from "../recording/alone-finalize-service.
 import type { RecordingProducer } from "../recording/recording-producer.js";
 import type { SessionStore } from "../storage/session-store.js";
 import type { SttAutomationSnapshot } from "../stt/automation-service.js";
+import type {
+  NotionDashboardActionResult,
+  NotionDashboardSnapshot,
+} from "../notion/dashboard-service.js";
 
 export type DashboardAiReadinessSource = {
   getSnapshot(): AiProviderRuntimeReadinessSnapshot;
@@ -25,10 +29,20 @@ export type DashboardSttAutomationSource = {
   getSnapshot(): SttAutomationSnapshot;
 };
 
+export type DashboardNotionSource = {
+  getSnapshot(): NotionDashboardSnapshot;
+  runManualUpload(input: {
+    sessionId: string | null;
+    draftId: string | null;
+    force: boolean;
+  }): Promise<NotionDashboardActionResult>;
+};
+
 export type DashboardRuntimeSources = {
   aiReadiness?: DashboardAiReadinessSource;
   aiCleanupAutomation?: DashboardAiCleanupAutomationSource;
   aloneFinalize?: DashboardAloneFinalizeSource;
+  notion?: DashboardNotionSource;
   sttAutomation?: DashboardSttAutomationSource;
 };
 
@@ -90,6 +104,16 @@ export class DashboardServer {
     response: ServerResponse,
   ): Promise<void> {
     const url = new URL(request.url ?? "/", this.getUrl());
+
+    if (request.method === "POST" && url.pathname === "/api/notion/send") {
+      await this.handleNotionAction(request, response, false);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/notion/retry") {
+      await this.handleNotionAction(request, response, true);
+      return;
+    }
 
     if (request.method !== "GET") {
       sendText(response, 405, "Method Not Allowed");
@@ -175,6 +199,47 @@ export class DashboardServer {
     });
     createReadStream(audio.path).pipe(response);
   }
+
+  private async handleNotionAction(
+    request: IncomingMessage,
+    response: ServerResponse,
+    force: boolean,
+  ): Promise<void> {
+    if (!this.runtimeSources.notion) {
+      sendJson(response, {
+        ok: false,
+        status: "not_configured",
+        message: "Notion dashboard action source is not configured.",
+        userAction: "Notion 설정을 확인해 주세요.",
+        pageUrl: null,
+      });
+      return;
+    }
+
+    try {
+      const body = await readJsonBody(request);
+      const result = await this.runtimeSources.notion.runManualUpload({
+        sessionId: readOptionalBodyString(body, "sessionId"),
+        draftId: readOptionalBodyString(body, "draftId"),
+        force,
+      });
+      sendJson(response, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      response.writeHead(400, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      });
+      response.end(`${JSON.stringify({
+        ok: false,
+        status: "failed",
+        message,
+        userAction: "요청을 다시 시도해 주세요.",
+        pageUrl: null,
+      })}\n`);
+    }
+  }
 }
 
 export function appendAiReadinessToDashboardState(
@@ -197,6 +262,7 @@ export function appendDashboardRuntimeSnapshots(
     !sources.aiReadiness &&
     !sources.aiCleanupAutomation &&
     !sources.aloneFinalize &&
+    !sources.notion &&
     !sources.sttAutomation
   ) {
     return state;
@@ -212,6 +278,9 @@ export function appendDashboardRuntimeSnapshots(
       : {}),
     ...(sources.aloneFinalize
       ? { aloneFinalize: sources.aloneFinalize.getSnapshot() }
+      : {}),
+    ...(sources.notion
+      ? { notion: sources.notion.getSnapshot() }
       : {}),
     ...(sources.sttAutomation
       ? { sttAutomation: sources.sttAutomation.getSnapshot() }
@@ -240,6 +309,32 @@ function sendJson(response: ServerResponse, value: unknown): void {
     "X-Content-Type-Options": "nosniff",
   });
   response.end(`${JSON.stringify(value)}\n`);
+}
+
+async function readJsonBody(request: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.length;
+    if (size > 4096) {
+      throw new Error("Dashboard request body is too large.");
+    }
+    chunks.push(buffer);
+  }
+  const text = Buffer.concat(chunks).toString("utf8").trim();
+  if (!text) {
+    return {};
+  }
+  return JSON.parse(text);
+}
+
+function readOptionalBodyString(body: unknown, key: string): string | null {
+  if (!isRecord(body)) {
+    return null;
+  }
+  const value = body[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function sendText(response: ServerResponse, statusCode: number, text: string): void {

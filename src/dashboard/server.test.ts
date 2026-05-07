@@ -7,6 +7,7 @@ import test from "node:test";
 import type { Phase1Config } from "../config.js";
 import type { RecordingProducer } from "../recording/recording-producer.js";
 import type { SessionStore } from "../storage/session-store.js";
+import type { DashboardNotionSource } from "./server.js";
 import {
   appendAiReadinessToDashboardState,
   appendDashboardRuntimeSnapshots,
@@ -224,6 +225,20 @@ test("appendDashboardRuntimeSnapshots includes STT automation snapshot", () => {
   });
 });
 
+test("appendDashboardRuntimeSnapshots includes redacted Notion snapshot", () => {
+  const state = {
+    generatedAt: "2026-05-06T00:00:00.000Z",
+  };
+
+  const withNotion = appendDashboardRuntimeSnapshots(state, {
+    notion: makeNotionSource(),
+  }) as { notion: { settings: { apiKey: string } } };
+  const serialized = JSON.stringify(withNotion);
+
+  assert.equal(withNotion.notion.settings.apiKey, "[REDACTED]");
+  assert.doesNotMatch(serialized, /ntn_test_secret/);
+});
+
 test("DashboardServer root serves the dashboard HTML without caching", async () => {
   const fixture = await startDashboardFixture();
   try {
@@ -315,6 +330,66 @@ test("DashboardServer audio endpoint serves STT-safe audio separately", async ()
   }
 });
 
+test("DashboardServer Notion send action posts explicit JSON action", async () => {
+  const actions: Array<{
+    sessionId: string | null;
+    draftId: string | null;
+    force: boolean;
+  }> = [];
+  const fixture = await startDashboardFixture({
+    notion: makeNotionSource(actions),
+  });
+  try {
+    const response = await fetch(`${fixture.baseUrl}/api/notion/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: "session-1", draftId: "draft-1" }),
+    });
+    const body = await response.json() as {
+      ok: boolean;
+      status: string;
+      pageUrl: string;
+    };
+
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.status, "done");
+    assert.equal(body.pageUrl, "https://notion.so/page");
+    assert.deepEqual(actions, [
+      { sessionId: "session-1", draftId: "draft-1", force: false },
+    ]);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("DashboardServer Notion retry action forces retry and never returns token", async () => {
+  const actions: Array<{
+    sessionId: string | null;
+    draftId: string | null;
+    force: boolean;
+  }> = [];
+  const fixture = await startDashboardFixture({
+    notion: makeNotionSource(actions),
+  });
+  try {
+    const response = await fetch(`${fixture.baseUrl}/api/notion/retry`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: "session-1" }),
+    });
+    const text = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.doesNotMatch(text, /ntn_test_secret/);
+    assert.deepEqual(actions, [
+      { sessionId: "session-1", draftId: null, force: true },
+    ]);
+  } finally {
+    await fixture.close();
+  }
+});
+
 type AudioFixture = {
   chunkId: string;
   raw?: { path: string; format: string };
@@ -323,6 +398,7 @@ type AudioFixture = {
 
 type DashboardFixtureOptions = {
   audio?: AudioFixture;
+  notion?: DashboardNotionSource;
 };
 
 async function startDashboardFixture(
@@ -332,6 +408,7 @@ async function startDashboardFixture(
     makeDashboardConfig(),
     makeStore(options.audio),
     makeProducer(),
+    options.notion ? { notion: options.notion } : {},
   );
   await dashboard.start();
 
@@ -345,6 +422,62 @@ async function startDashboardFixture(
     close: async () => {
       server.closeAllConnections();
       await dashboard.stop();
+    },
+  };
+}
+
+function makeNotionSource(
+  actions: Array<{
+    sessionId: string | null;
+    draftId: string | null;
+    force: boolean;
+  }> = [],
+): DashboardNotionSource {
+  return {
+    getSnapshot: () => ({
+      enabled: true,
+      configured: true,
+      status: "ready",
+      uploadMode: "manual",
+      targetUrl: "https://notion.so/db",
+      message: "Notion upload is configured.",
+      userAction: null,
+      settings: {
+        enabled: true,
+        apiKey: "[REDACTED]",
+        apiVersion: "2026-03-11",
+        baseUrl: "https://api.notion.com",
+        targetUrl: "https://notion.so/db",
+        targetType: "data_source",
+        uploadMode: "manual",
+        templateType: "app",
+        includeTranscript: "never",
+        autoPollMs: 5000,
+        leaseMs: 600000,
+        maxAttempts: 3,
+        propertyNames: {
+          title: "Name",
+          date: "Date",
+          meetingTime: "Meeting Time",
+          channel: "Channel",
+          participants: "Participants",
+          status: "Status",
+          sessionId: "Session ID",
+          draftId: "Draft ID",
+          contentHash: "Dirong Content Hash",
+          localStatus: "Local Status",
+        },
+      },
+    }),
+    runManualUpload: async (input) => {
+      actions.push(input);
+      return {
+        ok: true,
+        status: "done",
+        message: "complete",
+        userAction: null,
+        pageUrl: "https://notion.so/page",
+      };
     },
   };
 }

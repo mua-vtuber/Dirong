@@ -42,6 +42,7 @@ import {
   formatAloneFinalizeForStatus,
   type AloneFinalizeMemberCountResult,
 } from "../recording/alone-finalize-service.js";
+import { NotionDashboardService } from "../notion/dashboard-service.js";
 import { RecordingProducer } from "../recording/recording-producer.js";
 import { runStartupRepair } from "../storage/repair-scan.js";
 import { SessionStore } from "../storage/session-store.js";
@@ -97,10 +98,17 @@ const aiCleanupAutomation = createAiCleanupAutomationService(
   aiCleanupProvider,
   aiLifecycle,
 );
+const notionDashboard = new NotionDashboardService({
+  settings: appSettings.notion,
+  database,
+  config,
+  workerId: `phase5-notion-dashboard-${process.pid}`,
+});
 const dashboard = new DashboardServer(config, store, producer, {
   aiReadiness: aiLifecycle,
   aiCleanupAutomation,
   aloneFinalize,
+  notion: notionDashboard,
   sttAutomation,
 });
 const dashboardUrl = await dashboard.start();

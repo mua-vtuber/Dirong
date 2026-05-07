@@ -38,6 +38,41 @@ test("SessionStore dashboard read model returns current session slices", () => {
   }
 });
 
+test("SessionStore dashboard read model returns latest Notion write without secrets", () => {
+  const fixture = createFixture();
+  try {
+    seedDashboardSession(fixture);
+    seedNotionWrite(fixture);
+    const runtime: RecordingRuntimeState = {
+      isRecording: false,
+      sessionId: fixture.sessionId,
+      voiceChannelId: null,
+      voiceChannelName: null,
+      openChunks: 0,
+    };
+
+    const state = fixture.store.getDashboardState(runtime) as {
+      latestNotionWrite?: {
+        id: string;
+        status: string;
+        notion_page_url: string;
+        last_error: string | null;
+      };
+    };
+    const serialized = JSON.stringify(state);
+
+    assert.equal(state.latestNotionWrite?.id, "notion-write-dashboard");
+    assert.equal(state.latestNotionWrite?.status, "done");
+    assert.equal(
+      state.latestNotionWrite?.notion_page_url,
+      "https://notion.so/page",
+    );
+    assert.doesNotMatch(serialized, /ntn_/);
+  } finally {
+    fixture.close();
+  }
+});
+
 type DashboardFixture = {
   dir: string;
   database: DirongDatabase;
@@ -111,4 +146,54 @@ function seedDashboardSession(fixture: DashboardFixture): void {
     sttSha256: "stt-sha",
     maxAttempts: 3,
   });
+}
+
+function seedNotionWrite(fixture: DashboardFixture): void {
+  const now = "2026-05-07T00:00:00.000Z";
+  fixture.database.db
+    .prepare(
+      `INSERT INTO ai_cleanup_jobs (
+         id, session_id, status, attempts, max_attempts, locked_by,
+         locked_until, next_attempt_at, provider, model, command,
+         prompt_version, input_contract_version, input_hash, input_entry_count,
+         input_timeline_json_path, input_timeline_markdown_path, prompt_path,
+         raw_output_path, stderr_path, parsed_json_path, markdown_path,
+         output_hash, failure_kind, last_error, created_at, updated_at
+       ) VALUES (
+         'ai-dashboard', ?, 'done', 1, 3, NULL, NULL, ?, 'fake', 'model',
+         NULL, 'prompt-v1', 'timeline-v1', 'input-hash-dashboard', 1,
+         NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'output-hash',
+         NULL, NULL, ?, ?
+       )`,
+    )
+    .run(fixture.sessionId, now, now, now);
+  fixture.database.db
+    .prepare(
+      `INSERT INTO meeting_notes_drafts (
+         id, session_id, ai_cleanup_job_id, schema_version, language, title,
+         summary_text, draft_json, markdown, json_path, markdown_path,
+         raw_output_path, provider, model, prompt_version, input_hash,
+         output_hash, validation_status, created_at, updated_at
+       ) VALUES (
+         'draft-dashboard', ?, 'ai-dashboard', 'v1', 'ko', '회의록', '요약',
+         '{}', '# 회의록', 'draft.json', 'draft.md', 'raw.txt', 'fake',
+         'model', 'prompt-v1', 'input-hash', 'output-hash', 'valid', ?, ?
+       )`,
+    )
+    .run(fixture.sessionId, now, now);
+  fixture.database.db
+    .prepare(
+      `INSERT INTO notion_writes (
+         id, session_id, draft_id, target_type, target_id, target_url,
+         notion_page_id, notion_page_url, content_hash, status,
+         status_message, attempts, max_attempts, next_attempt_at, last_error,
+         created_at, updated_at
+       ) VALUES (
+         'notion-write-dashboard', ?, 'draft-dashboard', 'data_source',
+         'target-dashboard', 'https://notion.so/db', 'page-dashboard',
+         'https://notion.so/page', 'hash-dashboard', 'done',
+         'complete', 1, 3, ?, NULL, ?, ?
+       )`,
+    )
+    .run(fixture.sessionId, now, now, now);
 }

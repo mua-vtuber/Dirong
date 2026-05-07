@@ -117,6 +117,16 @@ export function buildDashboardReadModel(input: {
   const recentAiCleanupJobs = queries.listRecentAiCleanupJobs(sessionId, 10);
   const latestMeetingNotesDraft =
     sessionId === null ? null : queries.getLatestMeetingNotesDraft(sessionId);
+  const latestNotionWrite =
+    sessionId === null
+      ? null
+      : database.db.prepare(
+          `SELECT *
+           FROM notion_writes
+           WHERE session_id = ?
+           ORDER BY created_at DESC
+           LIMIT 1`,
+        ).get(sessionId) ?? null;
 
   return redactForJson({
     generatedAt: new Date().toISOString(),
@@ -130,6 +140,7 @@ export function buildDashboardReadModel(input: {
     recentTranscriptSegments,
     recentAiCleanupJobs,
     latestMeetingNotesDraft,
+    latestNotionWrite,
     queueStats,
     dbPath: database.dbPath,
   });

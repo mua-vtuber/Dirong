@@ -125,6 +125,10 @@
       <div id="draftPreview"></div>
     </section>
     <section>
+      <h2>Notion Upload</h2>
+      <div id="notion"></div>
+    </section>
+    <section>
       <h2>Connection / Errors</h2>
       <div id="events"></div>
     </section>
@@ -177,6 +181,7 @@
         metric('STT Auto', state.sttAutomation?.message ?? '-'),
         metric('AI Status', state.aiReadiness?.message ?? '-'),
         metric('AI Cleanup', state.aiCleanupAutomation?.message ?? '-'),
+        metric('Notion', renderNotionMetric(state)),
         metric('Alone Finalize', state.aloneFinalize?.message ?? '-'),
         metric('AI Provider', state.aiReadiness ? state.aiReadiness.provider + ' / ' + state.aiReadiness.model : '-'),
         metric('Queue', queueSummary(state.queueStats ?? [])),
@@ -247,6 +252,8 @@
       setHtml('draftPreview', draft
         ? '<pre>' + escapeHtml(draft.markdown) + '</pre>'
         : '<div class="muted">아직 AI cleanup draft가 없습니다.</div>');
+
+      setHtml('notion', renderNotionUpload(state));
 
       setHtml('events', table(
         ['time', 'level', 'event', 'details'],
@@ -395,6 +402,74 @@
         ' · ' + escapeHtml(automation.status) + ' · ' + escapeHtml(automation.checkedAt ?? 'not checked') +
         '</div><div class="value ' + runtimeValueClass(automation.status) + '">' + escapeHtml(automation.message) + '</div>' +
         stt + progress + warnings + action + technical + '</div>';
+    }
+    function renderNotionUpload(state) {
+      const notion = state.notion;
+      const latest = state.latestNotionWrite;
+      if (!notion) {
+        return '<div class="metric"><div class="label">notion · unavailable</div>' +
+          '<div class="value">Notion 상태를 아직 불러오지 못했습니다.</div></div>';
+      }
+      const page = latest?.notion_page_url
+        ? '<div class="value"><a href="' + escapeHtml(latest.notion_page_url) + '" target="_blank" rel="noreferrer">Open Notion page</a></div>'
+        : '';
+      const error = latest?.last_error
+        ? '<details><summary class="muted">last error</summary><pre>' + escapeHtml(latest.last_error) + '</pre></details>'
+        : '';
+      const action = notion.userAction
+        ? '<div class="value">' + escapeHtml(notion.userAction) + '</div>'
+        : '';
+      const buttons = renderNotionButtons(state);
+      return '<div class="metric">' +
+        '<div class="label">notion · ' + escapeHtml(notion.status) + ' · ' + escapeHtml(notion.uploadMode) + '</div>' +
+        '<div class="value ' + runtimeValueClass(latest?.status ?? notion.status) + '">' +
+          escapeHtml(latest?.status ?? notion.message) + '</div>' +
+        '<div class="muted">target: ' + escapeHtml(notion.targetUrl ?? '-') +
+        '<br>write: ' + escapeHtml(latest?.id ?? '-') +
+        '<br>draft: ' + escapeHtml(latest?.draft_id ?? state.latestMeetingNotesDraft?.id ?? '-') +
+        '<br>hash: ' + escapeHtml(shortHash(latest?.content_hash)) + '</div>' +
+        page + action + buttons + error + '</div>';
+    }
+    function renderNotionMetric(state) {
+      const latest = state.latestNotionWrite;
+      if (latest) {
+        return latest.status + (latest.notion_page_url ? ' / page ready' : '');
+      }
+      return state.notion?.message ?? '-';
+    }
+    function renderNotionButtons(state) {
+      const draftId = state.latestMeetingNotesDraft?.id ?? '';
+      const sessionId = state.currentSession?.id ?? '';
+      const disabled = (!draftId && !sessionId) || state.notion?.status !== 'ready';
+      const disabledAttr = disabled ? ' disabled' : '';
+      return '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">' +
+        '<button type="button"' + disabledAttr + ' onclick="postNotionAction(\'send\')">Send to Notion</button>' +
+        '<button type="button"' + disabledAttr + ' onclick="postNotionAction(\'retry\')">Retry</button>' +
+        '<span class="muted" id="notionActionStatus"></span>' +
+        '</div>';
+    }
+    async function postNotionAction(action) {
+      const statusEl = document.getElementById('notionActionStatus');
+      if (statusEl) statusEl.textContent = 'running...';
+      try {
+        const stateRes = await fetch('/api/state', { cache: 'no-store' });
+        const state = await stateRes.json();
+        const body = {
+          draftId: state.latestMeetingNotesDraft?.id ?? null,
+          sessionId: state.currentSession?.id ?? null
+        };
+        const res = await fetch('/api/notion/' + action, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const result = await res.json();
+        if (statusEl) statusEl.textContent = result.status + ': ' + result.message;
+        refresh();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (statusEl) statusEl.textContent = message;
+      }
     }
     function renderAloneFinalize(aloneFinalize) {
       if (!aloneFinalize) {

@@ -124,3 +124,72 @@ test("parsePhase4AiCleanupArgs rejects unknown providers", () => {
     /fake 또는 claude-cli/,
   );
 });
+
+test("parsePhase4AiCleanupArgs rejects missing values", () => {
+  assert.throws(
+    () => parsePhase4AiCleanupArgs(["--session", "meeting_1", "--model"]),
+    /--model 값/,
+  );
+  assert.throws(
+    () => parsePhase4AiCleanupArgs(["--session", "meeting_1", "--provider"]),
+    /fake 또는 claude-cli/,
+  );
+  assert.throws(() => parsePhase4AiCleanupArgs(["--session"]), /--session 값/);
+});
+
+test("parsePhase4AiCleanupArgs rejects invalid positive integers", () => {
+  assert.throws(
+    () => parsePhase4AiCleanupArgs(["--session", "meeting_1", "--lease-ms", "0"]),
+    /1 이상의 정수/,
+  );
+  assert.throws(
+    () =>
+      parsePhase4AiCleanupArgs([
+        "--session",
+        "meeting_1",
+        "--timeout-ms",
+        "-1",
+      ]),
+    /1 이상의 정수/,
+  );
+  assert.throws(
+    () =>
+      parsePhase4AiCleanupArgs([
+        "--session",
+        "meeting_1",
+        "--max-output-bytes",
+        "1.5",
+      ]),
+    /1 이상의 정수/,
+  );
+});
+
+test("parsePhase4AiCleanupArgs preserves current duplicate value behavior", () => {
+  assert.equal(
+    parsePhase4AiCleanupArgs([
+      "--session",
+      "meeting_a",
+      "--session",
+      "meeting_b",
+    ]).sessionId,
+    "meeting_b",
+  );
+  assert.equal(
+    parsePhase4AiCleanupArgs([
+      "--session",
+      "meeting_1",
+      "--provider",
+      "fake",
+      "--provider",
+      "claude-cli",
+    ]).provider,
+    "claude-cli",
+  );
+});
+
+test("parsePhase4AiCleanupArgs rejects unknown flags", () => {
+  assert.throws(
+    () => parsePhase4AiCleanupArgs(["--session", "meeting_1", "--unexpected"]),
+    /알 수 없는 Phase 4 AI cleanup 옵션/,
+  );
+});

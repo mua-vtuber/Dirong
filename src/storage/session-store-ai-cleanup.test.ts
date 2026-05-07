@@ -133,6 +133,71 @@ test("repairExpiredAiCleanupProcessingJobs requeues retryable jobs and fails exh
   }
 });
 
+test("listFinalizedSessionsForAiCleanupAutomation preserves readiness ordering", () => {
+  const fixture = createFixture();
+  try {
+    const processing = "meeting_ai_processing";
+    const ready = "meeting_ai_ready";
+    const empty = "meeting_ai_empty";
+    const waitingStt = "meeting_ai_waiting_stt";
+    const futureQueued = "meeting_ai_future_queued";
+
+    createSessionForSelection(fixture, processing);
+    addCompletedRealSttChunkForSession(fixture, processing, 1);
+    finalizeSessionForSelection(fixture, processing, "2026-05-07T00:00:01.000Z");
+    const processingJob = createAiCleanupJobForSelection(
+      fixture,
+      processing,
+      "ai_processing",
+    );
+    assert.ok(
+      fixture.store.claimAiCleanupJob({
+        jobId: processingJob.id,
+        workerId: "selection-test",
+        leaseMs: 60000,
+      }),
+    );
+
+    createSessionForSelection(fixture, ready);
+    addCompletedRealSttChunkForSession(fixture, ready, 1);
+    finalizeSessionForSelection(fixture, ready, "2026-05-07T00:00:02.000Z");
+
+    createSessionForSelection(fixture, empty);
+    finalizeSessionForSelection(fixture, empty, "2026-05-07T00:00:03.000Z");
+
+    createSessionForSelection(fixture, waitingStt);
+    addQueuedSttChunkForSession(fixture, waitingStt, 1);
+    finalizeSessionForSelection(fixture, waitingStt, "2026-05-07T00:00:04.000Z");
+
+    createSessionForSelection(fixture, futureQueued);
+    addCompletedRealSttChunkForSession(fixture, futureQueued, 1);
+    finalizeSessionForSelection(fixture, futureQueued, "2026-05-07T00:00:05.000Z");
+    const futureJob = createAiCleanupJobForSelection(
+      fixture,
+      futureQueued,
+      "ai_future_queued",
+    );
+    fixture.database.db
+      .prepare("UPDATE ai_cleanup_jobs SET next_attempt_at = ? WHERE id = ?")
+      .run("2026-05-08T00:00:00.000Z", futureJob.id);
+
+    const selected = fixture.store.listFinalizedSessionsForAiCleanupAutomation({
+      limit: 10,
+      provider: "fake",
+      model: "selection-model",
+      promptVersion: PHASE4_AI_CLEANUP_PROMPT_VERSION,
+      nowIso: "2026-05-07T12:00:00.000Z",
+    });
+
+    assert.deepEqual(
+      selected.map((session) => session.id),
+      [processing, ready, empty, waitingStt, futureQueued],
+    );
+  } finally {
+    fixture.close();
+  }
+});
+
 type StoreFixture = {
   dir: string;
   database: DirongDatabase;
@@ -279,5 +344,136 @@ function finalizeSession(fixture: StoreFixture): void {
     stoppedByUserId: "starter",
     stoppedByDisplayName: "Taniar",
     status: "finalized",
+  });
+}
+
+function createSessionForSelection(
+  fixture: StoreFixture,
+  sessionId: string,
+): void {
+  fixture.store.createSession({
+    id: sessionId,
+    guildId: "guild",
+    guildName: "Guild",
+    textChannelId: "text",
+    voiceChannelId: "voice",
+    voiceChannelName: "Voice",
+    startedByUserId: "starter",
+    startedByDisplayName: "Taniar",
+    dataDir: path.join(fixture.dir, sessionId),
+  });
+  fixture.store.upsertSpeaker({
+    sessionId,
+    userId: "speaker",
+    displayNameSnapshot: "Taniar",
+    isBot: false,
+    seenAtMs: 0,
+  });
+}
+
+function addCompletedRealSttChunkForSession(
+  fixture: StoreFixture,
+  sessionId: string,
+  index: number,
+): void {
+  addQueuedSttChunkForSession(fixture, sessionId, index);
+  const job = fixture.store.claimNextSttJob({
+    workerId: "ai-selection-test-stt",
+    leaseMs: 60000,
+    sessionId,
+  });
+  assert.ok(job);
+  fixture.store.completeSttJob({
+    job,
+    text: `실제 회의 발화입니다 ${sessionId}.`,
+    source: "real",
+    provider: "local-whisper",
+    model: "small",
+    inputAudioSha256: `stt-${sessionId}-${index}`,
+  });
+}
+
+function addQueuedSttChunkForSession(
+  fixture: StoreFixture,
+  sessionId: string,
+  index: number,
+): void {
+  const chunkId = addRawFinalizedChunkForSession(fixture, sessionId, index);
+  fixture.store.completeChunkTranscodeAndQueueJob({
+    chunkId,
+    sttAudioPath: path.join(fixture.dir, sessionId, `${chunkId}.webm`),
+    sttAudioFormat: "webm",
+    sttByteSize: 10,
+    sttSha256: `stt-${sessionId}-${index}`,
+    maxAttempts: 3,
+  });
+}
+
+function addRawFinalizedChunkForSession(
+  fixture: StoreFixture,
+  sessionId: string,
+  index: number,
+): string {
+  const chunkId = `${sessionId}_${String(index).padStart(6, "0")}_speaker`;
+  fixture.store.createChunkWriting({
+    chunkId,
+    sessionId,
+    chunkIndex: index,
+    userId: "speaker",
+    displayNameSnapshot: "Taniar",
+    startedAtMs: index * 1000,
+    rawAudioPath: path.join(fixture.dir, sessionId, `${chunkId}.ogg`),
+  });
+  fixture.store.finalizeRawChunk({
+    chunkId,
+    endedAtMs: index * 1000 + 500,
+    durationMs: 500,
+    rawByteSize: 10,
+    rawSha256: `raw-${sessionId}-${index}`,
+    closeReason: "test",
+    pipelineError: null,
+  });
+  return chunkId;
+}
+
+function finalizeSessionForSelection(
+  fixture: StoreFixture,
+  sessionId: string,
+  finalizedAt: string,
+): void {
+  fixture.store.stopSession({
+    sessionId,
+    stoppedByUserId: "starter",
+    stoppedByDisplayName: "Taniar",
+    status: "finalized",
+  });
+  fixture.database.db
+    .prepare(
+      `UPDATE sessions
+       SET created_at = ?, updated_at = ?, stopped_at = ?, finalized_at = ?
+       WHERE id = ?`,
+    )
+    .run(finalizedAt, finalizedAt, finalizedAt, finalizedAt, sessionId);
+}
+
+function createAiCleanupJobForSelection(
+  fixture: StoreFixture,
+  sessionId: string,
+  jobId: string,
+): ReturnType<SessionStore["getOrCreateAiCleanupJob"]> {
+  const timelineInput = buildPhase4TimelineInput(fixture.store, { sessionId });
+  return fixture.store.getOrCreateAiCleanupJob({
+    id: jobId,
+    sessionId,
+    provider: "fake",
+    model: "selection-model",
+    command: null,
+    promptVersion: PHASE4_AI_CLEANUP_PROMPT_VERSION,
+    inputContractVersion: timelineInput.timeline.contractVersion,
+    inputHash: timelineInput.inputHash,
+    inputEntryCount: timelineInput.timeline.entries.length,
+    inputTimelineJsonPath: null,
+    inputTimelineMarkdownPath: null,
+    maxAttempts: 3,
   });
 }

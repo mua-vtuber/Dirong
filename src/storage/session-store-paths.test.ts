@@ -99,6 +99,88 @@ test("SessionStore normalizes existing absolute path rows under the storage root
   }
 });
 
+test("SessionStore stores AI cleanup artifact paths relative and resolves reads", () => {
+  const fixture = createFixture();
+  try {
+    const store = new SessionStore(fixture.database, {
+      storageRoot: fixture.dir,
+      normalizeStoredPaths: true,
+    });
+    const paths = seedSessionWithAudio(store, fixture.dir);
+    const aiDir = path.join(paths.sessionDir, "ai-cleanup");
+    const timelineJsonPath = path.join(aiDir, "timeline.json");
+    const timelineMarkdownPath = path.join(aiDir, "timeline.md");
+    const promptPath = path.join(aiDir, "prompt.txt");
+    const rawOutputPath = path.join(aiDir, "raw-output.jsonl");
+    const stderrPath = path.join(aiDir, "stderr.txt");
+    const parsedJsonPath = path.join(aiDir, "draft.json");
+    const markdownPath = path.join(aiDir, "draft.md");
+
+    const job = store.getOrCreateAiCleanupJob({
+      id: "ai_path_job",
+      sessionId: paths.sessionId,
+      provider: "fake",
+      model: "fixture-model",
+      command: null,
+      promptVersion: "phase4-fixture",
+      inputContractVersion: "timeline-fixture",
+      inputHash: "input-hash",
+      inputEntryCount: 1,
+      inputTimelineJsonPath: timelineJsonPath,
+      inputTimelineMarkdownPath: timelineMarkdownPath,
+      maxAttempts: 3,
+    });
+    store.updateAiCleanupJobArtifacts({
+      jobId: job.id,
+      promptPath,
+      rawOutputPath,
+      stderrPath,
+      parsedJsonPath,
+      markdownPath,
+      outputHash: "output-hash",
+    });
+    store.completeAiCleanupJob({
+      jobId: job.id,
+      draftId: "draft_path_job",
+      schemaVersion: "meeting-notes-draft-v1",
+      language: "ko",
+      title: "회의록",
+      summaryText: "요약",
+      draftJson: "{}",
+      markdown: "# 회의록",
+      jsonPath: parsedJsonPath,
+      markdownPath,
+      rawOutputPath,
+      provider: "fake",
+      model: "fixture-model",
+      promptVersion: "phase4-fixture",
+      inputHash: "input-hash",
+      outputHash: "output-hash",
+    });
+
+    assert.equal(
+      readScalar(fixture, "SELECT input_timeline_json_path FROM ai_cleanup_jobs"),
+      `${paths.sessionId}/ai-cleanup/timeline.json`,
+    );
+    assert.equal(
+      readScalar(fixture, "SELECT prompt_path FROM ai_cleanup_jobs"),
+      `${paths.sessionId}/ai-cleanup/prompt.txt`,
+    );
+    assert.equal(
+      readScalar(fixture, "SELECT json_path FROM meeting_notes_drafts"),
+      `${paths.sessionId}/ai-cleanup/draft.json`,
+    );
+
+    assert.equal(store.getAiCleanupJob(job.id)?.prompt_path, promptPath);
+    assert.equal(
+      store.getLatestMeetingNotesDraft(paths.sessionId)?.markdown_path,
+      markdownPath,
+    );
+  } finally {
+    fixture.close();
+  }
+});
+
 type PathFixture = {
   dir: string;
   database: DirongDatabase;

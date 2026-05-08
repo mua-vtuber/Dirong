@@ -12,6 +12,7 @@ export type MakeNotionDraftInputOptions = {
   speakers?: SpeakerFixture[];
   timelineEntries?: TranscriptSegmentRow[];
   emptyDraftArrays?: boolean;
+  notionProperties?: MeetingNotesDraftV1["notionProperties"];
 };
 
 export function makeNotionDraftInput(
@@ -142,6 +143,7 @@ function makeDraftContent(
       removedChatterSummary: "짧은 잡담은 제거했습니다.",
       keptBecause: ["결정 근거와 이어지는 농담은 보존했습니다."],
     },
+    notionProperties: options.notionProperties ?? {},
   };
 }
 

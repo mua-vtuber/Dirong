@@ -179,6 +179,7 @@ export class NotionDashboardService {
       client,
       readModel: new NotionDraftInputReadModel(this.runner),
       writeStore: new NotionWriteStore(this.runner),
+      customPropertyRules: this.propertyRuleStore.listEnabledRules(),
     });
 
     return {
@@ -319,7 +320,12 @@ export class NotionDashboardService {
         ? buildNotionSchemaDiff({
             properties,
             propertyNames: this.input.settings.propertyNames,
-            customRules: this.propertyRuleStore.listRules(),
+            customRules: (
+              await resolveRelationRuleTargets(
+                context.client,
+                this.propertyRuleStore.listRules(),
+              )
+            ).rules,
           })
         : context.diff;
       return {
@@ -428,11 +434,18 @@ export class NotionDashboardService {
 
     try {
       const target = await resolveDataSourceTarget(client, parsedTarget);
+      const relationResolution = await resolveRelationRuleTargets(
+        client,
+        this.propertyRuleStore.listRules(),
+      );
       const diff = buildNotionSchemaDiff({
         properties: readDataSourceProperties(target.dataSource),
         propertyNames: settings.propertyNames,
-        customRules: this.propertyRuleStore.listRules(),
+        customRules: relationResolution.rules,
       });
+      if (relationResolution.warnings.length > 0) {
+        diff.warnings.push(...relationResolution.warnings);
+      }
       return { ok: true, client, target, diff };
     } catch (error) {
       return {
@@ -448,6 +461,36 @@ export class NotionDashboardService {
       };
     }
   }
+}
+
+async function resolveRelationRuleTargets(
+  client: NotionClient,
+  rules: readonly NotionCustomPropertyRule[],
+): Promise<{ rules: NotionCustomPropertyRule[]; warnings: string[] }> {
+  const warnings: string[] = [];
+  const resolved: NotionCustomPropertyRule[] = [];
+  for (const rule of rules) {
+    if (rule.propertyType !== "relation" || !rule.relationTargetUrl) {
+      resolved.push(rule);
+      continue;
+    }
+    const parsed = parseNotionTargetUrl(rule.relationTargetUrl);
+    if (parsed.kind === "invalid") {
+      warnings.push(`${rule.propertyName}: relation 대상 URL을 읽지 못했습니다.`);
+      resolved.push(rule);
+      continue;
+    }
+    try {
+      const target = await resolveDataSourceTarget(client, parsed);
+      resolved.push({ ...rule, relationDataSourceId: target.id });
+    } catch (error) {
+      warnings.push(
+        `${rule.propertyName}: relation 대상 DB에 접근하지 못했습니다 (${error instanceof Error ? error.message : String(error)}).`,
+      );
+      resolved.push(rule);
+    }
+  }
+  return { rules: resolved, warnings };
 }
 
 function selectorFromAction(

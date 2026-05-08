@@ -49,6 +49,10 @@ import {
 import { createNotionClient } from "../notion/client.js";
 import { NotionDashboardService } from "../notion/dashboard-service.js";
 import { NotionDraftInputReadModel } from "../notion/draft-input-read-model.js";
+import {
+  buildNotionCustomPropertyPrompt,
+  NotionCustomPropertyRuleStore,
+} from "../notion/property-rules.js";
 import { NotionWriteStore } from "../notion/write-store.js";
 import { RecordingProducer } from "../recording/recording-producer.js";
 import { runStartupRepair } from "../storage/repair-scan.js";
@@ -100,13 +104,14 @@ const sttAutomation = createSttAutomationService(
   sttProviderSelection.settings.language,
   sttProviderSelection.settings.timeoutMs,
 );
+const notionSqlRunner = new SqlRunner(database);
+const notionPropertyRuleStore = new NotionCustomPropertyRuleStore(notionSqlRunner);
 const aiCleanupProvider = createAiCleanupProvider();
 const aiLifecycle = createAiLifecycleService(aiCleanupProvider);
 const aiCleanupAutomation = createAiCleanupAutomationService(
   aiCleanupProvider,
   aiLifecycle,
 );
-const notionSqlRunner = new SqlRunner(database);
 const notionDashboard = new NotionDashboardService({
   settings: appSettings.notion,
   database,
@@ -445,6 +450,8 @@ function createAiCleanupAutomationService(
       maxInputChars: appSettings.aiCleanup.maxInputChars,
       timeoutMs: appSettings.aiCleanup.timeoutMs,
       maxOutputBytes: appSettings.aiCleanup.maxOutputBytes,
+      customNotionPropertyPrompt: () =>
+        buildNotionCustomPropertyPrompt(notionPropertyRuleStore.listEnabledRules()),
       backup: () =>
         backupDatabaseSnapshot(config.dbPath, {
           busyTimeoutMs: config.dbBusyTimeoutMs,
@@ -473,6 +480,7 @@ function createNotionAutomationService(
     batchLimit: 1,
     workerId: `phase5-notion-auto-${process.pid}`,
     leaseMs: settings.leaseMs || config.sttLeaseMs,
+    customPropertyRules: () => notionPropertyRuleStore.listEnabledRules(),
   });
 }
 

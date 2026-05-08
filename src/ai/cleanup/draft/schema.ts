@@ -58,6 +58,7 @@ export const MEETING_NOTES_DRAFT_JSON_SCHEMA = {
     "unresolvedItems",
     "uncertaintyNotes",
     "noiseHandling",
+    "notionProperties",
   ],
   properties: {
     schemaVersion: { const: MEETING_NOTES_DRAFT_SCHEMA_VERSION },
@@ -175,6 +176,20 @@ export const MEETING_NOTES_DRAFT_JSON_SCHEMA = {
         },
       },
     },
+    notionProperties: {
+      type: "object",
+      additionalProperties: {
+        type: "object",
+        additionalProperties: false,
+        required: ["values"],
+        properties: {
+          values: {
+            type: "array",
+            items: { type: "string" },
+          },
+        },
+      },
+    },
   },
 } as const;
 
@@ -191,6 +206,7 @@ export const TOP_LEVEL_KEYS = [
   "unresolvedItems",
   "uncertaintyNotes",
   "noiseHandling",
+  "notionProperties",
 ] as const;
 
 export const SOURCE_TIMELINE_KEYS = ["contractVersion", "inputHash", "entryCount"] as const;

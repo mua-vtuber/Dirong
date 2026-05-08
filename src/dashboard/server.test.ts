@@ -403,6 +403,10 @@ test("DashboardServer Notion property rules save through dashboard source", asyn
     enabled: boolean;
     promptDescription: string;
     maxLength?: number | null;
+    relationTargetUrl?: string | null;
+    relationDataSourceId?: string | null;
+    relationMatchPropertyName?: string | null;
+    relationAutoCreate?: boolean | null;
     deleted?: boolean;
   }> = [];
   const fixture = await startDashboardFixture({
@@ -437,6 +441,10 @@ test("DashboardServer Notion property rules save through dashboard source", asyn
         enabled: true,
         promptDescription: "회의 논의 사항 요약",
         maxLength: 700,
+        relationTargetUrl: null,
+        relationDataSourceId: null,
+        relationMatchPropertyName: null,
+        relationAutoCreate: false,
         deleted: false,
       },
     ]);
@@ -532,6 +540,10 @@ function makeNotionSource(
     enabled: boolean;
     promptDescription: string;
     maxLength?: number | null;
+    relationTargetUrl?: string | null;
+    relationDataSourceId?: string | null;
+    relationMatchPropertyName?: string | null;
+    relationAutoCreate?: boolean | null;
     deleted?: boolean;
   }> = [],
   schemaApplies: Array<{
@@ -598,6 +610,10 @@ function makeNotionSource(
             enabled: false,
             promptDescription: "",
             maxLength: 1000,
+            relationTargetUrl: null,
+            relationDataSourceId: null,
+            relationMatchPropertyName: "Name",
+            relationAutoCreate: false,
             lastSeenAt: "2026-05-07T00:00:00.000Z",
             createdAt: "2026-05-07T00:00:00.000Z",
             updatedAt: "2026-05-07T00:00:00.000Z",

@@ -160,6 +160,34 @@ test("buildNotionSchemaUpdatePlan renames existing title property instead of cre
   );
 });
 
+test("buildNotionSchemaUpdatePlan creates relation properties with target data source", () => {
+  const diff = buildNotionSchemaDiff({
+    properties: completeProperties(),
+    propertyNames: DEFAULT_NOTION_PROPERTY_NAMES,
+    customRules: [
+      {
+        ...customRule("프로젝트", "relation"),
+        relationDataSourceId: "668d797c-76fa-4934-9b05-ad288df2d136",
+        relationTargetUrl: "https://www.notion.so/projects",
+        relationAutoCreate: true,
+      },
+    ],
+  });
+
+  const plan = buildNotionSchemaUpdatePlan(diff, {
+    createMissing: true,
+    updateTypes: false,
+    deleteExtra: false,
+    confirmDeleteExtra: false,
+  });
+
+  assert.deepEqual(plan.body?.properties["프로젝트"], {
+    relation: {
+      data_source_id: "668d797c-76fa-4934-9b05-ad288df2d136",
+    },
+  });
+});
+
 function completeProperties(): NotionDataSourceProperties {
   return {
     Name: { id: "title-id", type: "title" },
@@ -197,6 +225,10 @@ function customRule(
     enabled: true,
     promptDescription: "회의 내용에서 값을 채웁니다.",
     maxLength: 1000,
+    relationTargetUrl: null,
+    relationDataSourceId: null,
+    relationMatchPropertyName: "Name",
+    relationAutoCreate: false,
     lastSeenAt: null,
     createdAt: "2026-05-08T00:00:00.000Z",
     updatedAt: "2026-05-08T00:00:00.000Z",

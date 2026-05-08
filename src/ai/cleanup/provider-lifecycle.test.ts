@@ -164,7 +164,7 @@ function createProviderInput(): AiCleanupProviderInput {
   return {
     sessionId: "meeting_test",
     language: "ko",
-    promptVersion: "phase4-ai-cleanup-v2",
+    promptVersion: "phase4-ai-cleanup-v3",
     outputSchemaVersion: "dirong.meeting_notes_draft.v1",
     timeline: {
       contractVersion: "phase3.5-transcript-timeline-v1",

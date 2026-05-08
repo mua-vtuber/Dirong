@@ -6,8 +6,13 @@ import type { AiCleanupProvider } from "../ai/cleanup/provider.js";
 import { printCliError } from "../cli/error-output.js";
 import { loadPhase1Config } from "../config.js";
 import { loadAiCleanupSettingsFromEnv } from "../settings/env-settings-loader.js";
+import {
+  buildNotionCustomPropertyPrompt,
+  NotionCustomPropertyRuleStore,
+} from "../notion/property-rules.js";
 import type { AiCleanupRuntimeSettings } from "../settings/app-settings.js";
 import { SessionStore } from "../storage/session-store.js";
+import { SqlRunner } from "../storage/sql-runner.js";
 import { DirongDatabase } from "../storage/sqlite.js";
 import {
   parsePhase4AiCleanupArgs,
@@ -29,6 +34,9 @@ try {
     storageRoot: config.dataDir,
     normalizeStoredPaths: !options.dryRun,
   });
+  const notionPropertyRuleStore = new NotionCustomPropertyRuleStore(
+    new SqlRunner(database),
+  );
 
   const result = await runAiCleanupForSession(store, {
     sessionId: options.sessionId,
@@ -48,6 +56,8 @@ try {
     maxOutputBytes:
       options.maxOutputBytes ??
       aiCleanupSettings.maxOutputBytes,
+    customNotionPropertyPrompt: () =>
+      buildNotionCustomPropertyPrompt(notionPropertyRuleStore.listEnabledRules()),
     includeFakeStt: options.includeFakeStt,
     backup:
       !options.dryRun && options.backup

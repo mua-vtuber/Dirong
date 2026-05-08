@@ -2,6 +2,7 @@ import { redactSensitiveText } from "../errors.js";
 import { PollingLoop } from "../runtime/polling-loop.js";
 import type { NotionClient } from "./client.js";
 import { NotionApiError } from "./client.js";
+import type { NotionCustomPropertyRule } from "./property-rules.js";
 import type {
   NotionDraftCandidateRow,
   NotionDraftInputReadModel,
@@ -56,6 +57,7 @@ export type NotionAutomationServiceOptions = {
   batchLimit: number;
   workerId: string;
   leaseMs: number;
+  customPropertyRules?: () => readonly NotionCustomPropertyRule[];
 };
 
 export class NotionAutomationService {
@@ -230,6 +232,7 @@ export class NotionAutomationService {
         client: this.options.client,
         readModel: this.options.readModel,
         writeStore: this.options.writeStore,
+        customPropertyRules: this.options.customPropertyRules?.() ?? [],
       });
       this.snapshot = snapshotFromRunResult({
         previous: this.snapshot,

@@ -15,6 +15,7 @@ import { DirongDatabase } from "../storage/sqlite.js";
 
 const nowIso = "2026-05-07T00:00:00.000Z";
 const targetId = "01234567-89ab-cdef-0123-456789abcdef";
+const relationTargetId = "11111111-2222-3333-4444-555555555555";
 
 test("runNotionUpload dry-run validates schema and renders without DB or page writes", async () => {
   const fixture = createFixture();
@@ -66,6 +67,7 @@ test("runNotionUpload creates a page, appends blocks, and marks done", async () 
     assert.equal(result.pageUrl, "https://notion.so/page-1");
     assert.deepEqual(client.calls.map((call) => call.method), [
       "retrieveDataSource",
+      "queryDataSource",
       "queryDataSource",
       "createPage",
       "retrieveBlockChildren",
@@ -125,6 +127,66 @@ test("runNotionUpload renders status payloads for Notion status properties", asy
   }
 });
 
+test("runNotionUpload resolves relation custom properties and auto-creates missing pages", async () => {
+  const fixture = createFixture({
+    notionProperties: {
+      "프로젝트": { values: ["Project Moonfall"] },
+    },
+  });
+  try {
+    const client = new FakeNotionClient({
+      relationQueryResults: [],
+    });
+    const result = await runNotionUpload({
+      settings: notionSettings(),
+      selector: { kind: "draft", draftId: fixture.draftId },
+      dryRun: false,
+      force: false,
+      workerId: "writer-test",
+      leaseMs: 60000,
+      nowIso,
+      client,
+      readModel: new NotionDraftInputReadModel(fixture.runner),
+      writeStore: fixture.writeStore,
+      customPropertyRules: [
+        {
+          propertyName: "프로젝트",
+          propertyId: null,
+          propertyType: "relation",
+          enabled: true,
+          promptDescription: "회의에서 언급된 프로젝트 이름",
+          maxLength: 1000,
+          relationTargetUrl: relationTargetId,
+          relationDataSourceId: targetId,
+          relationMatchPropertyName: "Name",
+          relationAutoCreate: true,
+          lastSeenAt: null,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        },
+      ],
+    });
+    const properties = client.createPageBodies[0]?.properties as {
+      "프로젝트"?: unknown;
+    };
+
+    assert.equal(result.status, "done");
+    assert.deepEqual(properties["프로젝트"], {
+      relation: [{ id: "created-relation-page" }],
+    });
+    assert.deepEqual(client.relationCreateBodies[0], {
+      parent: { data_source_id: relationTargetId },
+      properties: {
+        Name: {
+          title: [{ text: { content: "Project Moonfall" } }],
+        },
+      },
+    });
+  } finally {
+    fixture.close();
+  }
+});
+
 test("runNotionUpload reuses a remote page found by Draft ID", async () => {
   const fixture = createFixture();
   try {
@@ -149,6 +211,45 @@ test("runNotionUpload reuses a remote page found by Draft ID", async () => {
     assert.equal(
       client.calls.some((call) => call.method === "createPage"),
       false,
+    );
+  } finally {
+    fixture.close();
+  }
+});
+
+test("runNotionUpload reuses a remote page found by Session ID", async () => {
+  const fixture = createFixture();
+  try {
+    const client = new FakeNotionClient({
+      queryResultsByProperty: {
+        "Draft ID": [],
+        "Session ID": [{ id: "existing-page", url: "https://notion.so/existing" }],
+      },
+    });
+    const result = await runNotionUpload({
+      settings: notionSettings(),
+      selector: { kind: "draft", draftId: fixture.draftId },
+      dryRun: false,
+      force: false,
+      workerId: "writer-test",
+      leaseMs: 60000,
+      nowIso,
+      client,
+      readModel: new NotionDraftInputReadModel(fixture.runner),
+      writeStore: fixture.writeStore,
+    });
+
+    assert.equal(result.status, "done");
+    assert.equal(result.pageUrl, "https://notion.so/existing");
+    assert.equal(
+      client.calls.some((call) => call.method === "createPage"),
+      false,
+    );
+    assert.deepEqual(
+      client.calls
+        .filter((call) => call.method === "queryDataSource")
+        .map((call) => readFilterProperty(call.body)),
+      ["Draft ID", "Session ID"],
     );
   } finally {
     fixture.close();
@@ -260,10 +361,13 @@ test("runNotionUpload blocks on schema mismatch before local write creation", as
 class FakeNotionClient implements NotionClient {
   readonly calls: Array<{ method: string; body?: unknown }> = [];
   readonly createPageBodies: Array<Record<string, unknown>> = [];
+  readonly relationCreateBodies: Array<Record<string, unknown>> = [];
 
   constructor(
     private readonly options: {
       queryResults?: unknown[];
+      queryResultsByProperty?: Record<string, unknown[]>;
+      relationQueryResults?: unknown[];
       appendError?: NotionApiError;
       properties?: NotionDataSourceProperties;
     } = {},
@@ -274,8 +378,17 @@ class FakeNotionClient implements NotionClient {
     return { data_sources: [{ id: targetId }] };
   }
 
-  async retrieveDataSource(): Promise<Record<string, unknown>> {
+  async retrieveDataSource(dataSourceId: string = targetId): Promise<Record<string, unknown>> {
     this.calls.push({ method: "retrieveDataSource" });
+    if (dataSourceId === relationTargetId) {
+      return {
+        id: relationTargetId,
+        name: "프로젝트",
+        properties: {
+          Name: { id: "title", type: "title" },
+        },
+      };
+    }
     return {
       id: targetId,
       name: "회의록",
@@ -296,15 +409,33 @@ class FakeNotionClient implements NotionClient {
   }
 
   async queryDataSource(
-    _dataSourceId: string,
+    dataSourceId: string,
     body: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     this.calls.push({ method: "queryDataSource", body });
+    if (dataSourceId === relationTargetId) {
+      return { results: this.options.relationQueryResults ?? [] };
+    }
+    const property = readFilterProperty(body);
+    if (property && this.options.queryResultsByProperty?.[property]) {
+      return { results: this.options.queryResultsByProperty[property] };
+    }
     return { results: this.options.queryResults ?? [] };
   }
 
   async createPage(body: Record<string, unknown>): Promise<Record<string, unknown>> {
     this.calls.push({ method: "createPage", body });
+    const parent = body.parent;
+    if (
+      isRecord(parent) &&
+      parent.data_source_id === relationTargetId
+    ) {
+      this.relationCreateBodies.push(body);
+      return {
+        id: "created-relation-page",
+        url: "https://notion.so/created-relation-page",
+      };
+    }
     this.createPageBodies.push(body);
     return { id: "page-1", url: "https://notion.so/page-1" };
   }
@@ -347,12 +478,14 @@ type WriterFixture = {
   close: () => void;
 };
 
-function createFixture(): WriterFixture {
+function createFixture(
+  options: Parameters<typeof makeNotionDraftInput>[0] = {},
+): WriterFixture {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-notion-writer-"));
   const database = new DirongDatabase(path.join(dir, "dirong.sqlite"), 1000);
   const runner = new SqlRunner(database);
   const writeStore = new NotionWriteStore(runner);
-  const draftInput = makeNotionDraftInput();
+  const draftInput = makeNotionDraftInput(options);
   insertSession(database, dir, draftInput);
   insertSpeaker(database, draftInput);
   insertAiCleanupJob(database, draftInput);
@@ -532,4 +665,15 @@ function countNotionWrites(database: DirongDatabase): number {
     .prepare("SELECT COUNT(*) AS count FROM notion_writes")
     .get() as { count: number };
   return row.count;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readFilterProperty(body: unknown): string | null {
+  if (!isRecord(body) || !isRecord(body.filter)) {
+    return null;
+  }
+  return typeof body.filter.property === "string" ? body.filter.property : null;
 }

@@ -133,6 +133,42 @@ test("NotionCustomPropertyRuleStore creates and deletes Korean local rules", () 
   }
 });
 
+test("NotionCustomPropertyRuleStore saves relation settings", () => {
+  const fixture = createFixture();
+  try {
+    const store = new NotionCustomPropertyRuleStore(fixture.runner);
+
+    const result = store.saveRules({
+      rules: [
+        {
+          propertyName: "프로젝트",
+          propertyType: "relation",
+          enabled: true,
+          promptDescription: "회의에서 언급된 프로젝트 이름",
+          relationTargetUrl: "https://www.notion.so/example?v=123",
+          relationMatchPropertyName: "Name",
+          relationAutoCreate: true,
+        },
+      ],
+      requiredPropertyNames: DEFAULT_NOTION_PROPERTY_NAMES,
+      nowIso: "2026-05-08T00:00:00.000Z",
+    });
+
+    assert.deepEqual(result, { saved: 1, deleted: 0, ignored: 0, warnings: [] });
+    const [rule] = store.listEnabledRules();
+    assert.equal(rule?.propertyType, "relation");
+    assert.equal(rule?.relationTargetUrl, "https://www.notion.so/example?v=123");
+    assert.equal(rule?.relationMatchPropertyName, "Name");
+    assert.equal(rule?.relationAutoCreate, true);
+    assert.match(
+      buildNotionCustomPropertyPrompt(store.listEnabledRules()),
+      /For relation properties/,
+    );
+  } finally {
+    fixture.close();
+  }
+});
+
 function createFixture(): {
   runner: SqlRunner;
   close: () => void;

@@ -26,6 +26,11 @@ export function normalizeMeetingNotesDraftShape(
     changed = true;
   }
 
+  if (!Object.prototype.hasOwnProperty.call(normalized, "notionProperties")) {
+    normalized = { ...normalized, notionProperties: {} };
+    changed = true;
+  }
+
   const actionItems = normalizeActionItems(normalized.actionItems, context);
   if (actionItems.changed) {
     normalized = { ...normalized, actionItems: actionItems.value };

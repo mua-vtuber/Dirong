@@ -18,7 +18,8 @@ export type NotionSchemaManagedType =
   | "date"
   | "multi_select"
   | "select"
-  | "checkbox";
+  | "checkbox"
+  | "relation";
 
 export type NotionSchemaDesiredProperty = {
   name: string;
@@ -27,6 +28,7 @@ export type NotionSchemaDesiredProperty = {
   source: NotionSchemaPropertySource;
   requiredKey: NotionPropertyNameKey | null;
   optionNames: readonly string[];
+  relationDataSourceId: string | null;
 };
 
 export type NotionSchemaActualProperty = {
@@ -42,6 +44,7 @@ export type NotionSchemaMissingProperty = {
   propertyType: NotionSchemaManagedType;
   source: NotionSchemaPropertySource;
   requiredKey: NotionPropertyNameKey | null;
+  relationDataSourceId: string | null;
 };
 
 export type NotionSchemaRename = {
@@ -51,6 +54,7 @@ export type NotionSchemaRename = {
   propertyType: string;
   source: NotionSchemaPropertySource;
   requiredKey: NotionPropertyNameKey | null;
+  relationDataSourceId: string | null;
 };
 
 export type NotionSchemaWrongType = {
@@ -59,6 +63,7 @@ export type NotionSchemaWrongType = {
   expectedType: string;
   expectedManagedType: NotionSchemaManagedType;
   optionNames: readonly string[];
+  relationDataSourceId: string | null;
   actualType: string;
   canUpdate: boolean;
   source: NotionSchemaPropertySource;
@@ -191,6 +196,7 @@ export function buildNotionSchemaDiff(input: {
           propertyType: actual.type,
           source: desiredProperty.source,
           requiredKey: desiredProperty.requiredKey,
+          relationDataSourceId: desiredProperty.relationDataSourceId,
         });
       }
     }
@@ -201,6 +207,7 @@ export function buildNotionSchemaDiff(input: {
         propertyType: desiredProperty.type,
         source: desiredProperty.source,
         requiredKey: desiredProperty.requiredKey,
+        relationDataSourceId: desiredProperty.relationDataSourceId,
       });
       continue;
     }
@@ -213,8 +220,30 @@ export function buildNotionSchemaDiff(input: {
         expectedType: desiredProperty.accepts.join(" or "),
         expectedManagedType: desiredProperty.type,
         optionNames: desiredProperty.optionNames,
+        relationDataSourceId: desiredProperty.relationDataSourceId,
         actualType: actual.type,
         canUpdate: canUpdatePropertyType(actual.type, desiredProperty.type),
+        source: desiredProperty.source,
+        requiredKey: desiredProperty.requiredKey,
+      });
+      continue;
+    }
+
+    if (
+      desiredProperty.type === "relation" &&
+      actual.type === "relation" &&
+      desiredProperty.relationDataSourceId &&
+      readRelationDataSourceId(actual.property) !== desiredProperty.relationDataSourceId
+    ) {
+      wrongType.push({
+        propertyName: actual.name,
+        propertyId: actual.id,
+        expectedType: `relation:${desiredProperty.relationDataSourceId}`,
+        expectedManagedType: desiredProperty.type,
+        optionNames: [],
+        relationDataSourceId: desiredProperty.relationDataSourceId,
+        actualType: `relation:${readRelationDataSourceId(actual.property) ?? "unknown"}`,
+        canUpdate: true,
         source: desiredProperty.source,
         requiredKey: desiredProperty.requiredKey,
       });
@@ -307,6 +336,12 @@ export function buildNotionSchemaUpdatePlan(
         blocked.push(`${missing.propertyName}: title 속성은 API로 새로 만들 수 없습니다.`);
         continue;
       }
+      if (missing.propertyType === "relation" && !missing.relationDataSourceId) {
+        blocked.push(
+          `${missing.propertyName}: relation 대상 DB/data source URL이 필요합니다.`,
+        );
+        continue;
+      }
       properties[missing.propertyName] = schemaForManagedProperty(missing);
       operations.create += 1;
     }
@@ -322,10 +357,19 @@ export function buildNotionSchemaUpdatePlan(
         );
         continue;
       }
+      if (item.expectedManagedType === "relation" && !item.relationDataSourceId) {
+        blocked.push(
+          `${item.propertyName}: relation 대상 DB/data source URL이 필요합니다.`,
+        );
+        continue;
+      }
       mergePropertyUpdate(
         properties,
         propertyPatchKey(item.propertyName, item.propertyId),
-        schemaForType(item.expectedManagedType, item.optionNames),
+        schemaForType(item.expectedManagedType, {
+          optionNames: item.optionNames,
+          relationDataSourceId: item.relationDataSourceId,
+        }),
       );
       operations.updateType += 1;
     }
@@ -397,6 +441,7 @@ function buildDesiredProperties(input: {
       source: "required",
       requiredKey: requirement.key,
       optionNames: requirement.optionNames ?? [],
+      relationDataSourceId: null,
     });
     seen.add(normalizePropertyNameKey(name));
   }
@@ -416,6 +461,8 @@ function buildDesiredProperties(input: {
       source: "custom",
       requiredKey: null,
       optionNames: [],
+      relationDataSourceId:
+        rule.propertyType === "relation" ? rule.relationDataSourceId : null,
     });
     seen.add(normalizePropertyNameKey(name));
   }
@@ -458,13 +505,19 @@ function schemaForManagedProperty(
 ): Record<string, unknown> {
   return schemaForType(
     property.propertyType,
-    property.requiredKey === "status" ? NOTION_PAGE_STATUS_VALUES : [],
+    {
+      optionNames: property.requiredKey === "status" ? NOTION_PAGE_STATUS_VALUES : [],
+      relationDataSourceId: property.relationDataSourceId,
+    },
   );
 }
 
 function schemaForType(
   type: NotionSchemaManagedType,
-  optionNames: readonly string[],
+  config: {
+    optionNames: readonly string[];
+    relationDataSourceId: string | null;
+  },
 ): Record<string, unknown> {
   if (type === "title") {
     return { title: {} };
@@ -481,9 +534,12 @@ function schemaForType(
   if (type === "checkbox") {
     return { checkbox: {} };
   }
+  if (type === "relation") {
+    return { relation: { data_source_id: config.relationDataSourceId } };
+  }
   return {
     select: {
-      options: optionNames.map(statusOptionSchema),
+      options: config.optionNames.map(statusOptionSchema),
     },
   };
 }
@@ -546,6 +602,15 @@ function readOptionNames(
       )
       .filter((name): name is string => name !== null),
   );
+}
+
+function readRelationDataSourceId(
+  property: NotionDataSourceProperty,
+): string | null {
+  const relation = property.relation;
+  return isRecord(relation) && typeof relation.data_source_id === "string"
+    ? relation.data_source_id
+    : null;
 }
 
 function mergePropertyUpdate(

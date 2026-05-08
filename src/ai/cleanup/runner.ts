@@ -78,6 +78,7 @@ export type AiCleanupRunOptions = {
   timeoutMs: number;
   maxOutputBytes: number;
   includeFakeStt?: boolean;
+  customNotionPropertyPrompt?: () => string;
   backup?: () => string[];
   progress?: AiCleanupProgressObserver;
 };
@@ -122,7 +123,10 @@ async function runAiCleanupForSessionCore(
     includeFakeStt: options.includeFakeStt ?? false,
   });
   const systemPrompt = buildPhase4SystemPrompt();
-  const userPrompt = buildPhase4UserPrompt(timelineInput);
+  const notionCustomPropertyPrompt = options.customNotionPropertyPrompt?.() ?? "";
+  const userPrompt = buildPhase4UserPrompt(timelineInput, {
+    notionCustomPropertyPrompt,
+  });
   const inputChars = timelineInput.canonicalJson.length + timelineInput.markdown.length;
   let progressContext = makeAiCleanupProgressContext({
     sessionId: options.sessionId,

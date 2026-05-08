@@ -132,5 +132,6 @@ function createDraftFixture(): MeetingNotesDraftV1 {
       removedChatterSummary: "회의 의미와 무관한 짧은 반응은 요약에서 제외했습니다.",
       keptBecause: ["담당자와 일정 단서는 회의록 의미에 필요합니다."],
     },
+    notionProperties: {},
   };
 }

@@ -365,6 +365,7 @@ function createValidDraftFixture(): {
       removedChatterSummary: "없음",
       keptBecause: ["일정과 담당자 언급이 있습니다."],
     },
+    notionProperties: {},
   };
 
   return { timeline, reference, draft };

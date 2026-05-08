@@ -18,6 +18,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     id: "003_notion_custom_property_rules",
     apply: migrateNotionCustomPropertyRules,
   },
+  {
+    id: "004_notion_relation_property_rules",
+    apply: migrateNotionRelationPropertyRules,
+  },
 ];
 
 export function listPendingSchemaMigrationIds(db: DatabaseSync): string[] {
@@ -159,6 +163,10 @@ CREATE TABLE IF NOT EXISTS notion_custom_property_rules (
   enabled INTEGER NOT NULL DEFAULT 0,
   prompt_description TEXT NOT NULL DEFAULT '',
   max_length INTEGER NOT NULL DEFAULT 1000,
+  relation_target_url TEXT,
+  relation_data_source_id TEXT,
+  relation_match_property_name TEXT NOT NULL DEFAULT 'Name',
+  relation_auto_create INTEGER NOT NULL DEFAULT 0,
   last_seen_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -167,4 +175,31 @@ CREATE TABLE IF NOT EXISTS notion_custom_property_rules (
 CREATE INDEX IF NOT EXISTS idx_notion_custom_property_rules_enabled
   ON notion_custom_property_rules(enabled, property_name);
 `);
+}
+
+function migrateNotionRelationPropertyRules(db: DatabaseSync): void {
+  const columns = new Set(
+    (
+      db.prepare("PRAGMA table_info(notion_custom_property_rules);").all() as Array<{
+        name: string;
+      }>
+    ).map((column) => column.name),
+  );
+
+  if (!columns.has("relation_target_url")) {
+    db.exec("ALTER TABLE notion_custom_property_rules ADD COLUMN relation_target_url TEXT;");
+  }
+  if (!columns.has("relation_data_source_id")) {
+    db.exec("ALTER TABLE notion_custom_property_rules ADD COLUMN relation_data_source_id TEXT;");
+  }
+  if (!columns.has("relation_match_property_name")) {
+    db.exec(
+      "ALTER TABLE notion_custom_property_rules ADD COLUMN relation_match_property_name TEXT NOT NULL DEFAULT 'Name';",
+    );
+  }
+  if (!columns.has("relation_auto_create")) {
+    db.exec(
+      "ALTER TABLE notion_custom_property_rules ADD COLUMN relation_auto_create INTEGER NOT NULL DEFAULT 0;",
+    );
+  }
 }

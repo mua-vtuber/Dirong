@@ -28,6 +28,7 @@ test("DirongDatabase upgrades legacy transcript_segments speech_status", () => {
         "001_transcript_segments_speech_status",
         "002_notion_writes",
         "003_notion_custom_property_rules",
+        "004_notion_relation_property_rules",
       ]);
       assert.equal(tableExists(database.db, "notion_writes"), true);
       assert.equal(tableExists(database.db, "notion_blocks"), true);
@@ -58,6 +59,7 @@ test("DirongDatabase backs up existing DB before pending migrations", () => {
         "001_transcript_segments_speech_status",
         "002_notion_writes",
         "003_notion_custom_property_rules",
+        "004_notion_relation_property_rules",
       ]);
     } finally {
       migrated.close();
@@ -108,6 +110,7 @@ test("applySchemaMigrations is idempotent", () => {
         "001_transcript_segments_speech_status",
         "002_notion_writes",
         "003_notion_custom_property_rules",
+        "004_notion_relation_property_rules",
       ]);
     } finally {
       database.close();
@@ -132,12 +135,18 @@ test("DirongDatabase records migrations on a fresh baseline schema", () => {
         "001_transcript_segments_speech_status",
         "002_notion_writes",
         "003_notion_custom_property_rules",
+        "004_notion_relation_property_rules",
       ]);
       assert.ok(getColumnNames(database.db, "notion_writes").includes("draft_id"));
       assert.ok(getColumnNames(database.db, "notion_blocks").includes("block_index"));
       assert.ok(
         getColumnNames(database.db, "notion_custom_property_rules").includes(
           "prompt_description",
+        ),
+      );
+      assert.ok(
+        getColumnNames(database.db, "notion_custom_property_rules").includes(
+          "relation_target_url",
         ),
       );
     } finally {
@@ -160,6 +169,7 @@ test("DirongDatabase adds Phase 5 Notion tables to pre-Phase-5 databases", () =>
         "001_transcript_segments_speech_status",
         "002_notion_writes",
         "003_notion_custom_property_rules",
+        "004_notion_relation_property_rules",
       ]);
     } finally {
       database.close();

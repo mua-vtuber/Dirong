@@ -1,6 +1,6 @@
 import type { Phase4TimelineInput } from "./timeline-input.js";
 
-export const PHASE4_AI_CLEANUP_PROMPT_VERSION = "phase4-ai-cleanup-v2";
+export const PHASE4_AI_CLEANUP_PROMPT_VERSION = "phase4-ai-cleanup-v3";
 
 export function buildPhase4SystemPrompt(): string {
   return [
@@ -20,7 +20,11 @@ export function buildPhase4SystemPrompt(): string {
   ].join("\n");
 }
 
-export function buildPhase4UserPrompt(input: Phase4TimelineInput): string {
+export function buildPhase4UserPrompt(
+  input: Phase4TimelineInput,
+  options: { notionCustomPropertyPrompt?: string } = {},
+): string {
+  const notionCustomPropertyPrompt = options.notionCustomPropertyPrompt?.trim() ?? "";
   return [
     "Task: Create a Korean meeting-notes draft from this Discord transcript timeline.",
     "",
@@ -33,7 +37,7 @@ export function buildPhase4UserPrompt(input: Phase4TimelineInput): string {
     "Rules:",
     "- Return a single raw JSON object, or one fenced json block containing only that object.",
     "- Do not include prose, explanations, Markdown content, or multiple JSON blocks.",
-    "- Use exactly these top-level keys: schemaVersion, language, sessionId, sourceTimeline, meetingTitle, summary, topics, decisions, actionItems, unresolvedItems, uncertaintyNotes, noiseHandling.",
+    "- Use exactly these top-level keys: schemaVersion, language, sessionId, sourceTimeline, meetingTitle, summary, topics, decisions, actionItems, unresolvedItems, uncertaintyNotes, noiseHandling, notionProperties.",
     "- Do not use alternative keys such as metadata, participants, uncertainties, description, removedSegments, generatedAt, inputHash, or contractVersion at the top level.",
     "- Do not include a markdown key. Markdown is rendered by the Dirong app from this structured JSON.",
     "- The app validates this output. Do not add keys that are not present in the skeleton or schema.",
@@ -53,6 +57,8 @@ export function buildPhase4UserPrompt(input: Phase4TimelineInput): string {
     "- Every unresolved item must be { id, text, reason, references }.",
     "- Every uncertainty note must be { id, text, references }.",
     "- noiseHandling must be { removedChatterSummary, keptBecause }.",
+    "- notionProperties must be an object. If no Notion custom property applies, use {}.",
+    "- Each notionProperties value must be { values: string[] }.",
     "- language must be exactly \"ko\".",
     "- Preserve exact chunkId, sttJobId, startMs, endMs, and speaker in references.",
     "- Do not include Notion operations, Notion tokens, Notion API instructions, or any instruction to write to Notion.",
@@ -88,7 +94,15 @@ export function buildPhase4UserPrompt(input: Phase4TimelineInput): string {
         removedChatterSummary: "없음",
         keptBecause: [],
       },
+      notionProperties: {},
     }),
+    ...(notionCustomPropertyPrompt
+      ? [
+          "",
+          "Notion custom property extraction:",
+          notionCustomPropertyPrompt,
+        ]
+      : []),
     "",
     "Canonical transcript timeline JSON:",
     input.canonicalJson,
@@ -114,6 +128,7 @@ export function buildPhase4RepairPrompt(input: {
     "- Do not include prose before or after the JSON.",
     "- Do not add arbitrary keys. The app validates every key.",
     "- Do not add a markdown key. The app renders Markdown after validation.",
+    "- Keep notionProperties as an object whose values are { values: string[] }.",
     "- Do not write to Notion, call Notion APIs, include Notion tokens, or give Notion instructions.",
     "- Do not invent owners, dates, decisions, or facts while repairing.",
     "- If an owner, date, or decision is uncertain after repair, use unspecified fields or move it to unresolvedItems instead of inventing a status.",

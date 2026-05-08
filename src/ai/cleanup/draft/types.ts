@@ -22,6 +22,10 @@ export type EvidenceBoundDate = {
   evidence: TimelineReference[];
 };
 
+export type NotionPropertyExtraction = {
+  values: string[];
+};
+
 export type MeetingNotesDraftV1 = {
   schemaVersion: typeof MEETING_NOTES_DRAFT_SCHEMA_VERSION;
   language: "ko";
@@ -75,4 +79,5 @@ export type MeetingNotesDraftV1 = {
     removedChatterSummary: string;
     keptBecause: string[];
   };
+  notionProperties: Record<string, NotionPropertyExtraction>;
 };

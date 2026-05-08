@@ -102,6 +102,8 @@
     }
     textarea { min-height: 72px; resize: vertical; }
     input[type="number"] { max-width: 96px; }
+    .relation-fields { margin-top: 8px; display: grid; gap: 6px; }
+    .relation-fields label { display: block; }
     @media (max-width: 860px) {
       .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .pipeline-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); }
@@ -525,14 +527,15 @@
         '" oninput="markNotionRulesDirty()"></td>' +
         '<td>' + renderPropertyTypeSelect(rule.propertyType ?? 'rich_text', custom.supportedTypes ?? []) + '</td>' +
         '<td><textarea data-field="promptDescription" oninput="markNotionRulesDirty()">' +
-        escapeHtml(rule.promptDescription ?? '') + '</textarea></td>' +
+        escapeHtml(rule.promptDescription ?? '') + '</textarea>' +
+        renderRelationFields(rule) + '</td>' +
         '<td><input type="number" min="1" max="2000" data-field="maxLength" value="' +
         escapeHtml(rule.maxLength ?? 1000) + '" oninput="markNotionRulesDirty()"></td>' +
         '<td class="muted">' + escapeHtml(rule.lastSeenAt ?? '-') + '</td>' +
         '<td><button type="button" onclick="deleteNotionRuleRow(this)">삭제</button></td></tr>';
     }
     function renderPropertyTypeSelect(currentType, supportedTypes) {
-      const types = supportedTypes.length ? supportedTypes : ['rich_text', 'select', 'multi_select', 'checkbox', 'date'];
+      const types = supportedTypes.length ? supportedTypes : ['rich_text', 'select', 'multi_select', 'checkbox', 'date', 'relation'];
       const options = types.map((type) =>
         '<option value="' + escapeHtml(type) + '"' + (type === currentType ? ' selected' : '') + '>' +
         escapeHtml(type) + '</option>'
@@ -541,7 +544,30 @@
         options.unshift('<option value="' + escapeHtml(currentType) + '" selected>' +
           escapeHtml(currentType) + '</option>');
       }
-      return '<select data-field="propertyType" onchange="markNotionRulesDirty()">' + options.join('') + '</select>';
+      return '<select data-field="propertyType" onchange="onNotionPropertyTypeChange(this)">' + options.join('') + '</select>';
+    }
+    function renderRelationFields(rule) {
+      const visible = (rule.propertyType ?? '') === 'relation';
+      return '<div class="relation-fields" data-relation-fields style="' + (visible ? '' : 'display:none') + '">' +
+        '<input type="hidden" data-field="relationDataSourceId" value="' +
+        escapeHtml(rule.relationDataSourceId ?? '') + '">' +
+        '<label class="muted">대상 DB/data source URL' +
+        '<input type="text" data-field="relationTargetUrl" value="' + escapeHtml(rule.relationTargetUrl ?? '') +
+        '" oninput="markNotionRulesDirty()"></label>' +
+        '<label class="muted">매칭 속성' +
+        '<input type="text" data-field="relationMatchPropertyName" value="' +
+        escapeHtml(rule.relationMatchPropertyName ?? 'Name') + '" oninput="markNotionRulesDirty()"></label>' +
+        '<label class="muted"><input type="checkbox" data-field="relationAutoCreate"' +
+        (rule.relationAutoCreate ? ' checked' : '') + ' onchange="markNotionRulesDirty()"> 못 찾으면 새 페이지 만들기</label>' +
+        '</div>';
+    }
+    function onNotionPropertyTypeChange(select) {
+      const row = select.closest('[data-notion-rule-row]');
+      const relationFields = row?.querySelector('[data-relation-fields]');
+      if (relationFields) {
+        relationFields.style.display = select.value === 'relation' ? '' : 'none';
+      }
+      markNotionRulesDirty();
     }
     function markNotionRulesDirty() {
       notionRulesDirty = true;
@@ -558,7 +584,7 @@
         lastSeenAt: null
       };
       const custom = {
-        supportedTypes: ['rich_text', 'select', 'multi_select', 'checkbox', 'date']
+        supportedTypes: ['rich_text', 'select', 'multi_select', 'checkbox', 'date', 'relation']
       };
       tbody.insertAdjacentHTML('beforeend', renderNotionPropertyRuleRow(rule, custom));
       markNotionRulesDirty();
@@ -634,6 +660,10 @@
         enabled: row.querySelector('[data-field="enabled"]')?.checked === true,
         promptDescription: row.querySelector('[data-field="promptDescription"]')?.value ?? '',
         maxLength: Number(row.querySelector('[data-field="maxLength"]')?.value ?? 1000),
+        relationTargetUrl: row.querySelector('[data-field="relationTargetUrl"]')?.value ?? '',
+        relationDataSourceId: row.querySelector('[data-field="relationDataSourceId"]')?.value ?? '',
+        relationMatchPropertyName: row.querySelector('[data-field="relationMatchPropertyName"]')?.value ?? 'Name',
+        relationAutoCreate: row.querySelector('[data-field="relationAutoCreate"]')?.checked === true,
         deleted: row.getAttribute('data-deleted') === 'true'
       }));
       try {

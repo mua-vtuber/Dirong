@@ -158,5 +158,6 @@ function buildFakeDraft(input: AiCleanupProviderInput): MeetingNotesDraftV1 {
       removedChatterSummary: "Fake provider는 실제 잡담 제거를 수행하지 않았습니다.",
       keptBecause: ["오프라인 검증용 deterministic draft입니다."],
     },
+    notionProperties: {},
   };
 }

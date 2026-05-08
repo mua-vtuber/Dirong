@@ -10,9 +10,11 @@ import { NotionDraftInputReadModel } from "./draft-input-read-model.js";
 import type { NotionDraftInput } from "./draft-input.js";
 import {
   buildNotionPagePropertyValues,
+  richText,
   renderNotionPageProperties,
   type NotionStatusPropertyType,
 } from "./page-properties.js";
+import type { NotionCustomPropertyRule } from "./property-rules.js";
 import { validateNotionDataSourceSchema } from "./schema.js";
 import type {
   NotionDataSourceProperties,
@@ -67,6 +69,7 @@ export type RunNotionUploadOptions = {
   client: NotionClient | null;
   readModel: NotionDraftInputReadModel;
   writeStore: NotionWriteStore | null;
+  customPropertyRules?: readonly NotionCustomPropertyRule[];
 };
 
 type ResolvedTarget = {
@@ -314,14 +317,20 @@ async function executeWrite(input: {
   }
 
   try {
+    const customProperties = await renderNotionCustomPageProperties({
+      client: options.client,
+      draftInput,
+      rules: options.customPropertyRules ?? [],
+    });
     const page = await ensurePage({
       client: options.client,
       writeStore,
       write: claimed,
       target,
       draftInput,
-      properties: renderPlan.properties,
+      properties: { ...renderPlan.properties, ...customProperties },
       propertyDraftIdName: options.settings.propertyNames.draftId,
+      propertySessionIdName: options.settings.propertyNames.sessionId,
       nowIso,
     });
     await recoverRemoteBlocks({
@@ -341,7 +350,7 @@ async function executeWrite(input: {
       nowIso,
     });
     await options.client?.updatePage(page.id, {
-      properties: renderPlan.doneProperties,
+      properties: { ...renderPlan.doneProperties, ...customProperties },
     });
     writeStore.markDone({
       id: claimed.id,
@@ -385,6 +394,7 @@ async function ensurePage(input: {
   draftInput: NotionDraftInput;
   properties: Record<string, unknown>;
   propertyDraftIdName: string;
+  propertySessionIdName: string;
   nowIso: string;
 }): Promise<{ id: string; url: string | null }> {
   if (!input.client) {
@@ -423,6 +433,32 @@ async function ensurePage(input: {
     return page;
   }
 
+  const existingBySession = await input.client.queryDataSource(input.target.id, {
+    filter: {
+      property: input.propertySessionIdName,
+      rich_text: { equals: input.draftInput.session.id },
+    },
+    page_size: 2,
+  });
+  const sessionResults = readResults(existingBySession);
+  if (sessionResults.length > 1) {
+    throw createWriterValidationError(
+      "Multiple Notion pages have the same Session ID.",
+      "Notion 데이터베이스에서 같은 Session ID를 가진 page를 하나만 남긴 뒤 다시 시도해 주세요.",
+      "duplicate remote Session ID",
+    );
+  }
+  if (sessionResults.length === 1) {
+    const page = readPageRef(sessionResults[0]);
+    input.writeStore.savePageCreated({
+      id: input.write.id,
+      pageId: page.id,
+      pageUrl: page.url ?? "",
+      nowIso: input.nowIso,
+    });
+    return page;
+  }
+
   const created = await input.client.createPage({
     parent: { data_source_id: input.target.id },
     properties: input.properties,
@@ -435,6 +471,225 @@ async function ensurePage(input: {
     nowIso: input.nowIso,
   });
   return page;
+}
+
+async function renderNotionCustomPageProperties(input: {
+  client: NotionClient | null;
+  draftInput: NotionDraftInput;
+  rules: readonly NotionCustomPropertyRule[];
+}): Promise<Record<string, unknown>> {
+  const properties: Record<string, unknown> = {};
+  const enabledRules = input.rules.filter((rule) => rule.enabled);
+  if (enabledRules.length === 0) {
+    return properties;
+  }
+
+  for (const rule of enabledRules) {
+    const values = readCustomPropertyValues(input.draftInput, rule);
+    if (values.length === 0) {
+      continue;
+    }
+
+    if (rule.propertyType === "rich_text") {
+      properties[rule.propertyName] = {
+        rich_text: richText(values.join("\n").slice(0, rule.maxLength)),
+      };
+      continue;
+    }
+    if (rule.propertyType === "select") {
+      properties[rule.propertyName] = { select: { name: values[0] } };
+      continue;
+    }
+    if (rule.propertyType === "multi_select") {
+      properties[rule.propertyName] = {
+        multi_select: values.slice(0, 100).map((name) => ({ name })),
+      };
+      continue;
+    }
+    if (rule.propertyType === "checkbox") {
+      properties[rule.propertyName] = {
+        checkbox: readCheckboxValue(values[0] ?? ""),
+      };
+      continue;
+    }
+    if (rule.propertyType === "date") {
+      const date = readDateValue(values[0] ?? "");
+      if (date) {
+        properties[rule.propertyName] = { date: { start: date } };
+      }
+      continue;
+    }
+    if (rule.propertyType === "relation") {
+      const relation = await renderRelationProperty({
+        client: input.client,
+        rule,
+        values,
+      });
+      if (relation.length > 0) {
+        properties[rule.propertyName] = { relation };
+      }
+    }
+  }
+
+  return properties;
+}
+
+function readCustomPropertyValues(
+  draftInput: NotionDraftInput,
+  rule: NotionCustomPropertyRule,
+): string[] {
+  const notionProperties = draftInput.draftContent.notionProperties;
+  const entry = notionProperties?.[rule.propertyName];
+  const rawValues = isRecord(entry) && Array.isArray(entry.values)
+    ? entry.values
+    : Array.isArray(entry)
+      ? entry
+      : typeof entry === "string"
+        ? [entry]
+        : [];
+  const seen = new Set<string>();
+  const values: string[] = [];
+  for (const rawValue of rawValues) {
+    if (typeof rawValue !== "string") {
+      continue;
+    }
+    const value = rawValue.replace(/\s+/g, " ").trim();
+    if (!value) {
+      continue;
+    }
+    const key = value.toLocaleLowerCase("ko-KR");
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    values.push(value.slice(0, rule.maxLength));
+  }
+  return values;
+}
+
+async function renderRelationProperty(input: {
+  client: NotionClient | null;
+  rule: NotionCustomPropertyRule;
+  values: readonly string[];
+}): Promise<Array<{ id: string }>> {
+  if (!input.client) {
+    return [];
+  }
+  const target = await resolveRelationTarget(input.client, input.rule);
+  if (!target) {
+    return [];
+  }
+
+  const matchPropertyName = input.rule.relationMatchPropertyName || "Name";
+  const matchProperty = readDataSourceProperties(target.dataSource)[matchPropertyName];
+  if (!matchProperty) {
+    return [];
+  }
+  const relation: Array<{ id: string }> = [];
+  for (const value of input.values.slice(0, 25)) {
+    const pageId = await findOrCreateRelationPage({
+      client: input.client,
+      targetId: target.id,
+      matchPropertyName,
+      matchPropertyType: matchProperty.type ?? "unknown",
+      value,
+      autoCreate: input.rule.relationAutoCreate,
+    });
+    if (pageId) {
+      relation.push({ id: pageId });
+    }
+  }
+  return relation;
+}
+
+async function resolveRelationTarget(
+  client: NotionClient,
+  rule: NotionCustomPropertyRule,
+): Promise<ResolvedTarget | null> {
+  if (rule.relationTargetUrl) {
+    const parsed = parseNotionTargetUrl(rule.relationTargetUrl);
+    if (parsed.kind !== "invalid") {
+      return await resolveTarget(client, parsed);
+    }
+  }
+  if (rule.relationDataSourceId) {
+    const dataSource = await client.retrieveDataSource(rule.relationDataSourceId);
+    return {
+      id: rule.relationDataSourceId,
+      name: readTargetName(dataSource),
+      dataSource,
+    };
+  }
+  return null;
+}
+
+async function findOrCreateRelationPage(input: {
+  client: NotionClient;
+  targetId: string;
+  matchPropertyName: string;
+  matchPropertyType: string;
+  value: string;
+  autoCreate: boolean;
+}): Promise<string | null> {
+  const filter = buildRelationMatchFilter(input);
+  if (!filter) {
+    return null;
+  }
+  const existing = await input.client.queryDataSource(input.targetId, {
+    filter,
+    page_size: 2,
+  });
+  const results = readResults(existing);
+  if (results.length === 1) {
+    return readId(results[0]);
+  }
+  if (results.length > 1 || !input.autoCreate || input.matchPropertyType !== "title") {
+    return null;
+  }
+  const created = await input.client.createPage({
+    parent: { data_source_id: input.targetId },
+    properties: {
+      [input.matchPropertyName]: {
+        title: richText(input.value),
+      },
+    },
+  });
+  return readId(created);
+}
+
+function buildRelationMatchFilter(input: {
+  matchPropertyName: string;
+  matchPropertyType: string;
+  value: string;
+}): Record<string, unknown> | null {
+  if (input.matchPropertyType === "title") {
+    return {
+      property: input.matchPropertyName,
+      title: { equals: input.value },
+    };
+  }
+  if (input.matchPropertyType === "rich_text") {
+    return {
+      property: input.matchPropertyName,
+      rich_text: { equals: input.value },
+    };
+  }
+  if (input.matchPropertyType === "select") {
+    return {
+      property: input.matchPropertyName,
+      select: { equals: input.value },
+    };
+  }
+  return null;
+}
+
+function readCheckboxValue(value: string): boolean {
+  return /^(true|yes|y|1|done|완료|예|네|맞음)$/i.test(value.trim());
+}
+
+function readDateValue(value: string): string | null {
+  const trimmed = value.trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
 }
 
 async function recoverRemoteBlocks(input: {

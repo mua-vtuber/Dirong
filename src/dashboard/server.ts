@@ -536,6 +536,19 @@ function readCustomPropertyRuleInputs(
         typeof entry.maxLength === "number" && Number.isFinite(entry.maxLength)
           ? entry.maxLength
           : null,
+      relationTargetUrl:
+        typeof entry.relationTargetUrl === "string"
+          ? entry.relationTargetUrl
+          : null,
+      relationDataSourceId:
+        typeof entry.relationDataSourceId === "string"
+          ? entry.relationDataSourceId
+          : null,
+      relationMatchPropertyName:
+        typeof entry.relationMatchPropertyName === "string"
+          ? entry.relationMatchPropertyName
+          : null,
+      relationAutoCreate: entry.relationAutoCreate === true,
       deleted: entry.deleted === true,
     });
   }

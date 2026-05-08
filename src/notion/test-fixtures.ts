@@ -1,6 +1,7 @@
 import { MEETING_NOTES_DRAFT_SCHEMA_VERSION } from "../ai/cleanup/draft.js";
 import type { MeetingNotesDraftV1 } from "../ai/cleanup/draft.js";
 import type { NotionDraftInput, NotionDraftSpeaker } from "./draft-input.js";
+import type { TranscriptSegmentRow } from "../storage/session-store.js";
 
 type SpeakerFixture = [name: string, isBot: number];
 
@@ -9,6 +10,7 @@ export type MakeNotionDraftInputOptions = {
   summary?: string;
   voiceChannelName?: string | null;
   speakers?: SpeakerFixture[];
+  timelineEntries?: TranscriptSegmentRow[];
   emptyDraftArrays?: boolean;
 };
 
@@ -42,6 +44,7 @@ export function makeNotionDraftInput(
         ["Dirong Bot", 1],
       ],
     ),
+    timelineEntries: options.timelineEntries ?? makeTimelineEntries(),
   };
 }
 
@@ -151,4 +154,59 @@ function makeSpeakers(speakers: SpeakerFixture[]): NotionDraftSpeaker[] {
     last_seen_at_ms: index * 1000 + 1000,
     chunk_count: 1,
   }));
+}
+
+function makeTimelineEntries(): TranscriptSegmentRow[] {
+  return [
+    makeTimelineEntry({
+      id: "seg-1",
+      chunkId: "chunk-1",
+      sttJobId: "stt-1",
+      userId: "user-0",
+      speaker: "Taniar",
+      startMs: 0,
+      endMs: 60000,
+      text: "이번 주 진행 상황을 공유하겠습니다.",
+    }),
+    makeTimelineEntry({
+      id: "seg-2",
+      chunkId: "chunk-2",
+      sttJobId: "stt-2",
+      userId: "user-1",
+      speaker: "Ari",
+      startMs: 62000,
+      endMs: 90000,
+      text: "Notion 업로드는 수동부터 확인하면 좋겠습니다.",
+    }),
+  ];
+}
+
+function makeTimelineEntry(input: {
+  id: string;
+  chunkId: string;
+  sttJobId: string;
+  userId: string;
+  speaker: string;
+  startMs: number;
+  endMs: number;
+  text: string;
+}): TranscriptSegmentRow {
+  return {
+    id: input.id,
+    session_id: "session-1",
+    chunk_id: input.chunkId,
+    stt_job_id: input.sttJobId,
+    user_id: input.userId,
+    display_name_snapshot: input.speaker,
+    start_ms: input.startMs,
+    end_ms: input.endMs,
+    text: input.text,
+    speech_status: "speech",
+    source: "real",
+    provider: "local-whisper",
+    model: "test-stt",
+    input_audio_sha256: "audio-hash",
+    created_at: "2026-05-07T19:00:00+09:00",
+    updated_at: "2026-05-07T19:00:00+09:00",
+  };
 }

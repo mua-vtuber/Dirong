@@ -1,5 +1,9 @@
 import type { MeetingNotesDraftV1 } from "../ai/cleanup/draft.js";
-import type { MeetingNotesDraftRow, SessionRow } from "../storage/session-store.js";
+import type {
+  MeetingNotesDraftRow,
+  SessionRow,
+  TranscriptSegmentRow,
+} from "../storage/session-store.js";
 
 export type NotionDraftSpeaker = {
   user_id: string;
@@ -27,4 +31,5 @@ export type NotionDraftInput = {
   >;
   draftContent: MeetingNotesDraftV1;
   speakers: NotionDraftSpeaker[];
+  timelineEntries: TranscriptSegmentRow[];
 };

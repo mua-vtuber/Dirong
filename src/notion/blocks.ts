@@ -1,4 +1,4 @@
-import type { MeetingNotesDraftV1, TimelineReference } from "../ai/cleanup/draft.js";
+import type { MeetingNotesDraftV1 } from "../ai/cleanup/draft.js";
 import { sha256Canonical } from "./content-hash.js";
 import type { NotionDraftInput } from "./draft-input.js";
 import { buildNotionPagePropertyValues, richText } from "./page-properties.js";
@@ -97,7 +97,7 @@ function buildBlocks(
     blocks,
     draft.topics.map(
       (topic) =>
-        `${topic.title}: ${topic.summary} (${formatReferences(topic.references)})`,
+        `${topic.title}: ${topic.summary}`,
     ),
   );
 
@@ -106,9 +106,7 @@ function buildBlocks(
     blocks,
     draft.decisions.map((decision) => {
       const status = decision.status === "decided" ? "확정" : "잠정";
-      return `[${status}] ${decision.title}: ${decision.detail} (${formatReferences(
-        decision.references,
-      )})`;
+      return `[${status}] ${decision.title}: ${decision.detail}`;
     }),
   );
 
@@ -119,7 +117,7 @@ function buildBlocks(
       (item) =>
         `${item.task} / 담당: ${renderOwner(item.owner)} / 기한: ${renderDueDate(
           item.dueDate,
-        )} (${formatReferences(item.references)})`,
+        )}`,
     ),
   );
 
@@ -128,16 +126,14 @@ function buildBlocks(
     blocks,
     draft.unresolvedItems.map(
       (item) =>
-        `${item.text} / 이유: ${item.reason} (${formatReferences(item.references)})`,
+        `${item.text} / 이유: ${item.reason}`,
     ),
   );
 
   pushSection(blocks, "불확실한 내용");
   pushBullets(
     blocks,
-    draft.uncertaintyNotes.map(
-      (note) => `${note.text} (${formatReferences(note.references)})`,
-    ),
+    draft.uncertaintyNotes.map((note) => note.text),
   );
 
   pushSection(blocks, "노이즈 처리 메모");
@@ -150,8 +146,8 @@ function buildBlocks(
     }`,
   ]);
 
-  pushSection(blocks, "근거 타임라인");
-  pushBullets(blocks, collectReferences(draft).map(formatReference));
+  pushSection(blocks, "타임라인");
+  pushBullets(blocks, input.timelineEntries.map(formatTimelineEntry));
 
   pushSection(blocks, "Dirong 정보");
   pushBullets(blocks, [
@@ -227,54 +223,12 @@ function renderDueDate(
   return cleanInline(dueDate.rawText ?? dueDate.isoDate ?? "") || "미지정";
 }
 
-function collectReferences(draft: MeetingNotesDraftV1): TimelineReference[] {
-  const byKey = new Map<string, TimelineReference>();
-  const add = (references: readonly TimelineReference[]): void => {
-    for (const reference of references) {
-      byKey.set(`${reference.chunkId}\u0000${reference.sttJobId}`, reference);
-    }
-  };
-
-  add(draft.meetingTitle.references);
-  add(draft.summary.references);
-  for (const topic of draft.topics) {
-    add(topic.references);
-  }
-  for (const decision of draft.decisions) {
-    add(decision.references);
-  }
-  for (const actionItem of draft.actionItems) {
-    add(actionItem.references);
-    add(actionItem.owner.evidence);
-    add(actionItem.dueDate.evidence);
-  }
-  for (const item of draft.unresolvedItems) {
-    add(item.references);
-  }
-  for (const note of draft.uncertaintyNotes) {
-    add(note.references);
-  }
-
-  return [...byKey.values()].sort(
-    (left, right) =>
-      left.startMs - right.startMs ||
-      left.endMs - right.endMs ||
-      left.chunkId.localeCompare(right.chunkId) ||
-      left.sttJobId.localeCompare(right.sttJobId),
-  );
-}
-
-function formatReferences(references: readonly TimelineReference[]): string {
-  if (references.length === 0) {
-    return "출처: 없음";
-  }
-  return `출처: ${references.map(formatReference).join(", ")}`;
-}
-
-function formatReference(reference: TimelineReference): string {
-  return `${reference.chunkId}/${reference.sttJobId} ${formatTime(
-    reference.startMs,
-  )}-${formatTime(reference.endMs)} ${cleanInline(reference.speaker)}`;
+function formatTimelineEntry(
+  entry: NotionDraftInput["timelineEntries"][number],
+): string {
+  return `[${formatTime(entry.start_ms)}] ${cleanInline(
+    entry.display_name_snapshot,
+  )} : ${cleanInline(entry.text) || "내용 없음"}`;
 }
 
 function formatTime(ms: number): string {

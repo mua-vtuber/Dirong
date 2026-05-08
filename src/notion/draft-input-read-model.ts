@@ -1,6 +1,10 @@
 import type { MeetingNotesDraftV1 } from "../ai/cleanup/draft.js";
 import { SqlRunner } from "../storage/sql-runner.js";
-import type { MeetingNotesDraftRow, SessionRow } from "../storage/session-store.js";
+import type {
+  MeetingNotesDraftRow,
+  SessionRow,
+  TranscriptSegmentRow,
+} from "../storage/session-store.js";
 import type { NotionDraftInput, NotionDraftSpeaker } from "./draft-input.js";
 
 export type NotionDraftCandidateRow = {
@@ -87,6 +91,17 @@ export class NotionDraftInputReadModel {
          FROM session_speakers
          WHERE session_id = ?
          ORDER BY first_seen_at_ms ASC, user_id ASC`,
+        session.id,
+      ),
+      timelineEntries: this.runner.all<TranscriptSegmentRow>(
+        `SELECT *
+         FROM transcript_segments
+         WHERE session_id = ?
+           AND speech_status = 'speech'
+           AND length(trim(text)) > 0
+           AND source <> 'fake'
+           AND provider <> 'dirong-fake-stt'
+         ORDER BY start_ms ASC, end_ms ASC, created_at ASC`,
         session.id,
       ),
     };

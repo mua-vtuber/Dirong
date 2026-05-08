@@ -168,6 +168,7 @@
     }[ch]));
     const sectionCache = new Map();
     let notionRulesDirty = false;
+    let notionSchemaResult = null;
     const rel = (value) => {
       if (!value) return "";
       const text = String(value).replaceAll("\\", "/");
@@ -508,8 +509,12 @@
         '<button type="button"' + (disabled ? ' disabled' : '') + ' onclick="syncNotionProperties()">스키마 다시 불러오기</button>' +
         '<button type="button" onclick="addNotionPropertyRule()">추가</button>' +
         '<button type="button" onclick="saveNotionPropertyRules()">저장</button>' +
+        '<button type="button"' + (disabled ? ' disabled' : '') + ' onclick="inspectNotionSchema()">스키마 검사</button>' +
+        '<button type="button"' + (disabled ? ' disabled' : '') + ' onclick="applyNotionSchema()">스키마 맞추기</button>' +
+        '<label class="muted"><input type="checkbox" id="notionSchemaUpdateTypes"> 타입 변경</label>' +
+        '<label class="muted"><input type="checkbox" id="notionSchemaDeleteExtra"> 관리 외 삭제</label>' +
         '<span class="muted" id="notionPropertyStatus"></span>' +
-        '</div>' + ruleTable + preview + '</div>';
+        '</div>' + ruleTable + renderNotionSchemaResult(notionSchemaResult) + preview + '</div>';
     }
     function renderNotionPropertyRuleRow(rule, custom) {
       const checked = rule.enabled ? ' checked' : '';
@@ -588,7 +593,38 @@
         if (statusEl) statusEl.textContent = message;
       }
     }
-    async function saveNotionPropertyRules() {
+    function renderNotionSchemaResult(result) {
+      if (!result) {
+        return '';
+      }
+      const diff = result.diff;
+      const warnings = (result.warnings ?? []).length
+        ? '<div class="warn">' + result.warnings.map(escapeHtml).join('<br>') + '</div>'
+        : '';
+      if (!diff) {
+        return '<div style="margin-top:10px"><div class="value ' + runtimeValueClass(result.status) + '">' +
+          escapeHtml(result.status + ': ' + result.message) + '</div>' + warnings + '</div>';
+      }
+      const rows = []
+        .concat((diff.missing ?? []).map((item) => schemaRow('누락', item.propertyName, item.propertyType, item.source)))
+        .concat((diff.renames ?? []).map((item) => schemaRow('이름변경', item.fromName + ' -> ' + item.toName, item.propertyType, item.source)))
+        .concat((diff.wrongType ?? []).map((item) => schemaRow('타입불일치', item.propertyName, item.actualType + ' -> ' + item.expectedType, item.canUpdate ? '자동 가능' : '수동 필요')))
+        .concat((diff.missingOptions ?? []).map((item) => schemaRow('옵션누락', item.propertyName, item.missingOptions.join(', '), item.canUpdate ? '자동 가능' : '수동 필요')))
+        .concat((diff.extra ?? []).map((item) => schemaRow('관리외', item.propertyName, item.propertyType, item.canDelete ? '삭제 가능' : '보존')));
+      const detail = rows.length
+        ? table(['구분', '속성', '타입/내용', '처리'], rows)
+        : '<div class="muted">스키마가 맞습니다.</div>';
+      return '<div style="margin-top:10px">' +
+        '<div class="label">schema · ' + escapeHtml(result.status) + '</div>' +
+        '<div class="value ' + runtimeValueClass(result.status) + '">' + escapeHtml(result.message) + '</div>' +
+        (result.userAction ? '<div class="muted">' + escapeHtml(result.userAction) + '</div>' : '') +
+        warnings + detail + '</div>';
+    }
+    function schemaRow(kind, property, type, handling) {
+      return '<tr><td>' + escapeHtml(kind) + '</td><td>' + escapeHtml(property) +
+        '</td><td>' + escapeHtml(type) + '</td><td>' + escapeHtml(handling) + '</td></tr>';
+    }
+    async function saveNotionPropertyRules(options = {}) {
       const statusEl = document.getElementById('notionPropertyStatus');
       if (statusEl) statusEl.textContent = 'saving...';
       const rules = Array.from(document.querySelectorAll('[data-notion-rule-row]')).map((row) => ({
@@ -609,6 +645,62 @@
         const result = await res.json();
         notionRulesDirty = false;
         if (statusEl) statusEl.textContent = result.status + ': ' + result.message;
+        if (options.refresh !== false) {
+          refresh();
+        }
+        return result;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (statusEl) statusEl.textContent = message;
+        throw error;
+      }
+    }
+    async function inspectNotionSchema() {
+      const statusEl = document.getElementById('notionPropertyStatus');
+      if (statusEl) statusEl.textContent = 'checking schema...';
+      try {
+        if (notionRulesDirty) {
+          await saveNotionPropertyRules({ refresh: false });
+        }
+        const res = await fetch('/api/notion/schema/inspect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}'
+        });
+        notionSchemaResult = await res.json();
+        if (statusEl) statusEl.textContent = notionSchemaResult.status + ': ' + notionSchemaResult.message;
+        notionRulesDirty = false;
+        refresh();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (statusEl) statusEl.textContent = message;
+      }
+    }
+    async function applyNotionSchema() {
+      const statusEl = document.getElementById('notionPropertyStatus');
+      if (statusEl) statusEl.textContent = 'applying schema...';
+      try {
+        if (notionRulesDirty) {
+          await saveNotionPropertyRules({ refresh: false });
+        }
+        const deleteExtra = document.getElementById('notionSchemaDeleteExtra')?.checked === true;
+        const confirmDeleteExtra = deleteExtra
+          ? window.confirm('관리 외 Notion 속성을 삭제합니다. 해당 컬럼 값도 사라질 수 있습니다. 계속할까요?')
+          : false;
+        const body = {
+          createMissing: true,
+          updateTypes: document.getElementById('notionSchemaUpdateTypes')?.checked === true,
+          deleteExtra,
+          confirmDeleteExtra
+        };
+        const res = await fetch('/api/notion/schema/apply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        notionSchemaResult = await res.json();
+        if (statusEl) statusEl.textContent = notionSchemaResult.status + ': ' + notionSchemaResult.message;
+        notionRulesDirty = false;
         refresh();
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -695,6 +787,7 @@
         'running',
         'queued',
         'processing',
+        'partial',
         'countdown',
         'checking',
         'waiting_for_stt',

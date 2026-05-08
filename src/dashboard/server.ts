@@ -11,9 +11,11 @@ import type { SttAutomationSnapshot } from "../stt/automation-service.js";
 import type {
   NotionDashboardActionResult,
   NotionDashboardCustomPropertyActionResult,
+  NotionDashboardSchemaActionResult,
   NotionDashboardSnapshot,
 } from "../notion/dashboard-service.js";
 import type { NotionCustomPropertyRuleInput } from "../notion/property-rules.js";
+import type { NotionSchemaApplyOptions } from "../notion/schema-manager.js";
 import type { NotionAutomationSnapshot } from "../notion/automation-service.js";
 
 export type DashboardAiReadinessSource = {
@@ -43,6 +45,8 @@ export type DashboardNotionSource = {
   saveCustomPropertyRules(
     rules: readonly NotionCustomPropertyRuleInput[],
   ): NotionDashboardCustomPropertyActionResult;
+  inspectSchema(): Promise<NotionDashboardSchemaActionResult>;
+  applySchema(input: NotionSchemaApplyOptions): Promise<NotionDashboardSchemaActionResult>;
 };
 
 export type DashboardNotionAutomationSource = {
@@ -137,6 +141,22 @@ export class DashboardServer {
 
     if (request.method === "POST" && url.pathname === "/api/notion/properties") {
       await this.handleNotionPropertiesSave(request, response);
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/notion/schema/inspect"
+    ) {
+      await this.handleNotionSchemaInspect(response);
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/notion/schema/apply"
+    ) {
+      await this.handleNotionSchemaApply(request, response);
       return;
     }
 
@@ -324,6 +344,68 @@ export class DashboardServer {
       })}\n`);
     }
   }
+
+  private async handleNotionSchemaInspect(
+    response: ServerResponse,
+  ): Promise<void> {
+    if (!this.runtimeSources.notion) {
+      sendJson(response, {
+        ok: false,
+        status: "not_configured",
+        message: "Notion dashboard action source is not configured.",
+        userAction: "Notion 설정을 확인해 주세요.",
+        warnings: [],
+        diff: null,
+        operations: null,
+      });
+      return;
+    }
+
+    const result = await this.runtimeSources.notion.inspectSchema();
+    sendJson(response, result);
+  }
+
+  private async handleNotionSchemaApply(
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> {
+    if (!this.runtimeSources.notion) {
+      sendJson(response, {
+        ok: false,
+        status: "not_configured",
+        message: "Notion dashboard action source is not configured.",
+        userAction: "Notion 설정을 확인해 주세요.",
+        warnings: [],
+        diff: null,
+        operations: null,
+      });
+      return;
+    }
+
+    try {
+      const body = await readJsonBody(request);
+      const result = await this.runtimeSources.notion.applySchema(
+        readNotionSchemaApplyOptions(body),
+      );
+      sendJson(response, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      response.writeHead(400, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      });
+      response.end(`${JSON.stringify({
+        ok: false,
+        status: "failed",
+        message,
+        userAction: "요청을 다시 시도해 주세요.",
+        warnings: [],
+        diff: null,
+        operations: null,
+      })}\n`);
+    }
+  }
 }
 
 export function appendAiReadinessToDashboardState(
@@ -458,6 +540,16 @@ function readCustomPropertyRuleInputs(
     });
   }
   return rules;
+}
+
+function readNotionSchemaApplyOptions(body: unknown): NotionSchemaApplyOptions {
+  const record = isRecord(body) ? body : {};
+  return {
+    createMissing: record.createMissing !== false,
+    updateTypes: record.updateTypes === true,
+    deleteExtra: record.deleteExtra === true,
+    confirmDeleteExtra: record.confirmDeleteExtra === true,
+  };
 }
 
 function sendText(response: ServerResponse, statusCode: number, text: string): void {

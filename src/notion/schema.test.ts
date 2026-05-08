@@ -21,7 +21,18 @@ test("validateNotionDataSourceSchema accepts required MVP properties", () => {
 
 test("validateNotionDataSourceSchema accepts Notion status property type", () => {
   const properties = completeProperties();
-  properties.Status = { id: "status-id", type: "status" };
+  properties.Status = {
+    id: "status-id",
+    type: "status",
+    status: {
+      options: [
+        { id: "draft-id", name: "draft" },
+        { id: "done-id", name: "done" },
+        { id: "retry-id", name: "retry_wait" },
+        { id: "failed-id", name: "failed" },
+      ],
+    },
+  };
 
   const validation = validateNotionDataSourceSchema(
     properties,
@@ -29,6 +40,34 @@ test("validateNotionDataSourceSchema accepts Notion status property type", () =>
   );
 
   assert.equal(validation.ok, true);
+});
+
+test("validateNotionDataSourceSchema blocks status properties missing upload options", () => {
+  const properties = completeProperties();
+  properties.Status = {
+    id: "status-id",
+    type: "status",
+    status: {
+      options: [{ id: "draft-id", name: "draft" }],
+    },
+  };
+
+  const validation = validateNotionDataSourceSchema(
+    properties,
+    DEFAULT_NOTION_PROPERTY_NAMES,
+  );
+
+  assert.equal(validation.ok, false);
+  if (!validation.ok) {
+    assert.deepEqual(validation.wrongType, [
+      {
+        property: "Status",
+        expected: "status options: draft, done, retry_wait, failed",
+        actual: "missing options: done, retry_wait, failed",
+      },
+    ]);
+    assert.match(validation.userAction, /Status/);
+  }
 });
 
 test("validateNotionDataSourceSchema reports missing and wrong properties with Korean action", () => {

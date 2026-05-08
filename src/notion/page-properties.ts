@@ -4,6 +4,13 @@ import type { NotionPropertyNames } from "./settings.js";
 export type NotionPageStatus = "draft" | "done" | "retry_wait" | "failed";
 export type NotionStatusPropertyType = "select" | "status";
 
+export const NOTION_PAGE_STATUS_VALUES = [
+  "draft",
+  "done",
+  "retry_wait",
+  "failed",
+] as const satisfies readonly NotionPageStatus[];
+
 export type NotionRichText = Array<{ text: { content: string } }>;
 
 export type NotionPageProperties = Record<string, unknown>;

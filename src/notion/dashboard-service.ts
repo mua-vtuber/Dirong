@@ -15,6 +15,12 @@ import {
   type NotionCustomPropertyRule,
   type NotionCustomPropertyRuleInput,
 } from "./property-rules.js";
+import {
+  buildNotionSchemaDiff,
+  buildNotionSchemaUpdatePlan,
+  type NotionSchemaApplyOptions,
+  type NotionSchemaDiff,
+} from "./schema-manager.js";
 import { parseNotionTargetUrl } from "./target.js";
 import { runNotionUpload, type NotionDraftSelector } from "./writer.js";
 import { NotionWriteStore } from "./write-store.js";
@@ -64,6 +70,22 @@ export type NotionDashboardCustomPropertyActionResult = {
   userAction: string | null;
   warnings: string[];
   customProperties: NotionCustomPropertiesDashboardSnapshot;
+};
+
+export type NotionDashboardSchemaActionResult = {
+  ok: boolean;
+  status: string;
+  message: string;
+  userAction: string | null;
+  warnings: string[];
+  diff: NotionSchemaDiff | null;
+  operations: {
+    create: number;
+    rename: number;
+    updateType: number;
+    updateOptions: number;
+    delete: number;
+  } | null;
 };
 
 export class NotionDashboardService {
@@ -240,6 +262,94 @@ export class NotionDashboardService {
     });
   }
 
+  async inspectSchema(): Promise<NotionDashboardSchemaActionResult> {
+    const context = await this.loadSchemaContext();
+    if (!context.ok) {
+      return context.result;
+    }
+    return {
+      ok: true,
+      status: "done",
+      message: formatSchemaDiffMessage(context.diff),
+      userAction: schemaDiffUserAction(context.diff),
+      warnings: context.diff.warnings,
+      diff: context.diff,
+      operations: null,
+    };
+  }
+
+  async applySchema(
+    options: NotionSchemaApplyOptions,
+  ): Promise<NotionDashboardSchemaActionResult> {
+    const context = await this.loadSchemaContext();
+    if (!context.ok) {
+      return context.result;
+    }
+
+    const plan = buildNotionSchemaUpdatePlan(context.diff, options);
+    if (!plan.body) {
+      return {
+        ok: plan.blocked.length === 0,
+        status: plan.blocked.length > 0 ? "blocked" : "done",
+        message:
+          plan.blocked.length > 0
+            ? "자동 적용할 수 없는 Notion schema 항목이 있습니다."
+            : "Notion schema에 적용할 변경이 없습니다.",
+        userAction:
+          plan.blocked.length > 0
+            ? plan.blocked.join(" ")
+            : schemaDiffUserAction(context.diff),
+        warnings: [...plan.warnings, ...plan.blocked],
+        diff: context.diff,
+        operations: plan.operations,
+      };
+    }
+
+    try {
+      const updated = await context.client.updateDataSource(context.target.id, plan.body);
+      const properties = readDataSourceProperties(updated);
+      if (Object.keys(properties).length > 0) {
+        this.propertyRuleStore.syncDataSourceProperties({
+          properties,
+          requiredPropertyNames: this.input.settings.propertyNames,
+          nowIso: new Date().toISOString(),
+        });
+      }
+      const after = Object.keys(properties).length > 0
+        ? buildNotionSchemaDiff({
+            properties,
+            propertyNames: this.input.settings.propertyNames,
+            customRules: this.propertyRuleStore.listRules(),
+          })
+        : context.diff;
+      return {
+        ok: plan.blocked.length === 0,
+        status: plan.blocked.length > 0 ? "partial" : "done",
+        message: formatSchemaApplyMessage(plan.operations),
+        userAction:
+          plan.blocked.length > 0
+            ? plan.blocked.join(" ")
+            : schemaDiffUserAction(after),
+        warnings: [...plan.warnings, ...plan.blocked],
+        diff: after,
+        operations: plan.operations,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        status: "failed",
+        message: error instanceof Error ? error.message : String(error),
+        userAction:
+          error instanceof NotionApiError
+            ? error.userAction
+            : "Notion 연결과 target 공유 상태를 확인해 주세요.",
+        warnings: plan.warnings,
+        diff: context.diff,
+        operations: plan.operations,
+      };
+    }
+  }
+
   private customPropertyActionResult(input: {
     ok: boolean;
     status: string;
@@ -276,6 +386,68 @@ export class NotionDashboardService {
           : null,
     };
   }
+
+  private async loadSchemaContext(): Promise<
+    | {
+        ok: true;
+        client: NotionClient;
+        target: { id: string; dataSource: Record<string, unknown> };
+        diff: NotionSchemaDiff;
+      }
+    | { ok: false; result: NotionDashboardSchemaActionResult }
+  > {
+    const settings = this.input.settings;
+    if (!settings.enabled || !settings.apiKey || !settings.targetUrl) {
+      return {
+        ok: false,
+        result: schemaActionErrorResult({
+          status: "not_configured",
+          message: "Notion 설정이 완료된 뒤 schema를 정리할 수 있습니다.",
+          userAction: "NOTION_API_KEY와 NOTION_TARGET_URL을 확인해 주세요.",
+        }),
+      };
+    }
+
+    const parsedTarget = parseNotionTargetUrl(settings.targetUrl);
+    if (parsedTarget.kind === "invalid") {
+      return {
+        ok: false,
+        result: schemaActionErrorResult({
+          status: "not_configured",
+          message: "Notion target URL is invalid.",
+          userAction: "Notion 데이터베이스 또는 data source URL을 다시 복사해 붙여넣어 주세요.",
+        }),
+      };
+    }
+
+    const client = createNotionClient({
+      apiKey: settings.apiKey,
+      apiVersion: settings.apiVersion,
+      baseUrl: settings.baseUrl,
+    });
+
+    try {
+      const target = await resolveDataSourceTarget(client, parsedTarget);
+      const diff = buildNotionSchemaDiff({
+        properties: readDataSourceProperties(target.dataSource),
+        propertyNames: settings.propertyNames,
+        customRules: this.propertyRuleStore.listRules(),
+      });
+      return { ok: true, client, target, diff };
+    } catch (error) {
+      return {
+        ok: false,
+        result: schemaActionErrorResult({
+          status: "failed",
+          message: error instanceof Error ? error.message : String(error),
+          userAction:
+            error instanceof NotionApiError
+              ? error.userAction
+              : "Notion 연결과 target 공유 상태를 확인해 주세요.",
+        }),
+      };
+    }
+  }
 }
 
 function selectorFromAction(
@@ -294,8 +466,18 @@ async function resolveDataSource(
   client: NotionClient,
   parsedTarget: Exclude<ReturnType<typeof parseNotionTargetUrl>, { kind: "invalid" }>,
 ): Promise<Record<string, unknown>> {
+  return (await resolveDataSourceTarget(client, parsedTarget)).dataSource;
+}
+
+async function resolveDataSourceTarget(
+  client: NotionClient,
+  parsedTarget: Exclude<ReturnType<typeof parseNotionTargetUrl>, { kind: "invalid" }>,
+): Promise<{ id: string; dataSource: Record<string, unknown> }> {
   if (parsedTarget.kind === "data_source_id") {
-    return client.retrieveDataSource(parsedTarget.id);
+    return {
+      id: parsedTarget.id,
+      dataSource: await client.retrieveDataSource(parsedTarget.id),
+    };
   }
 
   const database = await client.retrieveDatabase(parsedTarget.id);
@@ -307,7 +489,10 @@ async function resolveDataSource(
   if (!dataSourceId) {
     throw new Error("Notion data source id is missing.");
   }
-  return client.retrieveDataSource(dataSourceId);
+  return {
+    id: dataSourceId,
+    dataSource: await client.retrieveDataSource(dataSourceId),
+  };
 }
 
 function readDataSourceProperties(
@@ -327,4 +512,56 @@ function readId(value: unknown): string | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function schemaActionErrorResult(input: {
+  status: string;
+  message: string;
+  userAction: string | null;
+}): NotionDashboardSchemaActionResult {
+  return {
+    ok: false,
+    status: input.status,
+    message: input.message,
+    userAction: input.userAction,
+    warnings: [],
+    diff: null,
+    operations: null,
+  };
+}
+
+function formatSchemaDiffMessage(diff: NotionSchemaDiff): string {
+  return [
+    `누락 ${diff.missing.length}`,
+    `이름변경 ${diff.renames.length}`,
+    `타입불일치 ${diff.wrongType.length}`,
+    `옵션누락 ${diff.missingOptions.length}`,
+    `관리외 ${diff.extra.length}`,
+  ].join(" / ");
+}
+
+function formatSchemaApplyMessage(
+  operations: NonNullable<NotionDashboardSchemaActionResult["operations"]>,
+): string {
+  return [
+    `생성 ${operations.create}`,
+    `이름변경 ${operations.rename}`,
+    `타입변경 ${operations.updateType}`,
+    `옵션보강 ${operations.updateOptions}`,
+    `삭제 ${operations.delete}`,
+  ].join(" / ");
+}
+
+function schemaDiffUserAction(diff: NotionSchemaDiff): string | null {
+  if (
+    diff.missing.length === 0 &&
+    diff.renames.length === 0 &&
+    diff.wrongType.length === 0 &&
+    diff.missingOptions.length === 0
+  ) {
+    return diff.extra.length > 0
+      ? "관리 외 속성은 보기만 했습니다. 지우려면 삭제 옵션을 명시적으로 켜 주세요."
+      : null;
+  }
+  return "스키마 맞추기를 누르면 누락 속성과 이름 변경, select 옵션 보강을 자동 적용합니다.";
 }

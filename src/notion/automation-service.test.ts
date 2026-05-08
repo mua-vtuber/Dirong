@@ -163,6 +163,18 @@ class FakeNotionClient implements NotionClient {
     };
   }
 
+  async updateDataSource(
+    _dataSourceId: string,
+    body: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    this.calls.push({ method: "updateDataSource", body });
+    return {
+      id: targetId,
+      name: "회의록",
+      properties: completeProperties(),
+    };
+  }
+
   async queryDataSource(
     _dataSourceId: string,
     body: Record<string, unknown>,

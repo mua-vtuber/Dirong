@@ -137,6 +137,7 @@ export async function runNotionUpload(
         technicalDetail: JSON.stringify({
           missing: schemaValidation.missing,
           wrongType: schemaValidation.wrongType,
+          missingOptions: schemaValidation.missingOptions,
         }),
       };
     }

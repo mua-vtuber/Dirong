@@ -445,6 +445,44 @@ test("DashboardServer Notion property rules save through dashboard source", asyn
   }
 });
 
+test("DashboardServer Notion schema apply posts safe options", async () => {
+  const schemaApplies: Array<{
+    createMissing: boolean;
+    updateTypes: boolean;
+    deleteExtra: boolean;
+    confirmDeleteExtra: boolean;
+  }> = [];
+  const fixture = await startDashboardFixture({
+    notion: makeNotionSource([], [], schemaApplies),
+  });
+  try {
+    const response = await fetch(`${fixture.baseUrl}/api/notion/schema/apply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        updateTypes: true,
+        deleteExtra: true,
+        confirmDeleteExtra: false,
+      }),
+    });
+    const body = await response.json() as { ok: boolean; status: string };
+
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.status, "done");
+    assert.deepEqual(schemaApplies, [
+      {
+        createMissing: true,
+        updateTypes: true,
+        deleteExtra: true,
+        confirmDeleteExtra: false,
+      },
+    ]);
+  } finally {
+    await fixture.close();
+  }
+});
+
 type AudioFixture = {
   chunkId: string;
   raw?: { path: string; format: string };
@@ -495,6 +533,12 @@ function makeNotionSource(
     promptDescription: string;
     maxLength?: number | null;
     deleted?: boolean;
+  }> = [],
+  schemaApplies: Array<{
+    createMissing: boolean;
+    updateTypes: boolean;
+    deleteExtra: boolean;
+    confirmDeleteExtra: boolean;
   }> = [],
 ): DashboardNotionSource {
   return {
@@ -592,6 +636,33 @@ function makeNotionSource(
         userAction: null,
         warnings: [],
         customProperties: makeNotionSource().getSnapshot().customProperties,
+      };
+    },
+    inspectSchema: async () => ({
+      ok: true,
+      status: "done",
+      message: "누락 0 / 이름변경 0 / 타입불일치 0 / 옵션누락 0 / 관리외 0",
+      userAction: null,
+      warnings: [],
+      diff: null,
+      operations: null,
+    }),
+    applySchema: async (input) => {
+      schemaApplies.push(input);
+      return {
+        ok: true,
+        status: "done",
+        message: "생성 0 / 이름변경 0 / 타입변경 0 / 옵션보강 0 / 삭제 0",
+        userAction: null,
+        warnings: [],
+        diff: null,
+        operations: {
+          create: 0,
+          rename: 0,
+          updateType: 0,
+          updateOptions: 0,
+          delete: 0,
+        },
       };
     },
   };

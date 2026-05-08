@@ -1,4 +1,5 @@
 import type { NotionPropertyNames } from "./settings.js";
+import { NOTION_PAGE_STATUS_VALUES } from "./page-properties.js";
 
 export type NotionPropertyNameKey = keyof NotionPropertyNames;
 
@@ -6,6 +7,7 @@ export type NotionDataSourceProperty = {
   id?: string;
   name?: string;
   type?: string;
+  [key: string]: unknown;
 };
 
 export type NotionDataSourceProperties = Record<
@@ -30,12 +32,19 @@ export type NotionSchemaWrongType = {
   actual: string;
 };
 
+export type NotionSchemaMissingOption = {
+  property: string;
+  type: string;
+  missingOptions: string[];
+};
+
 export type NotionSchemaValidation =
   | { ok: true; propertyIds: NotionResolvedPropertyIds }
   | {
       ok: false;
       missing: string[];
       wrongType: NotionSchemaWrongType[];
+      missingOptions: NotionSchemaMissingOption[];
       userAction: string;
     };
 
@@ -85,6 +94,20 @@ export function validateNotionDataSourceSchema(
       continue;
     }
 
+    if (requirement.key === "status" && actual === "status") {
+      const missingOptions = NOTION_PAGE_STATUS_VALUES.filter(
+        (option) => !readPropertyOptionNames(property, "status").has(option),
+      );
+      if (missingOptions.length > 0) {
+        wrongType.push({
+          property: name,
+          expected: `status options: ${NOTION_PAGE_STATUS_VALUES.join(", ")}`,
+          actual: `missing options: ${missingOptions.join(", ")}`,
+        });
+        continue;
+      }
+    }
+
     resolved[requirement.key] = {
       id: property.id ?? name,
       name,
@@ -100,8 +123,28 @@ export function validateNotionDataSourceSchema(
     ok: false,
     missing,
     wrongType,
+    missingOptions: [],
     userAction: buildSchemaUserAction(missing, wrongType),
   };
+}
+
+function readPropertyOptionNames(
+  property: NotionDataSourceProperty,
+  type: "select" | "status",
+): Set<string> {
+  const config = property[type];
+  if (!isRecord(config) || !Array.isArray(config.options)) {
+    return new Set();
+  }
+  return new Set(
+    config.options
+      .map((option) =>
+        isRecord(option) && typeof option.name === "string"
+          ? option.name
+          : null,
+      )
+      .filter((name): name is string => name !== null),
+  );
 }
 
 function buildSchemaUserAction(
@@ -123,4 +166,8 @@ function buildSchemaUserAction(
   }
   messages.push("속성을 수정한 뒤 Dirong 연결 테스트를 다시 실행해 주세요.");
   return messages.join(" ");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

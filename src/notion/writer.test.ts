@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { NotionApiError, type NotionClient } from "./client.js";
 import { NotionDraftInputReadModel } from "./draft-input-read-model.js";
+import type { NotionDataSourceProperties } from "./schema.js";
 import { DEFAULT_NOTION_PROPERTY_NAMES, type NotionRuntimeSettings } from "./settings.js";
 import { makeNotionDraftInput } from "./test-fixtures.js";
 import { runNotionUpload } from "./writer.js";
@@ -85,7 +86,18 @@ test("runNotionUpload renders status payloads for Notion status properties", asy
     const client = new FakeNotionClient({
       properties: {
         ...completeProperties(),
-        Status: { id: "status-id", type: "status" },
+        Status: {
+          id: "status-id",
+          type: "status",
+          status: {
+            options: [
+              { id: "draft-id", name: "draft" },
+              { id: "done-id", name: "done" },
+              { id: "retry-id", name: "retry_wait" },
+              { id: "failed-id", name: "failed" },
+            ],
+          },
+        },
       },
     });
     const result = await runNotionUpload({
@@ -253,7 +265,7 @@ class FakeNotionClient implements NotionClient {
     private readonly options: {
       queryResults?: unknown[];
       appendError?: NotionApiError;
-      properties?: Record<string, { id: string; type: string }>;
+      properties?: NotionDataSourceProperties;
     } = {},
   ) {}
 
@@ -264,6 +276,18 @@ class FakeNotionClient implements NotionClient {
 
   async retrieveDataSource(): Promise<Record<string, unknown>> {
     this.calls.push({ method: "retrieveDataSource" });
+    return {
+      id: targetId,
+      name: "회의록",
+      properties: this.options.properties ?? completeProperties(),
+    };
+  }
+
+  async updateDataSource(
+    _dataSourceId: string,
+    body: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    this.calls.push({ method: "updateDataSource", body });
     return {
       id: targetId,
       name: "회의록",

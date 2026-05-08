@@ -4,6 +4,7 @@ export type JsonObject = Record<string, unknown>;
 
 export type NotionDatabaseResponse = JsonObject;
 export type NotionDataSourceResponse = JsonObject;
+export type NotionUpdateDataSourceBody = JsonObject;
 export type NotionQueryBody = JsonObject;
 export type NotionQueryResponse = JsonObject;
 export type NotionCreatePageBody = JsonObject;
@@ -16,6 +17,10 @@ export type NotionBlockChildrenResponse = JsonObject;
 export type NotionClient = {
   retrieveDatabase(databaseId: string): Promise<NotionDatabaseResponse>;
   retrieveDataSource(dataSourceId: string): Promise<NotionDataSourceResponse>;
+  updateDataSource(
+    dataSourceId: string,
+    body: NotionUpdateDataSourceBody,
+  ): Promise<NotionDataSourceResponse>;
   queryDataSource(
     dataSourceId: string,
     body: NotionQueryBody,
@@ -116,6 +121,17 @@ class FetchNotionClient implements NotionClient {
     return this.request(
       "GET",
       `/v1/data_sources/${encodeURIComponent(dataSourceId)}`,
+    );
+  }
+
+  updateDataSource(
+    dataSourceId: string,
+    body: NotionUpdateDataSourceBody,
+  ): Promise<NotionDataSourceResponse> {
+    return this.request(
+      "PATCH",
+      `/v1/data_sources/${encodeURIComponent(dataSourceId)}`,
+      body,
     );
   }
 

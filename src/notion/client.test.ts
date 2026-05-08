@@ -49,6 +49,28 @@ test("Notion client supports data source query and block children retrieval", as
   });
 });
 
+test("Notion client updates data source properties", async () => {
+  await withFakeNotionServer(async ({ baseUrl, requests }) => {
+    const client = createNotionClient({ apiKey, apiVersion, baseUrl });
+
+    await client.updateDataSource("data source/id", {
+      properties: {
+        Discussion: { rich_text: {} },
+        Old: null,
+      },
+    });
+
+    assert.equal(requests[0]?.method, "PATCH");
+    assert.equal(requests[0]?.url, "/v1/data_sources/data%20source%2Fid");
+    assert.deepEqual(requests[0]?.body, {
+      properties: {
+        Discussion: { rich_text: {} },
+        Old: null,
+      },
+    });
+  });
+});
+
 test("Notion client classifies auth, not found, conflict, and rate limit errors", async () => {
   for (const entry of [
     { path: "/401", kind: "auth", status: 401, retriable: false },

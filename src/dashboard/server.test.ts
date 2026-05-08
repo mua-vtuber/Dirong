@@ -253,6 +253,7 @@ test("DashboardServer root serves the dashboard HTML without caching", async () 
     assert.match(response.headers.get("content-type") ?? "", /text\/html/);
     assert.equal(response.headers.get("cache-control"), "no-store");
     assert.match(html, /Dirong Recording \+ STT Dashboard/);
+    assert.match(html, /Notion Property Rules/);
     assert.match(html, /escapeHtml/);
     assert.match(html, /fetch\('\/api\/state'/);
   } finally {
@@ -394,6 +395,49 @@ test("DashboardServer Notion retry action forces retry and never returns token",
   }
 });
 
+test("DashboardServer Notion property rules save through dashboard source", async () => {
+  const savedRules: Array<{
+    propertyName: string;
+    enabled: boolean;
+    promptDescription: string;
+    maxLength?: number | null;
+  }> = [];
+  const fixture = await startDashboardFixture({
+    notion: makeNotionSource([], savedRules),
+  });
+  try {
+    const response = await fetch(`${fixture.baseUrl}/api/notion/properties`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        rules: [
+          {
+            propertyName: "Discussion",
+            enabled: true,
+            promptDescription: "회의 논의 사항 요약",
+            maxLength: 700,
+          },
+        ],
+      }),
+    });
+    const body = await response.json() as { ok: boolean; status: string };
+
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.status, "done");
+    assert.deepEqual(savedRules, [
+      {
+        propertyName: "Discussion",
+        enabled: true,
+        promptDescription: "회의 논의 사항 요약",
+        maxLength: 700,
+      },
+    ]);
+  } finally {
+    await fixture.close();
+  }
+});
+
 type AudioFixture = {
   chunkId: string;
   raw?: { path: string; format: string };
@@ -436,6 +480,12 @@ function makeNotionSource(
     draftId: string | null;
     force: boolean;
   }> = [],
+  savedRules: Array<{
+    propertyName: string;
+    enabled: boolean;
+    promptDescription: string;
+    maxLength?: number | null;
+  }> = [],
 ): DashboardNotionSource {
   return {
     getSnapshot: () => ({
@@ -472,6 +522,38 @@ function makeNotionSource(
           localStatus: "Local Status",
         },
       },
+      customProperties: {
+        supportedTypes: ["rich_text", "select", "multi_select", "checkbox", "date"],
+        requiredPropertyNames: [
+          "Name",
+          "Date",
+          "Meeting Time",
+          "Channel",
+          "Participants",
+          "Status",
+          "Session ID",
+          "Draft ID",
+          "Dirong Content Hash",
+          "Local Status",
+        ],
+        rules: [
+          {
+            propertyName: "Discussion",
+            propertyId: "discussion",
+            propertyType: "rich_text",
+            enabled: false,
+            promptDescription: "",
+            maxLength: 1000,
+            lastSeenAt: "2026-05-07T00:00:00.000Z",
+            createdAt: "2026-05-07T00:00:00.000Z",
+            updatedAt: "2026-05-07T00:00:00.000Z",
+          },
+        ],
+        enabledCount: 0,
+        promptPreview: "",
+        message: "사용자 속성 1개 중 0개가 켜져 있습니다.",
+        userAction: null,
+      },
     }),
     runManualUpload: async (input) => {
       actions.push(input);
@@ -481,6 +563,25 @@ function makeNotionSource(
         message: "complete",
         userAction: null,
         pageUrl: "https://notion.so/page",
+      };
+    },
+    syncCustomProperties: async () => ({
+      ok: true,
+      status: "done",
+      message: "synced",
+      userAction: null,
+      warnings: [],
+      customProperties: makeNotionSource().getSnapshot().customProperties,
+    }),
+    saveCustomPropertyRules: (rules) => {
+      savedRules.push(...rules);
+      return {
+        ok: true,
+        status: "done",
+        message: "saved",
+        userAction: null,
+        warnings: [],
+        customProperties: makeNotionSource().getSnapshot().customProperties,
       };
     },
   };

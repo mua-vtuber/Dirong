@@ -27,9 +27,11 @@ test("DirongDatabase upgrades legacy transcript_segments speech_status", () => {
       assert.deepEqual(readMigrationIds(database.db), [
         "001_transcript_segments_speech_status",
         "002_notion_writes",
+        "003_notion_custom_property_rules",
       ]);
       assert.equal(tableExists(database.db, "notion_writes"), true);
       assert.equal(tableExists(database.db, "notion_blocks"), true);
+      assert.equal(tableExists(database.db, "notion_custom_property_rules"), true);
     } finally {
       database.close();
     }
@@ -55,6 +57,7 @@ test("DirongDatabase backs up existing DB before pending migrations", () => {
       assert.deepEqual(readMigrationIds(migrated), [
         "001_transcript_segments_speech_status",
         "002_notion_writes",
+        "003_notion_custom_property_rules",
       ]);
     } finally {
       migrated.close();
@@ -104,6 +107,7 @@ test("applySchemaMigrations is idempotent", () => {
       assert.deepEqual(readMigrationIds(database.db), [
         "001_transcript_segments_speech_status",
         "002_notion_writes",
+        "003_notion_custom_property_rules",
       ]);
     } finally {
       database.close();
@@ -127,9 +131,15 @@ test("DirongDatabase records migrations on a fresh baseline schema", () => {
       assert.deepEqual(readMigrationIds(database.db), [
         "001_transcript_segments_speech_status",
         "002_notion_writes",
+        "003_notion_custom_property_rules",
       ]);
       assert.ok(getColumnNames(database.db, "notion_writes").includes("draft_id"));
       assert.ok(getColumnNames(database.db, "notion_blocks").includes("block_index"));
+      assert.ok(
+        getColumnNames(database.db, "notion_custom_property_rules").includes(
+          "prompt_description",
+        ),
+      );
     } finally {
       database.close();
     }
@@ -145,9 +155,11 @@ test("DirongDatabase adds Phase 5 Notion tables to pre-Phase-5 databases", () =>
     try {
       assert.equal(tableExists(database.db, "notion_writes"), true);
       assert.equal(tableExists(database.db, "notion_blocks"), true);
+      assert.equal(tableExists(database.db, "notion_custom_property_rules"), true);
       assert.deepEqual(readMigrationIds(database.db), [
         "001_transcript_segments_speech_status",
         "002_notion_writes",
+        "003_notion_custom_property_rules",
       ]);
     } finally {
       database.close();

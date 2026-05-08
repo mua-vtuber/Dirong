@@ -81,6 +81,27 @@
     .warn { color: var(--warn); }
     .error { color: var(--error); }
     .muted { color: var(--muted); }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 10px 0; }
+    button {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #ffffff;
+      color: var(--ink);
+      padding: 7px 10px;
+      cursor: pointer;
+    }
+    button:disabled { color: var(--muted); cursor: not-allowed; background: #f3f4f6; }
+    textarea, input[type="number"] {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 7px;
+      font: inherit;
+      color: var(--ink);
+      background: #ffffff;
+    }
+    textarea { min-height: 72px; resize: vertical; }
+    input[type="number"] { max-width: 96px; }
     @media (max-width: 860px) {
       .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .pipeline-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); }
@@ -129,6 +150,10 @@
       <div id="notion"></div>
     </section>
     <section>
+      <h2>Notion Property Rules</h2>
+      <div id="notionProperties"></div>
+    </section>
+    <section>
       <h2>Connection / Errors</h2>
       <div id="events"></div>
     </section>
@@ -142,6 +167,7 @@
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"
     }[ch]));
     const sectionCache = new Map();
+    let notionRulesDirty = false;
     const rel = (value) => {
       if (!value) return "";
       const text = String(value).replaceAll("\\", "/");
@@ -254,6 +280,9 @@
         : '<div class="muted">아직 AI cleanup draft가 없습니다.</div>');
 
       setHtml('notion', renderNotionUpload(state));
+      if (!notionRulesDirty) {
+        setHtml('notionProperties', renderNotionPropertyRules(state));
+      }
 
       setHtml('events', table(
         ['time', 'level', 'event', 'details'],
@@ -452,6 +481,93 @@
         '<button type="button"' + disabledAttr + ' onclick="postNotionAction(\'retry\')">Retry</button>' +
         '<span class="muted" id="notionActionStatus"></span>' +
         '</div>';
+    }
+    function renderNotionPropertyRules(state) {
+      const notion = state.notion;
+      const custom = notion?.customProperties;
+      if (!custom) {
+        return '<div class="metric"><div class="label">notion properties · unavailable</div>' +
+          '<div class="value">Notion 속성 설정을 아직 불러오지 못했습니다.</div></div>';
+      }
+      const disabled = notion.status !== 'ready';
+      const rows = (custom.rules ?? []).map((rule) => {
+        const supported = (custom.supportedTypes ?? []).includes(rule.propertyType);
+        const checked = rule.enabled ? ' checked' : '';
+        const disabledAttr = supported ? '' : ' disabled';
+        return '<tr data-notion-rule="' + escapeHtml(rule.propertyName) + '">' +
+          '<td><input type="checkbox" data-field="enabled"' + checked + disabledAttr +
+          ' onchange="markNotionRulesDirty()"></td>' +
+          '<td><code>' + escapeHtml(rule.propertyName) + '</code><br><span class="muted">' +
+          escapeHtml(rule.propertyType) + (supported ? '' : ' · unsupported') + '</span></td>' +
+          '<td><textarea data-field="promptDescription" oninput="markNotionRulesDirty()">' +
+          escapeHtml(rule.promptDescription ?? '') + '</textarea></td>' +
+          '<td><input type="number" min="1" max="2000" data-field="maxLength" value="' +
+          escapeHtml(rule.maxLength ?? 1000) + '" oninput="markNotionRulesDirty()"></td>' +
+          '<td class="muted">' + escapeHtml(rule.lastSeenAt ?? '-') + '</td></tr>';
+      });
+      const ruleTable = rows.length
+        ? table(['on', 'property', 'description', 'limit', 'seen'], rows)
+        : '<div class="muted">사용자 속성이 없습니다.</div>';
+      const preview = custom.promptPreview
+        ? '<details><summary class="muted">prompt preview</summary><pre>' + escapeHtml(custom.promptPreview) + '</pre></details>'
+        : '';
+      const action = custom.userAction
+        ? '<div class="value">' + escapeHtml(custom.userAction) + '</div>'
+        : '';
+      return '<div class="metric">' +
+        '<div class="label">custom properties · ' + escapeHtml(custom.enabledCount ?? 0) + ' enabled</div>' +
+        '<div class="value">' + escapeHtml(custom.message) + '</div>' +
+        action +
+        '<div class="toolbar">' +
+        '<button type="button"' + (disabled ? ' disabled' : '') + ' onclick="syncNotionProperties()">스키마 다시 불러오기</button>' +
+        '<button type="button" onclick="saveNotionPropertyRules()">저장</button>' +
+        '<span class="muted" id="notionPropertyStatus"></span>' +
+        '</div>' + ruleTable + preview + '</div>';
+    }
+    function markNotionRulesDirty() {
+      notionRulesDirty = true;
+    }
+    async function syncNotionProperties() {
+      const statusEl = document.getElementById('notionPropertyStatus');
+      if (statusEl) statusEl.textContent = 'syncing...';
+      try {
+        const res = await fetch('/api/notion/properties/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}'
+        });
+        const result = await res.json();
+        notionRulesDirty = false;
+        if (statusEl) statusEl.textContent = result.status + ': ' + result.message;
+        refresh();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (statusEl) statusEl.textContent = message;
+      }
+    }
+    async function saveNotionPropertyRules() {
+      const statusEl = document.getElementById('notionPropertyStatus');
+      if (statusEl) statusEl.textContent = 'saving...';
+      const rules = Array.from(document.querySelectorAll('[data-notion-rule]')).map((row) => ({
+        propertyName: row.getAttribute('data-notion-rule') ?? '',
+        enabled: row.querySelector('[data-field="enabled"]')?.checked === true,
+        promptDescription: row.querySelector('[data-field="promptDescription"]')?.value ?? '',
+        maxLength: Number(row.querySelector('[data-field="maxLength"]')?.value ?? 1000)
+      }));
+      try {
+        const res = await fetch('/api/notion/properties', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rules })
+        });
+        const result = await res.json();
+        notionRulesDirty = false;
+        if (statusEl) statusEl.textContent = result.status + ': ' + result.message;
+        refresh();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (statusEl) statusEl.textContent = message;
+      }
     }
     async function postNotionAction(action) {
       const statusEl = document.getElementById('notionActionStatus');

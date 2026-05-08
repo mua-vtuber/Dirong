@@ -14,6 +14,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     id: "002_notion_writes",
     apply: migrateNotionWrites,
   },
+  {
+    id: "003_notion_custom_property_rules",
+    apply: migrateNotionCustomPropertyRules,
+  },
 ];
 
 export function listPendingSchemaMigrationIds(db: DatabaseSync): string[] {
@@ -143,5 +147,24 @@ CREATE TABLE IF NOT EXISTS notion_blocks (
   PRIMARY KEY (notion_write_id, block_index),
   FOREIGN KEY (notion_write_id) REFERENCES notion_writes(id) ON DELETE CASCADE
 );
+`);
+}
+
+function migrateNotionCustomPropertyRules(db: DatabaseSync): void {
+  db.exec(`
+CREATE TABLE IF NOT EXISTS notion_custom_property_rules (
+  property_name TEXT PRIMARY KEY,
+  property_id TEXT,
+  property_type TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 0,
+  prompt_description TEXT NOT NULL DEFAULT '',
+  max_length INTEGER NOT NULL DEFAULT 1000,
+  last_seen_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_notion_custom_property_rules_enabled
+  ON notion_custom_property_rules(enabled, property_name);
 `);
 }

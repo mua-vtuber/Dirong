@@ -10,8 +10,10 @@ import type { SessionStore } from "../storage/session-store.js";
 import type { SttAutomationSnapshot } from "../stt/automation-service.js";
 import type {
   NotionDashboardActionResult,
+  NotionDashboardCustomPropertyActionResult,
   NotionDashboardSnapshot,
 } from "../notion/dashboard-service.js";
+import type { NotionCustomPropertyRuleInput } from "../notion/property-rules.js";
 import type { NotionAutomationSnapshot } from "../notion/automation-service.js";
 
 export type DashboardAiReadinessSource = {
@@ -37,6 +39,10 @@ export type DashboardNotionSource = {
     draftId: string | null;
     force: boolean;
   }): Promise<NotionDashboardActionResult>;
+  syncCustomProperties(): Promise<NotionDashboardCustomPropertyActionResult>;
+  saveCustomPropertyRules(
+    rules: readonly NotionCustomPropertyRuleInput[],
+  ): NotionDashboardCustomPropertyActionResult;
 };
 
 export type DashboardNotionAutomationSource = {
@@ -118,6 +124,19 @@ export class DashboardServer {
 
     if (request.method === "POST" && url.pathname === "/api/notion/retry") {
       await this.handleNotionAction(request, response, true);
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/notion/properties/sync"
+    ) {
+      await this.handleNotionPropertiesSync(response);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/notion/properties") {
+      await this.handleNotionPropertiesSave(request, response);
       return;
     }
 
@@ -246,6 +265,65 @@ export class DashboardServer {
       })}\n`);
     }
   }
+
+  private async handleNotionPropertiesSync(
+    response: ServerResponse,
+  ): Promise<void> {
+    if (!this.runtimeSources.notion) {
+      sendJson(response, {
+        ok: false,
+        status: "not_configured",
+        message: "Notion dashboard action source is not configured.",
+        userAction: "Notion 설정을 확인해 주세요.",
+        warnings: [],
+        customProperties: null,
+      });
+      return;
+    }
+
+    const result = await this.runtimeSources.notion.syncCustomProperties();
+    sendJson(response, result);
+  }
+
+  private async handleNotionPropertiesSave(
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> {
+    if (!this.runtimeSources.notion) {
+      sendJson(response, {
+        ok: false,
+        status: "not_configured",
+        message: "Notion dashboard action source is not configured.",
+        userAction: "Notion 설정을 확인해 주세요.",
+        warnings: [],
+        customProperties: null,
+      });
+      return;
+    }
+
+    try {
+      const body = await readJsonBody(request);
+      const result = this.runtimeSources.notion.saveCustomPropertyRules(
+        readCustomPropertyRuleInputs(body),
+      );
+      sendJson(response, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      response.writeHead(400, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      });
+      response.end(`${JSON.stringify({
+        ok: false,
+        status: "failed",
+        message,
+        userAction: "요청을 다시 시도해 주세요.",
+        warnings: [],
+        customProperties: null,
+      })}\n`);
+    }
+  }
 }
 
 export function appendAiReadinessToDashboardState(
@@ -327,7 +405,7 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += buffer.length;
-    if (size > 4096) {
+    if (size > 65536) {
       throw new Error("Dashboard request body is too large.");
     }
     chunks.push(buffer);
@@ -345,6 +423,34 @@ function readOptionalBodyString(body: unknown, key: string): string | null {
   }
   const value = body[key];
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readCustomPropertyRuleInputs(
+  body: unknown,
+): NotionCustomPropertyRuleInput[] {
+  if (!isRecord(body) || !Array.isArray(body.rules)) {
+    return [];
+  }
+
+  const rules: NotionCustomPropertyRuleInput[] = [];
+  for (const entry of body.rules) {
+    if (!isRecord(entry) || typeof entry.propertyName !== "string") {
+      continue;
+    }
+    rules.push({
+      propertyName: entry.propertyName,
+      enabled: entry.enabled === true,
+      promptDescription:
+        typeof entry.promptDescription === "string"
+          ? entry.promptDescription
+          : "",
+      maxLength:
+        typeof entry.maxLength === "number" && Number.isFinite(entry.maxLength)
+          ? entry.maxLength
+          : null,
+    });
+  }
+  return rules;
 }
 
 function sendText(response: ServerResponse, statusCode: number, text: string): void {

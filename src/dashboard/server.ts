@@ -438,7 +438,13 @@ function readCustomPropertyRuleInputs(
       continue;
     }
     rules.push({
+      originalPropertyName:
+        typeof entry.originalPropertyName === "string"
+          ? entry.originalPropertyName
+          : null,
       propertyName: entry.propertyName,
+      propertyType:
+        typeof entry.propertyType === "string" ? entry.propertyType : null,
       enabled: entry.enabled === true,
       promptDescription:
         typeof entry.promptDescription === "string"
@@ -448,6 +454,7 @@ function readCustomPropertyRuleInputs(
         typeof entry.maxLength === "number" && Number.isFinite(entry.maxLength)
           ? entry.maxLength
           : null,
+      deleted: entry.deleted === true,
     });
   }
   return rules;

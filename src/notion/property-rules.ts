@@ -22,10 +22,13 @@ export type NotionCustomPropertyRule = {
 };
 
 export type NotionCustomPropertyRuleInput = {
+  originalPropertyName?: string | null;
   propertyName: string;
+  propertyType?: string | null;
   enabled: boolean;
   promptDescription: string;
   maxLength?: number | null;
+  deleted?: boolean;
 };
 
 type NotionCustomPropertyRuleRow = {
@@ -124,15 +127,35 @@ export class NotionCustomPropertyRuleStore {
     rules: readonly NotionCustomPropertyRuleInput[];
     requiredPropertyNames: NotionPropertyNames;
     nowIso: string;
-  }): { saved: number; ignored: number; warnings: string[] } {
+  }): { saved: number; deleted: number; ignored: number; warnings: string[] } {
     const requiredNames = buildRequiredNameSet(input.requiredPropertyNames);
     const warnings: string[] = [];
     let saved = 0;
+    let deleted = 0;
     let ignored = 0;
 
     this.runner.transaction(() => {
       for (const rawRule of input.rules) {
+        const originalPropertyName = cleanInline(rawRule.originalPropertyName ?? "");
         const propertyName = cleanInline(rawRule.propertyName);
+        const deleteTarget = originalPropertyName || propertyName;
+        if (rawRule.deleted) {
+          if (!deleteTarget) {
+            ignored += 1;
+            continue;
+          }
+          if (requiredNames.has(normalizePropertyNameKey(deleteTarget))) {
+            ignored += 1;
+            continue;
+          }
+          this.runner.run(
+            "DELETE FROM notion_custom_property_rules WHERE property_name = ?",
+            deleteTarget,
+          );
+          deleted += 1;
+          continue;
+        }
+
         if (!propertyName) {
           ignored += 1;
           continue;
@@ -142,49 +165,68 @@ export class NotionCustomPropertyRuleStore {
           continue;
         }
 
-        const existing = this.runner.get<NotionCustomPropertyRuleRow>(
-          `SELECT *
-           FROM notion_custom_property_rules
-           WHERE property_name = ?`,
-          propertyName,
-        );
-        if (!existing) {
-          ignored += 1;
-          warnings.push(`${propertyName}: Notion 스키마 동기화 후 저장할 수 있습니다.`);
-          continue;
+        if (
+          originalPropertyName &&
+          originalPropertyName !== propertyName &&
+          !requiredNames.has(normalizePropertyNameKey(originalPropertyName))
+        ) {
+          this.runner.run(
+            "DELETE FROM notion_custom_property_rules WHERE property_name = ?",
+            originalPropertyName,
+          );
         }
 
         const description = truncateForStorage(
           cleanDescription(rawRule.promptDescription),
           NOTION_CUSTOM_PROPERTY_DESCRIPTION_MAX_LENGTH,
         );
+        const existing = this.runner.get<NotionCustomPropertyRuleRow>(
+          `SELECT *
+           FROM notion_custom_property_rules
+           WHERE property_name = ?`,
+          propertyName,
+        );
+        const requestedType = cleanInline(rawRule.propertyType ?? "");
+        const supportedRequestedType = readSupportedPropertyType(requestedType);
+        const propertyType =
+          supportedRequestedType ?? existing?.property_type ?? "rich_text";
+        if (requestedType && !supportedRequestedType && !existing) {
+          warnings.push(
+            `${propertyName}: ${requestedType} 타입은 지원하지 않아 rich_text로 저장했습니다.`,
+          );
+        }
         const enabled =
-          Boolean(rawRule.enabled) &&
-          isSupportedCustomPropertyType(existing.property_type);
+          Boolean(rawRule.enabled) && isSupportedCustomPropertyType(propertyType);
         if (rawRule.enabled && !enabled) {
           warnings.push(
-            `${propertyName}: ${existing.property_type} 타입은 아직 자동 작성 대상이 아닙니다.`,
+            `${propertyName}: ${propertyType} 타입은 아직 자동 작성 대상이 아닙니다.`,
           );
         }
 
         this.runner.run(
-          `UPDATE notion_custom_property_rules
-           SET enabled = ?,
-               prompt_description = ?,
-               max_length = ?,
-               updated_at = ?
-           WHERE property_name = ?`,
+          `INSERT INTO notion_custom_property_rules (
+             property_name, property_id, property_type, enabled,
+             prompt_description, max_length, last_seen_at, created_at, updated_at
+           ) VALUES (?, NULL, ?, ?, ?, ?, NULL, ?, ?)
+           ON CONFLICT(property_name) DO UPDATE SET
+             property_type = excluded.property_type,
+             enabled = excluded.enabled,
+             prompt_description = excluded.prompt_description,
+             max_length = excluded.max_length,
+             updated_at = excluded.updated_at`,
+          propertyName,
+          propertyType,
           enabled ? 1 : 0,
           description,
           clampMaxLength(rawRule.maxLength),
           input.nowIso,
-          propertyName,
+          input.nowIso,
         );
         saved += 1;
       }
     });
 
-    return { saved, ignored, warnings };
+    return { saved, deleted, ignored, warnings };
   }
 }
 
@@ -216,6 +258,13 @@ export function isSupportedCustomPropertyType(
   return SUPPORTED_NOTION_CUSTOM_PROPERTY_TYPES.includes(
     value as NotionCustomPropertyType,
   );
+}
+
+function readSupportedPropertyType(
+  value: string | null | undefined,
+): NotionCustomPropertyType | null {
+  const cleaned = cleanInline(value ?? "");
+  return isSupportedCustomPropertyType(cleaned) ? cleaned : null;
 }
 
 function rowToRule(row: NotionCustomPropertyRuleRow): NotionCustomPropertyRule {

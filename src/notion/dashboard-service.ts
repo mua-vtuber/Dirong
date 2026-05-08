@@ -231,10 +231,10 @@ export class NotionDashboardService {
     return this.customPropertyActionResult({
       ok: true,
       status: "done",
-      message: `Notion 사용자 속성 규칙 ${result.saved}개를 저장했습니다.`,
+      message: `Notion 사용자 속성 규칙 ${result.saved}개를 저장하고 ${result.deleted}개를 삭제했습니다.`,
       userAction:
         result.ignored > 0
-          ? `${result.ignored}개 항목은 필수 속성이거나 아직 동기화되지 않아 건너뛰었습니다.`
+          ? `${result.ignored}개 항목은 필수 속성이거나 이름이 비어 있어 건너뛰었습니다.`
           : null,
       warnings: result.warnings,
     });

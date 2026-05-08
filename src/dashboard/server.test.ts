@@ -397,10 +397,13 @@ test("DashboardServer Notion retry action forces retry and never returns token",
 
 test("DashboardServer Notion property rules save through dashboard source", async () => {
   const savedRules: Array<{
+    originalPropertyName?: string | null;
     propertyName: string;
+    propertyType?: string | null;
     enabled: boolean;
     promptDescription: string;
     maxLength?: number | null;
+    deleted?: boolean;
   }> = [];
   const fixture = await startDashboardFixture({
     notion: makeNotionSource([], savedRules),
@@ -413,6 +416,7 @@ test("DashboardServer Notion property rules save through dashboard source", asyn
         rules: [
           {
             propertyName: "Discussion",
+            propertyType: "rich_text",
             enabled: true,
             promptDescription: "회의 논의 사항 요약",
             maxLength: 700,
@@ -427,10 +431,13 @@ test("DashboardServer Notion property rules save through dashboard source", asyn
     assert.equal(body.status, "done");
     assert.deepEqual(savedRules, [
       {
+        originalPropertyName: null,
         propertyName: "Discussion",
+        propertyType: "rich_text",
         enabled: true,
         promptDescription: "회의 논의 사항 요약",
         maxLength: 700,
+        deleted: false,
       },
     ]);
   } finally {
@@ -481,10 +488,13 @@ function makeNotionSource(
     force: boolean;
   }> = [],
   savedRules: Array<{
+    originalPropertyName?: string | null;
     propertyName: string;
+    propertyType?: string | null;
     enabled: boolean;
     promptDescription: string;
     maxLength?: number | null;
+    deleted?: boolean;
   }> = [],
 ): DashboardNotionSource {
   return {

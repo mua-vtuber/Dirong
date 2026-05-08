@@ -91,7 +91,7 @@
       cursor: pointer;
     }
     button:disabled { color: var(--muted); cursor: not-allowed; background: #f3f4f6; }
-    textarea, input[type="number"] {
+    textarea, input[type="number"], input[type="text"], select {
       width: 100%;
       border: 1px solid var(--line);
       border-radius: 6px;
@@ -490,24 +490,10 @@
           '<div class="value">Notion 속성 설정을 아직 불러오지 못했습니다.</div></div>';
       }
       const disabled = notion.status !== 'ready';
-      const rows = (custom.rules ?? []).map((rule) => {
-        const supported = (custom.supportedTypes ?? []).includes(rule.propertyType);
-        const checked = rule.enabled ? ' checked' : '';
-        const disabledAttr = supported ? '' : ' disabled';
-        return '<tr data-notion-rule="' + escapeHtml(rule.propertyName) + '">' +
-          '<td><input type="checkbox" data-field="enabled"' + checked + disabledAttr +
-          ' onchange="markNotionRulesDirty()"></td>' +
-          '<td><code>' + escapeHtml(rule.propertyName) + '</code><br><span class="muted">' +
-          escapeHtml(rule.propertyType) + (supported ? '' : ' · unsupported') + '</span></td>' +
-          '<td><textarea data-field="promptDescription" oninput="markNotionRulesDirty()">' +
-          escapeHtml(rule.promptDescription ?? '') + '</textarea></td>' +
-          '<td><input type="number" min="1" max="2000" data-field="maxLength" value="' +
-          escapeHtml(rule.maxLength ?? 1000) + '" oninput="markNotionRulesDirty()"></td>' +
-          '<td class="muted">' + escapeHtml(rule.lastSeenAt ?? '-') + '</td></tr>';
-      });
-      const ruleTable = rows.length
-        ? table(['on', 'property', 'description', 'limit', 'seen'], rows)
-        : '<div class="muted">사용자 속성이 없습니다.</div>';
+      const rows = (custom.rules ?? []).map((rule) => renderNotionPropertyRuleRow(rule, custom));
+      const ruleTable = '<table id="notionPropertyRulesTable"><thead><tr>' +
+        ['on', 'property', 'type', 'description', 'limit', 'seen', ''].map((h) => '<th>' + escapeHtml(h) + '</th>').join('') +
+        '</tr></thead><tbody>' + rows.join('') + '</tbody></table>';
       const preview = custom.promptPreview
         ? '<details><summary class="muted">prompt preview</summary><pre>' + escapeHtml(custom.promptPreview) + '</pre></details>'
         : '';
@@ -520,12 +506,69 @@
         action +
         '<div class="toolbar">' +
         '<button type="button"' + (disabled ? ' disabled' : '') + ' onclick="syncNotionProperties()">스키마 다시 불러오기</button>' +
+        '<button type="button" onclick="addNotionPropertyRule()">추가</button>' +
         '<button type="button" onclick="saveNotionPropertyRules()">저장</button>' +
         '<span class="muted" id="notionPropertyStatus"></span>' +
         '</div>' + ruleTable + preview + '</div>';
     }
+    function renderNotionPropertyRuleRow(rule, custom) {
+      const checked = rule.enabled ? ' checked' : '';
+      const original = rule.propertyName ?? '';
+      return '<tr data-notion-rule-row data-original-property-name="' + escapeHtml(original) + '">' +
+        '<td><input type="checkbox" data-field="enabled"' + checked + ' onchange="markNotionRulesDirty()"></td>' +
+        '<td><input type="text" data-field="propertyName" value="' + escapeHtml(rule.propertyName ?? '') +
+        '" oninput="markNotionRulesDirty()"></td>' +
+        '<td>' + renderPropertyTypeSelect(rule.propertyType ?? 'rich_text', custom.supportedTypes ?? []) + '</td>' +
+        '<td><textarea data-field="promptDescription" oninput="markNotionRulesDirty()">' +
+        escapeHtml(rule.promptDescription ?? '') + '</textarea></td>' +
+        '<td><input type="number" min="1" max="2000" data-field="maxLength" value="' +
+        escapeHtml(rule.maxLength ?? 1000) + '" oninput="markNotionRulesDirty()"></td>' +
+        '<td class="muted">' + escapeHtml(rule.lastSeenAt ?? '-') + '</td>' +
+        '<td><button type="button" onclick="deleteNotionRuleRow(this)">삭제</button></td></tr>';
+    }
+    function renderPropertyTypeSelect(currentType, supportedTypes) {
+      const types = supportedTypes.length ? supportedTypes : ['rich_text', 'select', 'multi_select', 'checkbox', 'date'];
+      const options = types.map((type) =>
+        '<option value="' + escapeHtml(type) + '"' + (type === currentType ? ' selected' : '') + '>' +
+        escapeHtml(type) + '</option>'
+      );
+      if (!types.includes(currentType)) {
+        options.unshift('<option value="' + escapeHtml(currentType) + '" selected>' +
+          escapeHtml(currentType) + '</option>');
+      }
+      return '<select data-field="propertyType" onchange="markNotionRulesDirty()">' + options.join('') + '</select>';
+    }
     function markNotionRulesDirty() {
       notionRulesDirty = true;
+    }
+    function addNotionPropertyRule() {
+      const tbody = document.querySelector('#notionPropertyRulesTable tbody');
+      if (!tbody) return;
+      const rule = {
+        propertyName: '',
+        propertyType: 'rich_text',
+        enabled: true,
+        promptDescription: '',
+        maxLength: 1000,
+        lastSeenAt: null
+      };
+      const custom = {
+        supportedTypes: ['rich_text', 'select', 'multi_select', 'checkbox', 'date']
+      };
+      tbody.insertAdjacentHTML('beforeend', renderNotionPropertyRuleRow(rule, custom));
+      markNotionRulesDirty();
+    }
+    function deleteNotionRuleRow(button) {
+      const row = button.closest('[data-notion-rule-row]');
+      if (!row) return;
+      const original = row.getAttribute('data-original-property-name') ?? '';
+      if (original) {
+        row.setAttribute('data-deleted', 'true');
+        row.style.display = 'none';
+      } else {
+        row.remove();
+      }
+      markNotionRulesDirty();
     }
     async function syncNotionProperties() {
       const statusEl = document.getElementById('notionPropertyStatus');
@@ -548,11 +591,14 @@
     async function saveNotionPropertyRules() {
       const statusEl = document.getElementById('notionPropertyStatus');
       if (statusEl) statusEl.textContent = 'saving...';
-      const rules = Array.from(document.querySelectorAll('[data-notion-rule]')).map((row) => ({
-        propertyName: row.getAttribute('data-notion-rule') ?? '',
+      const rules = Array.from(document.querySelectorAll('[data-notion-rule-row]')).map((row) => ({
+        originalPropertyName: row.getAttribute('data-original-property-name') || null,
+        propertyName: row.querySelector('[data-field="propertyName"]')?.value ?? '',
+        propertyType: row.querySelector('[data-field="propertyType"]')?.value ?? 'rich_text',
         enabled: row.querySelector('[data-field="enabled"]')?.checked === true,
         promptDescription: row.querySelector('[data-field="promptDescription"]')?.value ?? '',
-        maxLength: Number(row.querySelector('[data-field="maxLength"]')?.value ?? 1000)
+        maxLength: Number(row.querySelector('[data-field="maxLength"]')?.value ?? 1000),
+        deleted: row.getAttribute('data-deleted') === 'true'
       }));
       try {
         const res = await fetch('/api/notion/properties', {

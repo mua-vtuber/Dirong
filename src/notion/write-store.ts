@@ -180,6 +180,7 @@ export class NotionWriteStore {
     id: string,
     workerId: string,
     leaseMs: number,
+    options: { force?: boolean } = {},
   ): NotionWriteRow | null {
     let claimed: NotionWriteRow | null = null;
     const nowIso = new Date().toISOString();
@@ -187,7 +188,7 @@ export class NotionWriteStore {
 
     this.runner.transaction(() => {
       const row = this.getWrite(id);
-      if (!row || !canClaim(row, nowIso)) {
+      if (!row || !canClaim(row, nowIso, options.force === true)) {
         return;
       }
 
@@ -406,11 +407,23 @@ export class NotionWriteStore {
   }
 }
 
-function canClaim(row: NotionWriteRow, nowIso: string): boolean {
+function canClaim(
+  row: NotionWriteRow,
+  nowIso: string,
+  force: boolean,
+): boolean {
+  if (row.locked_by !== null) {
+    return false;
+  }
+  if (force && (row.status === "blocked" || row.status === "failed")) {
+    return true;
+  }
+  if (force && row.status === "retry_wait") {
+    return true;
+  }
   return (
-    row.locked_by === null &&
-    (row.status === "queued" ||
-      (row.status === "retry_wait" && row.next_attempt_at <= nowIso))
+    row.status === "queued" ||
+    (row.status === "retry_wait" && row.next_attempt_at <= nowIso)
   );
 }
 

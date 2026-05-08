@@ -96,7 +96,7 @@ test("NotionWriteStore lists only due queued and retry_wait writes", () => {
     });
     fixture.store.markRetryWait({
       id: future.id,
-      nextAttemptAt: "2026-05-08T00:00:00.000Z",
+      nextAttemptAt: "2099-05-08T00:00:00.000Z",
       statusMessage: "wait",
       lastError: "rate limit",
       nowIso,
@@ -210,6 +210,62 @@ test("NotionWriteStore repairs expired leases into retry or failed states", () =
     assert.equal(released, 2);
     assert.equal(fixture.store.getWrite(retry.id)?.status, "retry_wait");
     assert.equal(fixture.store.getWrite(exhausted.id)?.status, "failed");
+  } finally {
+    fixture.close();
+  }
+});
+
+test("NotionWriteStore force claims blocked and future retry writes", () => {
+  const fixture = createFixture();
+  try {
+    const blocked = fixture.store.createOrGetWrite({
+      id: "write-blocked-force",
+      sessionId: fixture.sessionId,
+      draftId: fixture.draftId,
+      targetType: "data_source",
+      targetId: "target-blocked",
+      targetUrl: "https://notion.so/db",
+      contentHash: "hash",
+      maxAttempts: 3,
+      nowIso,
+    });
+    const future = fixture.store.createOrGetWrite({
+      id: "write-future-force",
+      sessionId: fixture.sessionId,
+      draftId: fixture.draftId2,
+      targetType: "data_source",
+      targetId: "target-future",
+      targetUrl: "https://notion.so/db",
+      contentHash: "hash",
+      maxAttempts: 3,
+      nowIso,
+    });
+    fixture.store.markBlocked({
+      id: blocked.id,
+      statusMessage: "blocked",
+      lastError: "schema mismatch",
+      nowIso,
+    });
+    fixture.store.markRetryWait({
+      id: future.id,
+      nextAttemptAt: "2099-05-08T00:00:00.000Z",
+      statusMessage: "wait",
+      lastError: "rate limit",
+      nowIso,
+    });
+
+    assert.equal(fixture.store.claimWrite(blocked.id, "worker", 60000), null);
+    assert.equal(fixture.store.claimWrite(future.id, "worker", 60000), null);
+    assert.equal(
+      fixture.store.claimWrite(blocked.id, "worker", 60000, { force: true })
+        ?.status,
+      "processing",
+    );
+    assert.equal(
+      fixture.store.claimWrite(future.id, "worker", 60000, { force: true })
+        ?.status,
+      "processing",
+    );
   } finally {
     fixture.close();
   }

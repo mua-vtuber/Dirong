@@ -2,6 +2,7 @@ import type { NotionDraftInput } from "./draft-input.js";
 import type { NotionPropertyNames } from "./settings.js";
 
 export type NotionPageStatus = "draft" | "done" | "retry_wait" | "failed";
+export type NotionStatusPropertyType = "select" | "status";
 
 export type NotionRichText = Array<{ text: { content: string } }>;
 
@@ -65,6 +66,7 @@ export function renderNotionPageProperties(input: {
   propertyNames: NotionPropertyNames;
   contentHash: string;
   status?: NotionPageStatus;
+  statusPropertyType?: NotionStatusPropertyType;
   localStatus?: string;
 }): NotionPagePropertyRenderResult {
   const { values, warnings } = buildNotionPagePropertyValues({
@@ -93,9 +95,10 @@ export function renderNotionPageProperties(input: {
       [names.participants]: {
         multi_select: values.participants.map((name) => ({ name })),
       },
-      [names.status]: {
-        select: { name: values.status },
-      },
+      [names.status]: renderStatusProperty(
+        input.statusPropertyType ?? "select",
+        values.status,
+      ),
       [names.sessionId]: {
         rich_text: richText(values.sessionId),
       },
@@ -110,6 +113,16 @@ export function renderNotionPageProperties(input: {
       },
     },
   };
+}
+
+function renderStatusProperty(
+  propertyType: NotionStatusPropertyType,
+  status: NotionPageStatus,
+): unknown {
+  if (propertyType === "status") {
+    return { status: { name: status } };
+  }
+  return { select: { name: status } };
 }
 
 export function richText(content: string): NotionRichText {

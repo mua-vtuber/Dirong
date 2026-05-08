@@ -38,6 +38,21 @@ test("renderNotionPageProperties maps title date time channel participants and s
   });
 });
 
+test("renderNotionPageProperties matches Notion status property payloads", () => {
+  const input = makeNotionDraftInput();
+  const rendered = renderNotionPageProperties({
+    draftInput: input,
+    propertyNames: DEFAULT_NOTION_PROPERTY_NAMES,
+    contentHash: "abc123",
+    statusPropertyType: "status",
+    status: "done",
+  });
+
+  assert.deepEqual(rendered.properties.Status, {
+    status: { name: "done" },
+  });
+});
+
 test("buildNotionPagePropertyValues applies fallbacks and participant sanitization", () => {
   const input = makeNotionDraftInput({
     title: "   ",

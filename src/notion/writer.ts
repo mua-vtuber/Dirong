@@ -11,9 +11,13 @@ import type { NotionDraftInput } from "./draft-input.js";
 import {
   buildNotionPagePropertyValues,
   renderNotionPageProperties,
+  type NotionStatusPropertyType,
 } from "./page-properties.js";
 import { validateNotionDataSourceSchema } from "./schema.js";
-import type { NotionDataSourceProperties } from "./schema.js";
+import type {
+  NotionDataSourceProperties,
+  NotionResolvedPropertyIds,
+} from "./schema.js";
 import type { NotionRuntimeSettings } from "./settings.js";
 import { parseNotionTargetUrl } from "./target.js";
 import { NotionWriteStore, type NotionWriteRow } from "./write-store.js";
@@ -153,6 +157,7 @@ export async function runNotionUpload(
       draftInput,
       targetId: target.id,
       settings: options.settings,
+      propertyIds: schemaValidation.propertyIds,
     });
 
     if (options.dryRun) {
@@ -197,6 +202,7 @@ function renderUploadPlan(input: {
   draftInput: NotionDraftInput;
   targetId: string;
   settings: NotionRuntimeSettings;
+  propertyIds: NotionResolvedPropertyIds;
 }): {
   contentHash: string;
   blocks: RenderedNotionBlock[];
@@ -217,6 +223,9 @@ function renderUploadPlan(input: {
     renderedBlocks: hashBlocks.map((block) => block.block),
   });
   const blocks = renderNotionBlocks(input.draftInput, { contentHash });
+  const statusPropertyType = readStatusPropertyType(
+    input.propertyIds.status.type,
+  );
 
   return {
     contentHash,
@@ -227,6 +236,7 @@ function renderUploadPlan(input: {
       propertyNames: input.settings.propertyNames,
       contentHash,
       status: "draft",
+      statusPropertyType,
       localStatus: "Notion upload in progress",
     }).properties,
     doneProperties: renderNotionPageProperties({
@@ -234,9 +244,14 @@ function renderUploadPlan(input: {
       propertyNames: input.settings.propertyNames,
       contentHash,
       status: "done",
+      statusPropertyType,
       localStatus: "Notion upload complete",
     }).properties,
   };
+}
+
+function readStatusPropertyType(type: string): NotionStatusPropertyType {
+  return type === "status" ? "status" : "select";
 }
 
 async function executeWrite(input: {
@@ -276,7 +291,9 @@ async function executeWrite(input: {
     });
   }
 
-  const claimed = writeStore.claimWrite(write.id, options.workerId, options.leaseMs);
+  const claimed = writeStore.claimWrite(write.id, options.workerId, options.leaseMs, {
+    force: options.force,
+  });
   if (!claimed) {
     const latest = writeStore.getWrite(write.id) ?? write;
     return {

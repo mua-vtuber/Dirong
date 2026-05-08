@@ -79,6 +79,40 @@ test("runNotionUpload creates a page, appends blocks, and marks done", async () 
   }
 });
 
+test("runNotionUpload renders status payloads for Notion status properties", async () => {
+  const fixture = createFixture();
+  try {
+    const client = new FakeNotionClient({
+      properties: {
+        ...completeProperties(),
+        Status: { id: "status-id", type: "status" },
+      },
+    });
+    const result = await runNotionUpload({
+      settings: notionSettings(),
+      selector: { kind: "draft", draftId: fixture.draftId },
+      dryRun: false,
+      force: false,
+      workerId: "writer-test",
+      leaseMs: 60000,
+      nowIso,
+      client,
+      readModel: new NotionDraftInputReadModel(fixture.runner),
+      writeStore: fixture.writeStore,
+    });
+    const properties = client.createPageBodies[0]?.properties as {
+      Status?: unknown;
+    };
+
+    assert.equal(result.status, "done");
+    assert.deepEqual(properties.Status, {
+      status: { name: "draft" },
+    });
+  } finally {
+    fixture.close();
+  }
+});
+
 test("runNotionUpload reuses a remote page found by Draft ID", async () => {
   const fixture = createFixture();
   try {

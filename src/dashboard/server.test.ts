@@ -270,6 +270,10 @@ test("DashboardServer root serves the dashboard HTML without caching", async () 
     assert.match(response.headers.get("content-type") ?? "", /text\/html/);
     assert.equal(response.headers.get("cache-control"), "no-store");
     assert.match(html, /Dirong Recording \+ STT Dashboard/);
+    assert.match(html, /첫 설정 위자드/);
+    assert.match(html, /OpenAI STT 사용 \(API 발급 필요 - 유료\)/);
+    assert.match(html, /database id, data source id, property id를 입력하지 않습니다/);
+    assert.match(html, /setupCreateManagedDatabases/);
     assert.match(html, /Notion Property Rules/);
     assert.match(html, /대상 page URL/);
     assert.match(html, /data-protected-rule/);

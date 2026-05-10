@@ -12,6 +12,7 @@ import type {
   DashboardNotionAutomationSource,
   DashboardNotionSource,
   DashboardSetupStatusSource,
+  DashboardSetupWizardSource,
 } from "./server.js";
 import {
   appendAiReadinessToDashboardState,
@@ -293,6 +294,44 @@ test("DashboardServer setup status API returns redacted configuration state", as
     assert.equal(body.status, "not_configured");
     assert.doesNotMatch(text, /discord-secret-raw-value/);
     assert.match(text, /\[REDACTED\]/);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("DashboardServer setup wizard routes read state and post actions through the wizard source", async () => {
+  const calls: unknown[] = [];
+  const fixture = await startDashboardFixture({
+    setupStatus: makeMutableSetupStatusSource(),
+    setupWizard: makeSetupWizardSource(calls),
+  });
+  try {
+    const state = await fetch(`${fixture.baseUrl}/api/setup/state`);
+    const stateBody = await state.json() as {
+      wizard: { currentStep: string };
+    };
+    assert.equal(state.status, 200);
+    assert.equal(stateBody.wizard.currentStep, "discordApplication");
+
+    const saved = await fetch(`${fixture.baseUrl}/api/setup/discord/application-id`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ applicationId: "123456789012345678" }),
+    });
+    const savedBody = await saved.json() as {
+      ok: boolean;
+      messageKey: string;
+      httpStatus?: number;
+    };
+
+    assert.equal(saved.status, 200);
+    assert.equal(savedBody.ok, true);
+    assert.equal(
+      savedBody.messageKey,
+      "setup.discord.applicationId.save.done.message",
+    );
+    assert.equal(savedBody.httpStatus, undefined);
+    assert.deepEqual(calls, [{ applicationId: "123456789012345678" }]);
   } finally {
     await fixture.close();
   }
@@ -668,6 +707,7 @@ type DashboardFixtureOptions = {
   audio?: AudioFixture;
   notion?: DashboardNotionSource;
   setupStatus?: DashboardSetupStatusSource;
+  setupWizard?: DashboardSetupWizardSource;
 };
 
 async function startDashboardFixture(
@@ -680,6 +720,7 @@ async function startDashboardFixture(
     {
       ...(options.notion ? { notion: options.notion } : {}),
       ...(options.setupStatus ? { setupStatus: options.setupStatus } : {}),
+      ...(options.setupWizard ? { setupWizard: options.setupWizard } : {}),
     },
   );
   await dashboard.start();
@@ -970,6 +1011,52 @@ function makeMutableSetupStatusSource(): DashboardSetupStatusSource {
       return snapshot();
     },
     getSnapshot: snapshot,
+  };
+}
+
+function makeSetupWizardSource(calls: unknown[]): DashboardSetupWizardSource {
+  const state = {
+    ...makeSetupStatusSource().getSnapshot(),
+    wizard: {
+      currentStep: "discordApplication",
+      completedStepCount: 1,
+      totalStepCount: 10,
+      inviteUrl: null,
+      steps: [
+        { id: "language", status: "ready" },
+        { id: "discordApplication", status: "current" },
+      ],
+    },
+  } as ReturnType<DashboardSetupWizardSource["getState"]>;
+
+  const action = (body: unknown) => {
+    calls.push(body);
+    return {
+      ok: true,
+      status: "done" as const,
+      messageKey: "setup.discord.applicationId.save.done.message" as const,
+      message: "저장했습니다.",
+      userActionKey: null,
+      userAction: null,
+      httpStatus: 200,
+      setup: state,
+    };
+  };
+
+  return {
+    getState: () => state,
+    saveDiscordApplicationId: action,
+    saveDiscordBotToken: action,
+    testDiscordConnection: async () => action({}),
+    listDiscordGuilds: async () => ({ ...action({}), guilds: [] }),
+    saveDiscordGuildAllowlist: async (body) => action(body),
+    saveSttSettings: action,
+    saveClaudeSettings: action,
+    testClaudeConnection: async () => action({}),
+    saveNotionToken: action,
+    saveNotionParentPageUrl: action,
+    verifyNotionParentPage: async () => action({}),
+    createManagedDatabases: async () => action({}),
   };
 }
 

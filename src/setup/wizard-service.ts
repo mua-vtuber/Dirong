@@ -1,0 +1,1188 @@
+import {
+  Client,
+  Events,
+  GatewayIntentBits,
+  type ClientUser,
+} from "discord.js";
+import { redactSensitiveText } from "../errors.js";
+import { t, type LocaleKey } from "../i18n/catalog.js";
+import {
+  createNotionClient,
+  NotionApiError,
+  type NotionClient,
+} from "../notion/client.js";
+import { createManagedNotionSchema } from "../notion/managed-schema.js";
+import {
+  DEFAULT_NOTION_API_VERSION,
+  DEFAULT_NOTION_BASE_URL,
+} from "../notion/settings.js";
+import type { NotionLocale } from "../notion/schema-presets.js";
+import { parseNotionPageUrl } from "../notion/target.js";
+import type { NotionRegistryStore } from "../notion/registry-store.js";
+import { runChild } from "../process/run-child.js";
+import type { DirongUserDataPaths } from "../settings/dirong-user-data.js";
+import {
+  DEFAULT_DIRONG_LOCALE,
+  isDirongLocale,
+  type AiProviderMode,
+  type DirongLocale,
+  type DirongLocalSettings,
+  type LocalWhisperLocalSettings,
+  LocalSettingsStore,
+} from "../settings/local-settings-store.js";
+import {
+  DEFAULT_SECRET_REFS,
+  LocalSecretStore,
+} from "../settings/local-secret-store.js";
+import {
+  buildProductSetupStatus,
+  type ProductSetupStatusSnapshot,
+} from "../settings/product-settings.js";
+
+export type SetupWizardStepId =
+  | "language"
+  | "discordApplication"
+  | "discordBotToken"
+  | "discordGuild"
+  | "stt"
+  | "ai"
+  | "notionToken"
+  | "notionParentPage"
+  | "notionManagedDatabases"
+  | "complete";
+
+export type SetupWizardStepStatus = "ready" | "current" | "locked";
+
+export type SetupWizardStepSnapshot = {
+  id: SetupWizardStepId;
+  status: SetupWizardStepStatus;
+};
+
+export type SetupWizardStateSnapshot = ProductSetupStatusSnapshot & {
+  wizard: {
+    currentStep: SetupWizardStepId;
+    completedStepCount: number;
+    totalStepCount: number;
+    inviteUrl: string | null;
+    steps: SetupWizardStepSnapshot[];
+  };
+};
+
+export type SetupWizardActionResult = {
+  ok: boolean;
+  status: "done" | "ready" | "failed" | "blocked" | "not_configured";
+  messageKey: LocaleKey;
+  message: string;
+  userActionKey: LocaleKey | null;
+  userAction: string | null;
+  httpStatus: number;
+  setup: SetupWizardStateSnapshot;
+  [key: string]: unknown;
+};
+
+export type SetupDiscordGuild = {
+  id: string;
+  name: string;
+  iconUrl: string | null;
+  owner: boolean | null;
+};
+
+export type DiscordConnectionTestResult = {
+  botUserId: string;
+  username: string;
+};
+
+export type DiscordSetupGateway = {
+  testConnection(input: {
+    botToken: string;
+    applicationId: string;
+  }): Promise<DiscordConnectionTestResult>;
+  listGuilds(input: { botToken: string }): Promise<SetupDiscordGuild[]>;
+};
+
+export type ClaudeSetupTestResult = {
+  provider: "claude";
+  mode: AiProviderMode;
+  model: string | null;
+  detail: string | null;
+};
+
+export type ClaudeSetupTester = {
+  test(input:
+    | {
+        mode: "cli";
+        command: string;
+        model: string | null;
+      }
+    | {
+        mode: "api";
+        apiKey: string;
+        model: string | null;
+      }): Promise<ClaudeSetupTestResult>;
+};
+
+export type SetupWizardServiceOptions = {
+  paths: DirongUserDataPaths;
+  settingsStore: LocalSettingsStore;
+  secretStore: LocalSecretStore;
+  registryStore?: NotionRegistryStore;
+  discordGateway?: DiscordSetupGateway;
+  claudeTester?: ClaudeSetupTester;
+  notionClientFactory?: (apiKey: string) => NotionClient;
+  managedSchemaCreator?: typeof createManagedNotionSchema;
+  now?: () => Date;
+};
+
+export function createProductSetupWizardService(input: {
+  paths: DirongUserDataPaths;
+  registryStore?: NotionRegistryStore;
+}): SetupWizardService {
+  return new SetupWizardService({
+    paths: input.paths,
+    settingsStore: new LocalSettingsStore(input.paths.settingsFile),
+    secretStore: new LocalSecretStore(input.paths.secretsFile),
+    registryStore: input.registryStore,
+  });
+}
+
+export class SetupWizardService {
+  private readonly discordGateway: DiscordSetupGateway;
+  private readonly claudeTester: ClaudeSetupTester;
+  private readonly notionClientFactory: (apiKey: string) => NotionClient;
+  private readonly managedSchemaCreator: typeof createManagedNotionSchema;
+  private readonly now: () => Date;
+
+  constructor(private readonly options: SetupWizardServiceOptions) {
+    this.discordGateway = options.discordGateway ?? new DiscordJsSetupGateway();
+    this.claudeTester = options.claudeTester ?? new DefaultClaudeSetupTester();
+    this.notionClientFactory = options.notionClientFactory ?? createDefaultNotionClient;
+    this.managedSchemaCreator =
+      options.managedSchemaCreator ?? createManagedNotionSchema;
+    this.now = options.now ?? (() => new Date());
+  }
+
+  getState(): SetupWizardStateSnapshot {
+    return this.buildState();
+  }
+
+  saveDiscordApplicationId(body: unknown): SetupWizardActionResult {
+    const applicationId = readCleanString(body, [
+      "applicationId",
+      "clientId",
+      "discordApplicationId",
+    ]);
+    if (!applicationId || !isDiscordSnowflake(applicationId)) {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.discord.applicationId.error.invalid.message",
+        userActionKey: "setup.discord.applicationId.error.invalid.action",
+      });
+    }
+
+    this.options.settingsStore.update((settings) => ({
+      ...settings,
+      discord: {
+        ...settings.discord,
+        applicationId,
+      },
+    }));
+
+    return this.result({
+      ok: true,
+      status: "done",
+      messageKey: "setup.discord.applicationId.save.done.message",
+      userActionKey: null,
+      inviteUrl: buildDiscordInviteUrl(applicationId),
+    });
+  }
+
+  saveDiscordBotToken(body: unknown): SetupWizardActionResult {
+    const botToken = readCleanString(body, ["botToken", "token"]);
+    if (!botToken) {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.discord.botToken.error.missing.message",
+        userActionKey: "setup.discord.botToken.error.missing.action",
+      });
+    }
+
+    this.options.secretStore.set(DEFAULT_SECRET_REFS.discordBotToken, botToken);
+    this.options.settingsStore.update((settings) => ({
+      ...settings,
+      discord: {
+        ...settings.discord,
+        botTokenSecretRef: DEFAULT_SECRET_REFS.discordBotToken,
+      },
+    }));
+
+    return this.result({
+      ok: true,
+      status: "done",
+      messageKey: "setup.discord.botToken.save.done.message",
+      userActionKey: null,
+      secret: this.options.secretStore.snapshot(DEFAULT_SECRET_REFS.discordBotToken),
+    });
+  }
+
+  async testDiscordConnection(): Promise<SetupWizardActionResult> {
+    const settings = this.options.settingsStore.read();
+    const applicationId = settings.discord.applicationId;
+    const botToken = this.options.secretStore.get(
+      settings.discord.botTokenSecretRef ?? DEFAULT_SECRET_REFS.discordBotToken,
+    );
+    if (!applicationId || !botToken) {
+      return this.result({
+        ok: false,
+        status: "not_configured",
+        httpStatus: 400,
+        messageKey: "setup.discord.connection.error.notConfigured.message",
+        userActionKey: "setup.discord.connection.error.notConfigured.action",
+      });
+    }
+
+    try {
+      const connection = await this.discordGateway.testConnection({
+        botToken,
+        applicationId,
+      });
+      return this.result({
+        ok: true,
+        status: "done",
+        messageKey: "setup.discord.connection.test.done.message",
+        userActionKey: null,
+        discord: {
+          botUserId: connection.botUserId,
+          username: connection.username,
+          inviteUrl: buildDiscordInviteUrl(applicationId),
+        },
+      });
+    } catch (error) {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.discord.connection.error.failed.message",
+        userActionKey: "setup.discord.connection.error.failed.action",
+        technicalDetail: errorMessage(error),
+      });
+    }
+  }
+
+  async listDiscordGuilds(): Promise<SetupWizardActionResult> {
+    const settings = this.options.settingsStore.read();
+    const botToken = this.options.secretStore.get(
+      settings.discord.botTokenSecretRef ?? DEFAULT_SECRET_REFS.discordBotToken,
+    );
+    if (!botToken) {
+      return this.result({
+        ok: false,
+        status: "not_configured",
+        httpStatus: 400,
+        messageKey: "setup.discord.guilds.error.notConfigured.message",
+        userActionKey: "setup.discord.guilds.error.notConfigured.action",
+        guilds: [],
+      });
+    }
+
+    try {
+      const guilds = await this.discordGateway.listGuilds({ botToken });
+      return this.result({
+        ok: true,
+        status: "done",
+        messageKey: "setup.discord.guilds.list.done.message",
+        userActionKey: guilds.length === 0
+          ? "setup.discord.guilds.list.empty.action"
+          : null,
+        guilds,
+      });
+    } catch (error) {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.discord.guilds.error.failed.message",
+        userActionKey: "setup.discord.guilds.error.failed.action",
+        technicalDetail: errorMessage(error),
+        guilds: [],
+      });
+    }
+  }
+
+  async saveDiscordGuildAllowlist(
+    body: unknown,
+  ): Promise<SetupWizardActionResult> {
+    const guildIds = readStringList(body, "guildIds");
+    if (guildIds.length === 0 || guildIds.some((id) => !isDiscordSnowflake(id))) {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.discord.guildAllowlist.error.invalid.message",
+        userActionKey: "setup.discord.guildAllowlist.error.invalid.action",
+      });
+    }
+
+    const settings = this.options.settingsStore.read();
+    const botToken = this.options.secretStore.get(
+      settings.discord.botTokenSecretRef ?? DEFAULT_SECRET_REFS.discordBotToken,
+    );
+    if (!botToken) {
+      return this.result({
+        ok: false,
+        status: "not_configured",
+        httpStatus: 400,
+        messageKey: "setup.discord.guilds.error.notConfigured.message",
+        userActionKey: "setup.discord.guilds.error.notConfigured.action",
+      });
+    }
+
+    try {
+      const botGuilds = await this.discordGateway.listGuilds({ botToken });
+      const allowedGuildIds = new Set(botGuilds.map((guild) => guild.id));
+      const unknownGuildIds = guildIds.filter((id) => !allowedGuildIds.has(id));
+      if (unknownGuildIds.length > 0) {
+        return this.result({
+          ok: false,
+          status: "blocked",
+          httpStatus: 400,
+          messageKey: "setup.discord.guildAllowlist.error.notInBotGuilds.message",
+          userActionKey: "setup.discord.guildAllowlist.error.notInBotGuilds.action",
+          unknownGuildCount: unknownGuildIds.length,
+        });
+      }
+
+      const selectedGuilds = botGuilds.filter((guild) => guildIds.includes(guild.id));
+      this.options.settingsStore.update((nextSettings) => ({
+        ...nextSettings,
+        discord: {
+          ...nextSettings.discord,
+          guildIds,
+        },
+      }));
+
+      return this.result({
+        ok: true,
+        status: "done",
+        messageKey: "setup.discord.guildAllowlist.save.done.message",
+        userActionKey: null,
+        guilds: selectedGuilds,
+      });
+    } catch (error) {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.discord.guilds.error.failed.message",
+        userActionKey: "setup.discord.guilds.error.failed.action",
+        technicalDetail: errorMessage(error),
+      });
+    }
+  }
+
+  saveSttSettings(body: unknown): SetupWizardActionResult {
+    const provider = readCleanString(body, ["provider"]);
+    if (provider !== "local-whisper" && provider !== "openai") {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.stt.settings.error.invalidProvider.message",
+        userActionKey: "setup.stt.settings.error.invalidProvider.action",
+      });
+    }
+
+    const model = readCleanString(body, ["model"]);
+    if (model !== null && model.length > 80) {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.stt.settings.error.invalidModel.message",
+        userActionKey: "setup.stt.settings.error.invalidModel.action",
+      });
+    }
+
+    const language = readCleanString(body, ["language"]) ?? "ko";
+    const timeoutMs = readPositiveInteger(body, "timeoutMs") ?? 120000;
+    const currentSettings = this.options.settingsStore.read();
+    const settingsUpdate =
+      provider === "openai"
+        ? buildOpenAiSttSettings(
+            body,
+            currentSettings,
+            model,
+            language,
+            timeoutMs,
+          )
+        : buildLocalWhisperSettings(body, model, language, timeoutMs);
+    if (!settingsUpdate.ok) {
+      return this.result(settingsUpdate.error);
+    }
+    if (settingsUpdate.openAiApiKey) {
+      this.options.secretStore.set(
+        DEFAULT_SECRET_REFS.openAiApiKey,
+        settingsUpdate.openAiApiKey,
+      );
+    }
+
+    this.options.settingsStore.update((settings) => ({
+      ...settings,
+      stt: settingsUpdate.stt,
+    }));
+
+    return this.result({
+      ok: true,
+      status: "done",
+      messageKey: "setup.stt.settings.save.done.message",
+      userActionKey: null,
+      stt: settingsUpdate.stt,
+    });
+  }
+
+  saveClaudeSettings(body: unknown): SetupWizardActionResult {
+    const mode = readCleanString(body, ["mode"]);
+    if (mode !== "cli" && mode !== "api") {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.ai.claude.error.invalidMode.message",
+        userActionKey: "setup.ai.claude.error.invalidMode.action",
+      });
+    }
+
+    const model = readCleanString(body, ["model"]);
+    if (mode === "cli") {
+      const claudeCommand =
+        readCleanString(body, ["claudeCommand", "cliCommand", "command"]) ??
+        "claude";
+      this.options.settingsStore.update((settings) => ({
+        ...settings,
+        ai: {
+          provider: "claude",
+          mode,
+          model: model ?? settings.ai.model,
+          claudeCommand,
+          apiKeySecretRef: settings.ai.apiKeySecretRef,
+        },
+      }));
+
+      return this.result({
+        ok: true,
+        status: "done",
+        messageKey: "setup.ai.claude.save.done.message",
+        userActionKey: null,
+        ai: { provider: "claude", mode, model: model ?? null, claudeCommand },
+      });
+    }
+
+    const apiKey = readCleanString(body, ["apiKey", "claudeApiKey"]);
+    const current = this.options.settingsStore.read();
+    const ref = current.ai.apiKeySecretRef ?? DEFAULT_SECRET_REFS.claudeApiKey;
+    if (!apiKey && !this.options.secretStore.has(ref)) {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.ai.claude.error.apiKeyMissing.message",
+        userActionKey: "setup.ai.claude.error.apiKeyMissing.action",
+      });
+    }
+    if (apiKey) {
+      this.options.secretStore.set(DEFAULT_SECRET_REFS.claudeApiKey, apiKey);
+    }
+
+    this.options.settingsStore.update((settings) => ({
+      ...settings,
+      ai: {
+        provider: "claude",
+        mode,
+        model: model ?? settings.ai.model,
+        claudeCommand: settings.ai.claudeCommand,
+        apiKeySecretRef: DEFAULT_SECRET_REFS.claudeApiKey,
+      },
+    }));
+
+    return this.result({
+      ok: true,
+      status: "done",
+      messageKey: "setup.ai.claude.save.done.message",
+      userActionKey: null,
+      ai: {
+        provider: "claude",
+        mode,
+        model: model ?? null,
+        secret: this.options.secretStore.snapshot(DEFAULT_SECRET_REFS.claudeApiKey),
+      },
+    });
+  }
+
+  async testClaudeConnection(): Promise<SetupWizardActionResult> {
+    const settings = this.options.settingsStore.read();
+    if (settings.ai.provider !== "claude" || !settings.ai.mode) {
+      return this.result({
+        ok: false,
+        status: "not_configured",
+        httpStatus: 400,
+        messageKey: "setup.ai.claude.test.error.notConfigured.message",
+        userActionKey: "setup.ai.claude.test.error.notConfigured.action",
+      });
+    }
+
+    try {
+      const testResult =
+        settings.ai.mode === "api"
+          ? await this.testClaudeApi(settings)
+          : await this.testClaudeCli(settings);
+      return this.result({
+        ok: true,
+        status: "done",
+        messageKey: "setup.ai.claude.test.done.message",
+        userActionKey: null,
+        ai: testResult,
+      });
+    } catch (error) {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.ai.claude.test.error.failed.message",
+        userActionKey: "setup.ai.claude.test.error.failed.action",
+        technicalDetail: errorMessage(error),
+      });
+    }
+  }
+
+  saveNotionToken(body: unknown): SetupWizardActionResult {
+    const token = readCleanString(body, ["token", "notionToken"]);
+    if (!token) {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.notion.token.error.missing.message",
+        userActionKey: "setup.notion.token.error.missing.action",
+      });
+    }
+
+    this.options.secretStore.set(DEFAULT_SECRET_REFS.notionToken, token);
+    this.options.settingsStore.update((settings) => ({
+      ...settings,
+      notion: {
+        ...settings.notion,
+        tokenSecretRef: DEFAULT_SECRET_REFS.notionToken,
+      },
+    }));
+
+    return this.result({
+      ok: true,
+      status: "done",
+      messageKey: "setup.notion.token.save.done.message",
+      userActionKey: null,
+      secret: this.options.secretStore.snapshot(DEFAULT_SECRET_REFS.notionToken),
+    });
+  }
+
+  saveNotionParentPageUrl(body: unknown): SetupWizardActionResult {
+    const parentPageUrl = readCleanString(body, [
+      "parentPageUrl",
+      "pageUrl",
+      "url",
+    ]);
+    if (!parentPageUrl) {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.notion.parentPage.error.invalid.message",
+        userActionKey: "setup.notion.parentPage.error.invalid.action",
+      });
+    }
+
+    const parsed = parseNotionPageUrl(parentPageUrl);
+    if (parsed.kind === "invalid") {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.notion.parentPage.error.invalid.message",
+        userActionKey: "setup.notion.parentPage.error.invalid.action",
+        reason: parsed.reason,
+      });
+    }
+
+    this.options.settingsStore.update((settings) => ({
+      ...settings,
+      notion: {
+        ...settings.notion,
+        parentPageUrl: parsed.url ?? parentPageUrl.trim(),
+      },
+    }));
+
+    return this.result({
+      ok: true,
+      status: "done",
+      messageKey: "setup.notion.parentPage.save.done.message",
+      userActionKey: null,
+      notion: { parentPageConfigured: true },
+    });
+  }
+
+  async verifyNotionParentPage(): Promise<SetupWizardActionResult> {
+    const context = this.readNotionContext();
+    if (!context.ok) {
+      return this.result(context.error);
+    }
+
+    try {
+      await context.client.retrievePage(context.parentPageId);
+      return this.result({
+        ok: true,
+        status: "done",
+        messageKey: "setup.notion.parentPage.verify.done.message",
+        userActionKey: null,
+        notion: { parentPageConfigured: true },
+      });
+    } catch (error) {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.notion.parentPage.verify.error.failed.message",
+        userActionKey: "setup.notion.parentPage.verify.error.failed.action",
+        technicalDetail: errorMessage(error),
+      });
+    }
+  }
+
+  async createManagedDatabases(): Promise<SetupWizardActionResult> {
+    if (!this.options.registryStore) {
+      return this.result({
+        ok: false,
+        status: "blocked",
+        httpStatus: 500,
+        messageKey: "setup.notion.managedDatabases.error.registryMissing.message",
+        userActionKey: "setup.notion.managedDatabases.error.registryMissing.action",
+      });
+    }
+
+    const registrySnapshot = readManagedRegistrySnapshot(this.options.registryStore);
+    if (registrySnapshot.databaseCount === 3 && registrySnapshot.propertyMappingCount > 0) {
+      return this.result({
+        ok: true,
+        status: "ready",
+        messageKey: "setup.notion.managedDatabases.create.existing.message",
+        userActionKey: null,
+        notion: registrySnapshot,
+      });
+    }
+
+    if (
+      registrySnapshot.databaseCount > 0 ||
+      registrySnapshot.propertyMappingCount > 0
+    ) {
+      return this.result({
+        ok: false,
+        status: "blocked",
+        httpStatus: 409,
+        messageKey: "setup.notion.managedDatabases.error.partialRegistry.message",
+        userActionKey: "setup.notion.managedDatabases.error.partialRegistry.action",
+        notion: registrySnapshot,
+      });
+    }
+
+    const context = this.readNotionContext();
+    if (!context.ok) {
+      return this.result(context.error);
+    }
+
+    const locale = this.options.settingsStore.read().app.locale ?? DEFAULT_DIRONG_LOCALE;
+    if (!isCreatableNotionLocale(locale)) {
+      return this.result({
+        ok: false,
+        status: "blocked",
+        httpStatus: 400,
+        messageKey: "setup.notion.managedDatabases.error.localeUnsupported.message",
+        userActionKey: "setup.notion.managedDatabases.error.localeUnsupported.action",
+      });
+    }
+
+    try {
+      const created = await this.managedSchemaCreator({
+        client: context.client,
+        registryStore: this.options.registryStore,
+        parentPageUrl: context.parentPageUrl,
+        locale,
+        nowIso: this.now().toISOString(),
+      });
+      return this.result({
+        ok: true,
+        status: "done",
+        messageKey: "setup.notion.managedDatabases.create.done.message",
+        userActionKey: null,
+        notion: {
+          locale: created.locale,
+          parentPageUrl: created.parentPageUrl,
+          databases: Object.values(created.databases).map((database) => ({
+            role: database.role,
+            name: database.name,
+            url: database.url,
+          })),
+          propertyMappingCounts: {
+            meeting: created.propertyMappings.meeting.length,
+            member: created.propertyMappings.member.length,
+            task: created.propertyMappings.task.length,
+          },
+        },
+      });
+    } catch (error) {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.notion.managedDatabases.error.failed.message",
+        userActionKey: "setup.notion.managedDatabases.error.failed.action",
+        technicalDetail:
+          error instanceof NotionApiError
+            ? error.technicalDetail
+            : errorMessage(error),
+      });
+    }
+  }
+
+  private async testClaudeCli(
+    settings: DirongLocalSettings,
+  ): Promise<ClaudeSetupTestResult> {
+    const command = settings.ai.claudeCommand;
+    if (!command) {
+      throw new Error("Claude CLI command is missing.");
+    }
+    return this.claudeTester.test({
+      mode: "cli",
+      command,
+      model: settings.ai.model ?? null,
+    });
+  }
+
+  private async testClaudeApi(
+    settings: DirongLocalSettings,
+  ): Promise<ClaudeSetupTestResult> {
+    const apiKey = this.options.secretStore.get(
+      settings.ai.apiKeySecretRef ?? DEFAULT_SECRET_REFS.claudeApiKey,
+    );
+    if (!apiKey) {
+      throw new Error("Claude API key is missing.");
+    }
+    return this.claudeTester.test({
+      mode: "api",
+      apiKey,
+      model: settings.ai.model ?? null,
+    });
+  }
+
+  private readNotionContext():
+    | {
+        ok: true;
+        client: NotionClient;
+        parentPageUrl: string;
+        parentPageId: string;
+      }
+    | {
+        ok: false;
+        error: ResultInput;
+      } {
+    const settings = this.options.settingsStore.read();
+    const token = this.options.secretStore.get(
+      settings.notion.tokenSecretRef ?? DEFAULT_SECRET_REFS.notionToken,
+    );
+    if (!token || !settings.notion.parentPageUrl) {
+      return {
+        ok: false,
+        error: {
+          ok: false,
+          status: "not_configured",
+          httpStatus: 400,
+          messageKey: "setup.notion.parentPage.verify.error.notConfigured.message",
+          userActionKey: "setup.notion.parentPage.verify.error.notConfigured.action",
+        },
+      };
+    }
+
+    const parsed = parseNotionPageUrl(settings.notion.parentPageUrl);
+    if (parsed.kind === "invalid") {
+      return {
+        ok: false,
+        error: {
+          ok: false,
+          status: "failed",
+          httpStatus: 400,
+          messageKey: "setup.notion.parentPage.error.invalid.message",
+          userActionKey: "setup.notion.parentPage.error.invalid.action",
+          reason: parsed.reason,
+        },
+      };
+    }
+
+    return {
+      ok: true,
+      client: this.notionClientFactory(token),
+      parentPageUrl: settings.notion.parentPageUrl,
+      parentPageId: parsed.id,
+    };
+  }
+
+  private buildState(): SetupWizardStateSnapshot {
+    const settings = this.options.settingsStore.read();
+    const setup = buildProductSetupStatus({
+      paths: this.options.paths,
+      settings,
+      secretStore: this.options.secretStore,
+      registryStore: this.options.registryStore,
+    });
+    const steps = buildWizardSteps(setup);
+    const completedStepCount = steps.filter((step) => step.status === "ready").length;
+    return {
+      ...setup,
+      wizard: {
+        currentStep:
+          steps.find((step) => step.status === "current")?.id ?? "complete",
+        completedStepCount,
+        totalStepCount: steps.length,
+        inviteUrl: settings.discord.applicationId
+          ? buildDiscordInviteUrl(settings.discord.applicationId)
+          : null,
+        steps,
+      },
+    };
+  }
+
+  private result(input: ResultInput): SetupWizardActionResult {
+    const setup = this.buildState();
+    const locale = setup.locale;
+    return {
+      httpStatus: input.httpStatus ?? (input.ok ? 200 : 400),
+      ...input,
+      message: t(locale, input.messageKey),
+      userAction: input.userActionKey ? t(locale, input.userActionKey) : null,
+      setup,
+    };
+  }
+}
+
+type ResultInput = {
+  ok: boolean;
+  status: SetupWizardActionResult["status"];
+  messageKey: LocaleKey;
+  userActionKey: LocaleKey | null;
+  httpStatus?: number;
+  [key: string]: unknown;
+};
+
+class DiscordJsSetupGateway implements DiscordSetupGateway {
+  async testConnection(input: {
+    botToken: string;
+    applicationId: string;
+  }): Promise<DiscordConnectionTestResult> {
+    const client = await loginDiscordClient(input.botToken);
+    try {
+      const user = requireClientUser(client.user);
+      if (user.id !== input.applicationId) {
+        throw new Error("Discord application ID와 bot token의 bot user가 서로 다릅니다.");
+      }
+      return {
+        botUserId: user.id,
+        username: user.tag,
+      };
+    } finally {
+      client.destroy();
+    }
+  }
+
+  async listGuilds(input: { botToken: string }): Promise<SetupDiscordGuild[]> {
+    const client = await loginDiscordClient(input.botToken);
+    try {
+      return client.guilds.cache.map((guild) => ({
+        id: guild.id,
+        name: guild.name,
+        iconUrl: guild.iconURL(),
+        owner: guild.ownerId === client.user?.id,
+      }));
+    } finally {
+      client.destroy();
+    }
+  }
+}
+
+class DefaultClaudeSetupTester implements ClaudeSetupTester {
+  async test(input:
+    | {
+        mode: "cli";
+        command: string;
+        model: string | null;
+      }
+    | {
+        mode: "api";
+        apiKey: string;
+        model: string | null;
+      }): Promise<ClaudeSetupTestResult> {
+    if (input.mode === "cli") {
+      const result = await runChild(input.command, ["--version"], {
+        timeoutMs: 5000,
+        maxStdoutBytes: 2000,
+        maxStderrBytes: 2000,
+      });
+      if (result.timedOut || result.exitCode !== 0) {
+        throw new Error(
+          result.stderr || result.stdout || "Claude CLI preflight failed.",
+        );
+      }
+      return {
+        provider: "claude",
+        mode: "cli",
+        model: input.model,
+        detail: result.stdout.trim() || null,
+      };
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    try {
+      const response = await fetch("https://api.anthropic.com/v1/models?limit=1", {
+        method: "GET",
+        headers: {
+          "x-api-key": input.apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        signal: controller.signal,
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        throw new Error(redactSensitiveText(text.slice(0, 500)));
+      }
+      return {
+        provider: "claude",
+        mode: "api",
+        model: input.model,
+        detail: null,
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
+async function loginDiscordClient(botToken: string): Promise<Client> {
+  const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+  const ready = new Promise<Client>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error("Discord bot login timed out."));
+    }, 10000);
+    client.once(Events.ClientReady, () => {
+      clearTimeout(timer);
+      resolve(client);
+    });
+  });
+  try {
+    await client.login(botToken);
+    return await ready;
+  } catch (error) {
+    client.destroy();
+    throw error;
+  }
+}
+
+function requireClientUser(user: ClientUser | null): ClientUser {
+  if (!user) {
+    throw new Error("Discord bot user를 확인하지 못했습니다.");
+  }
+  return user;
+}
+
+function createDefaultNotionClient(apiKey: string): NotionClient {
+  return createNotionClient({
+    apiKey,
+    apiVersion: DEFAULT_NOTION_API_VERSION,
+    baseUrl: DEFAULT_NOTION_BASE_URL,
+  });
+}
+
+function buildWizardSteps(
+  setup: ProductSetupStatusSnapshot,
+): SetupWizardStepSnapshot[] {
+  const readiness: Record<SetupWizardStepId, boolean> = {
+    language: isDirongLocale(setup.locale),
+    discordApplication: setup.features.discord.applicationIdConfigured,
+    discordBotToken: setup.secrets.discordBot.configured,
+    discordGuild: setup.features.discord.guildAllowlistCount > 0,
+    stt: setup.features.stt.status === "ready",
+    ai: setup.features.ai.status === "ready",
+    notionToken: setup.secrets.notion.configured,
+    notionParentPage: setup.features.notion.parentPageConfigured,
+    notionManagedDatabases: setup.features.notion.managedRegistryReady,
+    complete: setup.status === "ready",
+  };
+  const ids: SetupWizardStepId[] = [
+    "language",
+    "discordApplication",
+    "discordBotToken",
+    "discordGuild",
+    "stt",
+    "ai",
+    "notionToken",
+    "notionParentPage",
+    "notionManagedDatabases",
+    "complete",
+  ];
+  const firstIncomplete = ids.findIndex((id) => !readiness[id]);
+  return ids.map((id, index) => ({
+    id,
+    status: readiness[id]
+      ? "ready"
+      : index === firstIncomplete
+        ? "current"
+        : "locked",
+  }));
+}
+
+function buildDiscordInviteUrl(applicationId: string): string {
+  const url = new URL("https://discord.com/oauth2/authorize");
+  url.searchParams.set("client_id", applicationId);
+  url.searchParams.set("permissions", "3146752");
+  url.searchParams.set("scope", "bot applications.commands");
+  return url.href;
+}
+
+function buildOpenAiSttSettings(
+  body: unknown,
+  currentSettings: DirongLocalSettings,
+  model: string | null,
+  language: string,
+  timeoutMs: number,
+):
+  | {
+      ok: true;
+      stt: DirongLocalSettings["stt"];
+      openAiApiKey: string | null;
+    }
+  | { ok: false; error: ResultInput } {
+  const apiKey = readCleanString(body, ["apiKey", "openAiApiKey"]);
+  const secretRef =
+    apiKey || currentSettings.stt.openAiApiKeySecretRef
+      ? DEFAULT_SECRET_REFS.openAiApiKey
+      : undefined;
+  return {
+    ok: true,
+    stt: {
+      provider: "openai",
+      language,
+      timeoutMs,
+      openAiApiKeySecretRef: secretRef,
+      openAiModel: model ?? "gpt-4o-mini-transcribe",
+    },
+    openAiApiKey: apiKey,
+  };
+}
+
+function buildLocalWhisperSettings(
+  body: unknown,
+  model: string | null,
+  language: string,
+  timeoutMs: number,
+): {
+  ok: true;
+  stt: DirongLocalSettings["stt"];
+  openAiApiKey: null;
+} {
+  const localWhisper: LocalWhisperLocalSettings = {
+    command: readCleanString(body, ["command"]) ?? "python",
+    args: readStringList(body, "args"),
+    model: model ?? "small",
+    device: readCleanString(body, ["device"]) ?? "cpu",
+    computeType: readCleanString(body, ["computeType"]) ?? "int8",
+  };
+  return {
+    ok: true,
+    stt: {
+      provider: "local-whisper",
+      language,
+      timeoutMs,
+      localWhisper: {
+        ...localWhisper,
+        args:
+          localWhisper.args && localWhisper.args.length > 0
+            ? localWhisper.args
+            : ["scripts/local-whisper-json.py"],
+      },
+    },
+    openAiApiKey: null,
+  };
+}
+
+function readManagedRegistrySnapshot(registryStore: NotionRegistryStore): {
+  databaseCount: number;
+  propertyMappingCount: number;
+} {
+  return {
+    databaseCount: registryStore.listManagedDatabases().length,
+    propertyMappingCount: registryStore.listPropertyMappings().length,
+  };
+}
+
+function readCleanString(body: unknown, keys: readonly string[]): string | null {
+  if (!isRecord(body)) {
+    return null;
+  }
+  for (const key of keys) {
+    const value = body[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function readStringList(body: unknown, key: string): string[] {
+  if (!isRecord(body)) {
+    return [];
+  }
+  const value = body[key];
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const entries = value
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter(Boolean);
+  return [...new Set(entries)];
+}
+
+function readPositiveInteger(body: unknown, key: string): number | null {
+  if (!isRecord(body)) {
+    return null;
+  }
+  const value = body[key];
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
+  }
+  const integer = Math.trunc(value);
+  return integer > 0 ? integer : null;
+}
+
+function isDiscordSnowflake(value: string): boolean {
+  return /^\d{15,25}$/.test(value);
+}
+
+function isCreatableNotionLocale(locale: DirongLocale): locale is NotionLocale {
+  return locale === "ko";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function errorMessage(error: unknown): string {
+  return redactSensitiveText(error instanceof Error ? error.message : String(error));
+}

@@ -20,6 +20,10 @@ import type { NotionCustomPropertyRuleInput } from "../notion/property-rules.js"
 import type { NotionSchemaApplyOptions } from "../notion/schema-manager.js";
 import type { NotionAutomationSnapshot } from "../notion/automation-service.js";
 import type { ProductSetupStatusSnapshot } from "../settings/product-settings.js";
+import type {
+  SetupWizardActionResult,
+  SetupWizardStateSnapshot,
+} from "../setup/wizard-service.js";
 import {
   DEFAULT_DIRONG_LOCALE,
   isDirongLocale,
@@ -67,6 +71,22 @@ export type DashboardSetupStatusSource = {
   setLocale?(locale: DirongLocale): ProductSetupStatusSnapshot;
 };
 
+export type DashboardSetupWizardSource = {
+  getState(): SetupWizardStateSnapshot;
+  saveDiscordApplicationId(body: unknown): SetupWizardActionResult;
+  saveDiscordBotToken(body: unknown): SetupWizardActionResult;
+  testDiscordConnection(): Promise<SetupWizardActionResult>;
+  listDiscordGuilds(): Promise<SetupWizardActionResult>;
+  saveDiscordGuildAllowlist(body: unknown): Promise<SetupWizardActionResult>;
+  saveSttSettings(body: unknown): SetupWizardActionResult;
+  saveClaudeSettings(body: unknown): SetupWizardActionResult;
+  testClaudeConnection(): Promise<SetupWizardActionResult>;
+  saveNotionToken(body: unknown): SetupWizardActionResult;
+  saveNotionParentPageUrl(body: unknown): SetupWizardActionResult;
+  verifyNotionParentPage(): Promise<SetupWizardActionResult>;
+  createManagedDatabases(): Promise<SetupWizardActionResult>;
+};
+
 export type DashboardRuntimeSources = {
   aiReadiness?: DashboardAiReadinessSource;
   aiCleanupAutomation?: DashboardAiCleanupAutomationSource;
@@ -74,6 +94,7 @@ export type DashboardRuntimeSources = {
   notion?: DashboardNotionSource;
   notionAutomation?: DashboardNotionAutomationSource;
   setupStatus?: DashboardSetupStatusSource;
+  setupWizard?: DashboardSetupWizardSource;
   sttAutomation?: DashboardSttAutomationSource;
 };
 
@@ -160,6 +181,11 @@ export class DashboardServer {
       return;
     }
 
+    if (request.method === "POST" && url.pathname.startsWith("/api/setup/")) {
+      await this.handleSetupWizardPost(request, response, url.pathname);
+      return;
+    }
+
     if (request.method === "POST" && url.pathname === "/api/notion/send") {
       await this.handleNotionAction(request, response, false);
       return;
@@ -215,7 +241,11 @@ export class DashboardServer {
       return;
     }
 
-    if (url.pathname === "/api/setup/status") {
+    if (url.pathname === "/api/setup/status" || url.pathname === "/api/setup/state") {
+      if (this.runtimeSources.setupWizard) {
+        sendJson(response, this.runtimeSources.setupWizard.getState());
+        return;
+      }
       if (!this.runtimeSources.setupStatus) {
         sendJson(response, withMessageKeys(DEFAULT_DIRONG_LOCALE, {
           status: "not_configured",
@@ -225,6 +255,24 @@ export class DashboardServer {
         return;
       }
       sendJson(response, this.runtimeSources.setupStatus.getSnapshot());
+      return;
+    }
+
+    if (url.pathname === "/api/setup/discord/guilds") {
+      if (!this.runtimeSources.setupWizard) {
+        sendJson(response, withMessageKeys(this.getResponseLocale(), {
+          ok: false,
+          status: "not_configured",
+          messageKey: "error.dashboard.setupWizardSourceMissing.message",
+          userActionKey: "error.dashboard.setupWizardSourceMissing.action",
+          guilds: [],
+        }), 500);
+        return;
+      }
+      sendWizardResult(
+        response,
+        await this.runtimeSources.setupWizard.listDiscordGuilds(),
+      );
       return;
     }
 
@@ -331,6 +379,87 @@ export class DashboardServer {
         status: "failed",
         locale: responseLocale,
         notionSchemaLocale: responseLocale,
+        messageKey: "error.dashboard.requestInvalid.message",
+        userActionKey: "error.dashboard.requestInvalid.action",
+        detail,
+      })), 400);
+    }
+  }
+
+  private async handleSetupWizardPost(
+    request: IncomingMessage,
+    response: ServerResponse,
+    pathname: string,
+  ): Promise<void> {
+    const locale = this.getResponseLocale();
+    const setupWizard = this.runtimeSources.setupWizard;
+    if (!setupWizard) {
+      sendJson(response, withMessageKeys(locale, {
+        ok: false,
+        status: "not_configured",
+        messageKey: "error.dashboard.setupWizardSourceMissing.message",
+        userActionKey: "error.dashboard.setupWizardSourceMissing.action",
+      }), 500);
+      return;
+    }
+
+    try {
+      const body = await readJsonBody(request);
+      if (pathname === "/api/setup/discord/application-id") {
+        sendWizardResult(response, setupWizard.saveDiscordApplicationId(body));
+        return;
+      }
+      if (pathname === "/api/setup/discord/bot-token") {
+        sendWizardResult(response, setupWizard.saveDiscordBotToken(body));
+        return;
+      }
+      if (pathname === "/api/setup/discord/test") {
+        sendWizardResult(response, await setupWizard.testDiscordConnection());
+        return;
+      }
+      if (pathname === "/api/setup/discord/guild-allowlist") {
+        sendWizardResult(response, await setupWizard.saveDiscordGuildAllowlist(body));
+        return;
+      }
+      if (pathname === "/api/setup/stt") {
+        sendWizardResult(response, setupWizard.saveSttSettings(body));
+        return;
+      }
+      if (pathname === "/api/setup/ai/claude") {
+        sendWizardResult(response, setupWizard.saveClaudeSettings(body));
+        return;
+      }
+      if (pathname === "/api/setup/ai/claude/test") {
+        sendWizardResult(response, await setupWizard.testClaudeConnection());
+        return;
+      }
+      if (pathname === "/api/setup/notion/token") {
+        sendWizardResult(response, setupWizard.saveNotionToken(body));
+        return;
+      }
+      if (pathname === "/api/setup/notion/parent-page") {
+        sendWizardResult(response, setupWizard.saveNotionParentPageUrl(body));
+        return;
+      }
+      if (pathname === "/api/setup/notion/verify-parent-page") {
+        sendWizardResult(response, await setupWizard.verifyNotionParentPage());
+        return;
+      }
+      if (pathname === "/api/setup/notion/managed-databases") {
+        sendWizardResult(response, await setupWizard.createManagedDatabases());
+        return;
+      }
+      sendJson(response, withMessageKeys(locale, {
+        ok: false,
+        status: "failed",
+        messageKey: "error.dashboard.requestInvalid.message",
+        userActionKey: "error.dashboard.requestInvalid.action",
+      }), 404);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      sendJson(response, redactForJson(withMessageKeys(locale, {
+        ok: false,
+        status: "failed",
         messageKey: "error.dashboard.requestInvalid.message",
         userActionKey: "error.dashboard.requestInvalid.action",
         detail,
@@ -621,6 +750,9 @@ export function appendDashboardRuntimeSnapshots(
     ...(sources.setupStatus
       ? { setup: sources.setupStatus.getSnapshot() }
       : {}),
+    ...(sources.setupWizard
+      ? { setupWizard: sources.setupWizard.getState().wizard }
+      : {}),
     ...(sources.sttAutomation
       ? { sttAutomation: sources.sttAutomation.getSnapshot() }
       : {}),
@@ -652,6 +784,14 @@ function sendJson(
     "X-Content-Type-Options": "nosniff",
   });
   response.end(`${JSON.stringify(redactForJson(value))}\n`);
+}
+
+function sendWizardResult(
+  response: ServerResponse,
+  result: SetupWizardActionResult,
+): void {
+  const { httpStatus, ...body } = result;
+  sendJson(response, body, httpStatus);
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {

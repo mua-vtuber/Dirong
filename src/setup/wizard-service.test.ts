@@ -1,0 +1,351 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import type { NotionClient } from "../notion/client.js";
+import {
+  NOTION_MANAGED_SCHEMA_VERSION,
+  type ManagedNotionSchemaCreationResult,
+} from "../notion/managed-schema.js";
+import { NotionRegistryStore } from "../notion/registry-store.js";
+import {
+  DEFAULT_SECRET_REFS,
+  LocalSecretStore,
+} from "../settings/local-secret-store.js";
+import { LocalSettingsStore } from "../settings/local-settings-store.js";
+import { getDirongUserDataPaths } from "../settings/dirong-user-data.js";
+import { SqlRunner } from "../storage/sql-runner.js";
+import { DirongDatabase } from "../storage/sqlite.js";
+import {
+  SetupWizardService,
+  type ClaudeSetupTester,
+  type DiscordSetupGateway,
+} from "./wizard-service.js";
+
+const appId = "123456789012345678";
+const guildId = "111111111111111111";
+const otherGuildId = "222222222222222222";
+const parentPageUrl =
+  "https://www.notion.so/workspace/Dirong-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const parentPageId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+
+test("SetupWizardService saves Discord application ID and bot token without returning raw secrets", () => {
+  const fixture = createFixture();
+  try {
+    const appResult = fixture.service.saveDiscordApplicationId({
+      applicationId: appId,
+    });
+    assert.equal(appResult.ok, true);
+    assert.equal(appResult.messageKey, "setup.discord.applicationId.save.done.message");
+    assert.match(String(appResult.inviteUrl), new RegExp(appId));
+
+    const tokenResult = fixture.service.saveDiscordBotToken({
+      botToken: "discord-secret-raw-value",
+    });
+    const serialized = JSON.stringify(tokenResult);
+
+    assert.equal(tokenResult.ok, true);
+    assert.equal(
+      fixture.settings.read().discord.botTokenSecretRef,
+      DEFAULT_SECRET_REFS.discordBotToken,
+    );
+    assert.equal(
+      fixture.secrets.get(DEFAULT_SECRET_REFS.discordBotToken),
+      "discord-secret-raw-value",
+    );
+    assert.doesNotMatch(serialized, /discord-secret-raw-value/);
+    assert.match(serialized, /\[REDACTED\]/);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("SetupWizardService lists bot guilds and stores only guilds returned by the bot", async () => {
+  const discordGateway = fakeDiscordGateway();
+  const fixture = createFixture({ discordGateway });
+  try {
+    fixture.service.saveDiscordApplicationId({ applicationId: appId });
+    fixture.service.saveDiscordBotToken({ botToken: "discord-secret-raw-value" });
+
+    const guilds = await fixture.service.listDiscordGuilds();
+    assert.equal(guilds.ok, true);
+    assert.deepEqual(
+      (guilds.guilds as Array<{ id: string; name: string }>).map((guild) => guild.name),
+      ["Dirong Test Server", "Side Server"],
+    );
+
+    const saved = await fixture.service.saveDiscordGuildAllowlist({
+      guildIds: [guildId],
+    });
+    assert.equal(saved.ok, true);
+    assert.deepEqual(fixture.settings.read().discord.guildIds, [guildId]);
+
+    const blocked = await fixture.service.saveDiscordGuildAllowlist({
+      guildIds: ["333333333333333333"],
+    });
+    assert.equal(blocked.ok, false);
+    assert.equal(blocked.status, "blocked");
+    assert.deepEqual(fixture.settings.read().discord.guildIds, [guildId]);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("SetupWizardService saves STT and Claude settings and uses the fake Claude boundary for tests", async () => {
+  const claudeCalls: string[] = [];
+  const fixture = createFixture({
+    claudeTester: {
+      test: async (input) => {
+        claudeCalls.push(input.mode);
+        return {
+          provider: "claude",
+          mode: input.mode,
+          model: input.model,
+          detail: "ok",
+        };
+      },
+    },
+  });
+  try {
+    const stt = fixture.service.saveSttSettings({
+      provider: "local-whisper",
+      model: "small",
+      device: "cpu",
+      computeType: "int8",
+    });
+    assert.equal(stt.ok, true);
+    assert.equal(fixture.settings.read().stt.provider, "local-whisper");
+    assert.equal(fixture.settings.read().stt.localWhisper?.model, "small");
+
+    const claude = fixture.service.saveClaudeSettings({
+      mode: "cli",
+      cliCommand: "claude",
+      model: "sonnet",
+    });
+    assert.equal(claude.ok, true);
+    assert.equal(fixture.settings.read().ai.mode, "cli");
+
+    const tested = await fixture.service.testClaudeConnection();
+    assert.equal(tested.ok, true);
+    assert.deepEqual(claudeCalls, ["cli"]);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("SetupWizardService verifies a Notion parent page and creates managed DBs through an injected creator", async () => {
+  const retrievedPages: string[] = [];
+  const fixture = createFixture({
+    notionClientFactory: () => ({
+      retrievePage: async (pageId: string) => {
+        retrievedPages.push(pageId);
+        return { id: pageId };
+      },
+    } as unknown as NotionClient),
+    managedSchemaCreator: async (input) => {
+      input.registryStore.saveManagedSchema({
+        workspaceSettings: {
+          locale: "ko",
+          parentPageUrl,
+          parentPageId,
+        },
+        managedDatabases: [
+          managedDatabase("meeting", "회의록", "meeting-db-id", "meeting-ds-id"),
+          managedDatabase("member", "작업자", "member-db-id", "member-ds-id"),
+          managedDatabase("task", "액션 아이템", "task-db-id", "task-ds-id"),
+        ],
+        propertyMappings: [
+          propertyMapping("meeting", "meeting.title", "회의록"),
+          propertyMapping("member", "member.discordName", "디스코드 닉네임"),
+          propertyMapping("task", "task.title", "작업"),
+        ],
+        nowIso: "2026-05-10T00:00:00.000Z",
+      });
+      return {
+        locale: "ko",
+        parentPageUrl,
+        parentPageId,
+        databases: {
+          meeting: {
+            role: "meeting",
+            name: "회의록",
+            databaseId: "meeting-db-id",
+            dataSourceId: "meeting-ds-id",
+            url: "https://notion.so/meeting",
+          },
+          member: {
+            role: "member",
+            name: "작업자",
+            databaseId: "member-db-id",
+            dataSourceId: "member-ds-id",
+            url: "https://notion.so/member",
+          },
+          task: {
+            role: "task",
+            name: "액션 아이템",
+            databaseId: "task-db-id",
+            dataSourceId: "task-ds-id",
+            url: "https://notion.so/task",
+          },
+        },
+        propertyMappings: {
+          meeting: [propertyMapping("meeting", "meeting.title", "회의록")],
+          member: [propertyMapping("member", "member.discordName", "디스코드 닉네임")],
+          task: [propertyMapping("task", "task.title", "작업")],
+        },
+      } satisfies ManagedNotionSchemaCreationResult;
+    },
+  });
+  try {
+    fixture.service.saveNotionToken({ token: "notion-secret-raw-value" });
+    const parent = fixture.service.saveNotionParentPageUrl({ parentPageUrl });
+    assert.equal(parent.ok, true);
+
+    const verified = await fixture.service.verifyNotionParentPage();
+    assert.equal(verified.ok, true);
+    assert.deepEqual(retrievedPages, [parentPageId]);
+
+    const created = await fixture.service.createManagedDatabases();
+    const serialized = JSON.stringify(created);
+
+    assert.equal(created.ok, true);
+    assert.equal(created.setup.features.notion.managedRegistryReady, true);
+    assert.doesNotMatch(serialized, /notion-secret-raw-value/);
+    assert.doesNotMatch(serialized, /meeting-db-id/);
+    assert.doesNotMatch(serialized, /meeting-ds-id/);
+  } finally {
+    fixture.close();
+  }
+});
+
+function createFixture(options: {
+  discordGateway?: DiscordSetupGateway;
+  claudeTester?: ClaudeSetupTester;
+  notionClientFactory?: (apiKey: string) => NotionClient;
+  managedSchemaCreator?: ConstructorParameters<typeof SetupWizardService>[0]["managedSchemaCreator"];
+} = {}): {
+  service: SetupWizardService;
+  settings: LocalSettingsStore;
+  secrets: LocalSecretStore;
+  close: () => void;
+} {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-setup-wizard-"));
+  const paths = getDirongUserDataPaths(dir);
+  const database = new DirongDatabase(path.join(dir, "dirong.sqlite"), 1000);
+  const registryStore = new NotionRegistryStore(new SqlRunner(database));
+  const settingsStore = new LocalSettingsStore(paths.settingsFile);
+  const secretStore = new LocalSecretStore(paths.secretsFile);
+  return {
+    service: new SetupWizardService({
+      paths,
+      settingsStore,
+      secretStore,
+      registryStore,
+      discordGateway: options.discordGateway ?? fakeDiscordGateway(),
+      claudeTester: options.claudeTester ?? fakeClaudeTester(),
+      notionClientFactory: options.notionClientFactory,
+      managedSchemaCreator: options.managedSchemaCreator,
+      now: () => new Date("2026-05-10T00:00:00.000Z"),
+    }),
+    settings: settingsStore,
+    secrets: secretStore,
+    close: () => {
+      database.close();
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
+
+function fakeDiscordGateway(): DiscordSetupGateway {
+  return {
+    testConnection: async () => ({
+      botUserId: appId,
+      username: "Dirong#0001",
+    }),
+    listGuilds: async () => [
+      {
+        id: guildId,
+        name: "Dirong Test Server",
+        iconUrl: null,
+        owner: false,
+      },
+      {
+        id: otherGuildId,
+        name: "Side Server",
+        iconUrl: null,
+        owner: false,
+      },
+    ],
+  };
+}
+
+function fakeClaudeTester(): ClaudeSetupTester {
+  return {
+    test: async (input) => ({
+      provider: "claude",
+      mode: input.mode,
+      model: input.model,
+      detail: "ok",
+    }),
+  };
+}
+
+function managedDatabase(
+  role: "meeting" | "member" | "task",
+  name: string,
+  databaseId: string,
+  dataSourceId: string,
+) {
+  return {
+    role,
+    locale: "ko" as const,
+    databaseId,
+    dataSourceId,
+    url: `https://notion.so/${role}`,
+    name,
+    createdByDirong: true,
+    schemaVersion: NOTION_MANAGED_SCHEMA_VERSION,
+  };
+}
+
+function propertyMapping(
+  databaseRole: "meeting",
+  semanticKey: "meeting.title",
+  propertyName: string,
+): ReturnType<typeof mappingBase>;
+function propertyMapping(
+  databaseRole: "member",
+  semanticKey: "member.discordName",
+  propertyName: string,
+): ReturnType<typeof mappingBase>;
+function propertyMapping(
+  databaseRole: "task",
+  semanticKey: "task.title",
+  propertyName: string,
+): ReturnType<typeof mappingBase>;
+function propertyMapping(
+  databaseRole: "meeting" | "member" | "task",
+  semanticKey: "meeting.title" | "member.discordName" | "task.title",
+  propertyName: string,
+): ReturnType<typeof mappingBase> {
+  return mappingBase(databaseRole, semanticKey, propertyName);
+}
+
+function mappingBase(
+  databaseRole: "meeting" | "member" | "task",
+  semanticKey: "meeting.title" | "member.discordName" | "task.title",
+  propertyName: string,
+) {
+  return {
+    databaseRole,
+    semanticKey,
+    propertyName,
+    propertyId: `${semanticKey}-id`,
+    propertyType: "title" as const,
+    locked: true,
+    sourceKind: "system" as const,
+    createdAt: "2026-05-10T00:00:00.000Z",
+    updatedAt: "2026-05-10T00:00:00.000Z",
+  };
+}

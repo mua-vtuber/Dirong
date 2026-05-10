@@ -33,6 +33,7 @@ import {
 import { wrapAiCleanupProviderWithLifecycle } from "../ai/cleanup/provider-lifecycle.js";
 import { DashboardServer } from "../dashboard/server.js";
 import { phase1GuildCommandPayloads } from "../discord/commands.js";
+import { createProductSetupWizardService } from "../setup/wizard-service.js";
 import {
   redactForJson,
   safeErrorInfo,
@@ -93,9 +94,14 @@ const sttAutomation = createSttAutomationService(
 );
 const notionSqlRunner = new SqlRunner(database);
 const notionPropertyRuleStore = new NotionCustomPropertyRuleStore(notionSqlRunner);
+const notionRegistryStore = new NotionRegistryStore(notionSqlRunner);
 const setupStatus = createProductSetupStatusSource({
   paths: productRuntime.paths,
-  registryStore: new NotionRegistryStore(notionSqlRunner),
+  registryStore: notionRegistryStore,
+});
+const setupWizard = createProductSetupWizardService({
+  paths: productRuntime.paths,
+  registryStore: notionRegistryStore,
 });
 const aiCleanupProvider = createAiCleanupProvider();
 const aiLifecycle = createAiLifecycleService(aiCleanupProvider);
@@ -117,6 +123,7 @@ const dashboard = new DashboardServer(config, store, producer, {
   notion: notionDashboard,
   notionAutomation,
   setupStatus,
+  setupWizard,
   sttAutomation,
 });
 const dashboardUrl = await startDashboardOrExit();

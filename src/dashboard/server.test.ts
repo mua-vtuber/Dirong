@@ -270,14 +270,18 @@ test("DashboardServer root serves the dashboard HTML without caching", async () 
     assert.match(response.headers.get("content-type") ?? "", /text\/html/);
     assert.equal(response.headers.get("cache-control"), "no-store");
     assert.match(html, /Dirong Recording \+ STT Dashboard/);
+    assert.match(html, /app-shell/);
+    assert.match(html, /statusChips/);
+    assert.match(html, /\/assets\/dirong\/dirong_head\.png/);
+    assert.match(html, /fetch\('\/api\/i18n'/);
     assert.match(html, /첫 설정 위자드/);
     assert.match(html, /OpenAI STT 사용 \(API 발급 필요 - 유료\)/);
     assert.match(html, /database id, data source id, property id를 입력하지 않습니다/);
     assert.match(html, /setupCreateManagedDatabases/);
-    assert.match(html, /Notion Property Rules/);
-    assert.match(html, /대상 page URL/);
+    assert.match(html, /dashboard\.db\.customFields\.relation\.targetPageUrl/);
     assert.match(html, /data-protected-rule/);
-    assert.match(html, /Members 규칙은 삭제할 수 없습니다/);
+    assert.match(html, /dashboard\.db\.customFields\.protectedDelete/);
+    assert.doesNotMatch(html, /관리 외 삭제/);
     assert.match(html, /escapeHtml/);
     assert.match(html, /fetch\('\/api\/state'/);
   } finally {
@@ -410,6 +414,68 @@ test("DashboardServer language API rejects unsupported locales", async () => {
     assert.equal(body.messageKey, "settings.language.error.invalidLocale.message");
     assert.equal(body.userActionKey, "settings.language.error.invalidLocale.action");
     assert.equal(setupStatus.getLocale?.(), "ko");
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("DashboardServer theme API reads and saves dashboard theme", async () => {
+  const setupStatus = makeMutableSetupStatusSource();
+  const fixture = await startDashboardFixture({ setupStatus });
+  try {
+    const initial = await fetch(`${fixture.baseUrl}/api/settings/theme`);
+    const initialBody = await initial.json() as { theme: string };
+
+    assert.equal(initial.status, 200);
+    assert.equal(initialBody.theme, "system");
+
+    const saved = await fetch(`${fixture.baseUrl}/api/settings/theme`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ theme: "dark" }),
+    });
+    const savedBody = await saved.json() as {
+      theme: string;
+      messageKey: string;
+      setup: { dashboardTheme: string };
+    };
+
+    assert.equal(saved.status, 200);
+    assert.equal(savedBody.theme, "dark");
+    assert.equal(savedBody.messageKey, "settings.theme.save.done.message");
+    assert.equal(savedBody.setup.dashboardTheme, "dark");
+    assert.equal(setupStatus.getTheme?.(), "dark");
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("DashboardServer exposes locale catalog messages", async () => {
+  const fixture = await startDashboardFixture({
+    setupStatus: makeMutableSetupStatusSource(),
+  });
+  try {
+    const response = await fetch(`${fixture.baseUrl}/api/i18n`);
+    const body = await response.json() as {
+      locale: string;
+      messages: Record<string, string>;
+    };
+
+    assert.equal(response.status, 200);
+    assert.equal(body.locale, "ko");
+    assert.equal(body.messages["dashboard.nav.dashboard"], "대시보드");
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("DashboardServer serves copied Dirong image assets", async () => {
+  const fixture = await startDashboardFixture();
+  try {
+    const response = await fetch(`${fixture.baseUrl}/assets/dirong/dirong_head.png`);
+
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-type") ?? "", /image\/png/);
   } finally {
     await fixture.close();
   }
@@ -699,7 +765,7 @@ test("DashboardServer Notion schema apply posts safe options", async () => {
       {
         createMissing: true,
         updateTypes: true,
-        deleteExtra: true,
+        deleteExtra: false,
         confirmDeleteExtra: false,
       },
     ]);
@@ -919,6 +985,7 @@ function makeSetupStatusSource(): DashboardSetupStatusSource {
       generatedAt: "2026-05-10T00:00:00.000Z",
       locale: "ko",
       notionSchemaLocale: "ko",
+      dashboardTheme: "system",
       status: "not_configured",
       userDataDir: "C:\\Users\\Taniar\\AppData\\Local\\Dirong",
       settingsPath: "C:\\Users\\Taniar\\AppData\\Local\\Dirong\\settings\\settings.json",
@@ -1014,17 +1081,24 @@ function makeSetupStatusSource(): DashboardSetupStatusSource {
 
 function makeMutableSetupStatusSource(): DashboardSetupStatusSource {
   let locale: DirongLocale = "ko";
+  let dashboardTheme: "system" | "light" | "dark" = "system";
   const base = makeSetupStatusSource();
   const snapshot = () => ({
     ...base.getSnapshot(),
     locale,
     notionSchemaLocale: locale,
+    dashboardTheme,
   });
 
   return {
     getLocale: () => locale,
+    getTheme: () => dashboardTheme,
     setLocale: (nextLocale) => {
       locale = nextLocale;
+      return snapshot();
+    },
+    setTheme: (nextTheme) => {
+      dashboardTheme = nextTheme;
       return snapshot();
     },
     getSnapshot: snapshot,

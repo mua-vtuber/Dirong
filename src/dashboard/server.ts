@@ -1,8 +1,9 @@
 import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { DirongError, redactForJson } from "../errors.js";
-import { t, type LocaleKey } from "../i18n/catalog.js";
+import { catalogs, listLocaleKeys, t, type LocaleKey } from "../i18n/catalog.js";
 import {
   buildHumanStatusDisplay,
   type HumanStatusDisplay,
@@ -30,8 +31,11 @@ import type {
   SetupWizardStateSnapshot,
 } from "../setup/wizard-service.js";
 import {
+  DEFAULT_DIRONG_DASHBOARD_THEME,
   DEFAULT_DIRONG_LOCALE,
+  isDirongDashboardTheme,
   isDirongLocale,
+  type DirongDashboardTheme,
   type DirongLocale,
 } from "../settings/local-settings-store.js";
 
@@ -74,6 +78,8 @@ export type DashboardSetupStatusSource = {
   getSnapshot(): ProductSetupStatusSnapshot;
   getLocale?(): DirongLocale;
   setLocale?(locale: DirongLocale): ProductSetupStatusSnapshot;
+  getTheme?(): DirongDashboardTheme;
+  setTheme?(theme: DirongDashboardTheme): ProductSetupStatusSnapshot;
 };
 
 export type DashboardSetupWizardSource = {
@@ -180,9 +186,15 @@ export class DashboardServer {
     const languageEndpoint =
       url.pathname === "/api/settings/language" ||
       url.pathname === "/api/setup/language";
+    const themeEndpoint = url.pathname === "/api/settings/theme";
 
     if (request.method === "POST" && languageEndpoint) {
       await this.handleLanguageSave(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && themeEndpoint) {
+      await this.handleThemeSave(request, response);
       return;
     }
 
@@ -283,6 +295,21 @@ export class DashboardServer {
 
     if (languageEndpoint) {
       this.handleLanguageGet(response);
+      return;
+    }
+
+    if (themeEndpoint) {
+      this.handleThemeGet(response);
+      return;
+    }
+
+    if (url.pathname === "/api/i18n") {
+      this.handleI18nGet(response);
+      return;
+    }
+
+    if (url.pathname.startsWith("/assets/")) {
+      this.serveAsset(response, url.pathname);
       return;
     }
 
@@ -389,6 +416,84 @@ export class DashboardServer {
         detail,
       })), 400);
     }
+  }
+
+  private handleThemeGet(response: ServerResponse): void {
+    const locale = this.getResponseLocale();
+    const snapshot = this.runtimeSources.setupStatus?.getSnapshot();
+    const theme =
+      this.runtimeSources.setupStatus?.getTheme?.() ??
+      snapshot?.dashboardTheme ??
+      DEFAULT_DIRONG_DASHBOARD_THEME;
+
+    sendJson(response, withMessageKeys(locale, {
+      ok: true,
+      status: "ready",
+      theme,
+      messageKey: "settings.theme.current.message",
+      userActionKey: null,
+    }));
+  }
+
+  private async handleThemeSave(
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> {
+    const responseLocale = this.getResponseLocale();
+    if (!this.runtimeSources.setupStatus?.setTheme) {
+      sendJson(response, withMessageKeys(responseLocale, {
+        ok: false,
+        status: "not_configured",
+        theme: DEFAULT_DIRONG_DASHBOARD_THEME,
+        messageKey: "error.dashboard.settingsSourceMissing.message",
+        userActionKey: "error.dashboard.settingsSourceMissing.action",
+      }));
+      return;
+    }
+
+    try {
+      const body = await readJsonBody(request);
+      const theme = readThemeBody(body);
+      if (!theme) {
+        sendJson(response, withMessageKeys(responseLocale, {
+          ok: false,
+          status: "failed",
+          theme: DEFAULT_DIRONG_DASHBOARD_THEME,
+          messageKey: "settings.theme.error.invalidTheme.message",
+          userActionKey: "settings.theme.error.invalidTheme.action",
+        }), 400);
+        return;
+      }
+
+      const setup = this.runtimeSources.setupStatus.setTheme(theme);
+      sendJson(response, withMessageKeys(setup.locale, {
+        ok: true,
+        status: "done",
+        theme: setup.dashboardTheme,
+        messageKey: "settings.theme.save.done.message",
+        userActionKey: null,
+        setup,
+      }));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      sendJson(response, redactForJson(withMessageKeys(responseLocale, {
+        ok: false,
+        status: "failed",
+        theme: DEFAULT_DIRONG_DASHBOARD_THEME,
+        messageKey: "error.dashboard.requestInvalid.message",
+        userActionKey: "error.dashboard.requestInvalid.action",
+        detail,
+      })), 400);
+    }
+  }
+
+  private handleI18nGet(response: ServerResponse): void {
+    const locale = this.getResponseLocale();
+    const keys = listLocaleKeys(catalogs[locale] ?? catalogs.ko);
+    sendJson(response, {
+      locale,
+      messages: Object.fromEntries(keys.map((key) => [key, t(locale, key)])),
+    });
   }
 
   private async handleSetupWizardPost(
@@ -528,6 +633,32 @@ export class DashboardServer {
       "Content-Length": fileStat.size,
     });
     createReadStream(audio.path).pipe(response);
+  }
+
+  private serveAsset(response: ServerResponse, pathname: string): void {
+    const relativePath = decodeURIComponent(pathname.replace(/^\/assets\//, ""));
+    if (!relativePath || relativePath.includes("\0")) {
+      sendText(response, 404, "Asset Not Found");
+      return;
+    }
+
+    const targetPath = path.resolve(DASHBOARD_ASSET_ROOT, relativePath);
+    const rootPrefix = `${DASHBOARD_ASSET_ROOT}${path.sep}`;
+    if (targetPath !== DASHBOARD_ASSET_ROOT && !targetPath.startsWith(rootPrefix)) {
+      sendText(response, 404, "Asset Not Found");
+      return;
+    }
+    if (!existsSync(targetPath) || statSync(targetPath).isDirectory()) {
+      sendText(response, 404, "Asset Not Found");
+      return;
+    }
+
+    response.writeHead(200, {
+      "Content-Type": contentTypeForAsset(targetPath),
+      "Cache-Control": "public, max-age=3600",
+      "X-Content-Type-Options": "nosniff",
+    });
+    createReadStream(targetPath).pipe(response);
   }
 
   private async handleNotionAction(
@@ -753,6 +884,10 @@ export function appendDashboardRuntimeSnapshots(
 }
 
 const DASHBOARD_INDEX_HTML = readFileSync(new URL("./public/index.html", import.meta.url), "utf8");
+const DASHBOARD_ASSET_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../assets",
+);
 
 function sendHtml(response: ServerResponse, html: string): void {
   response.writeHead(200, {
@@ -810,6 +945,13 @@ function readLocaleBody(body: unknown): DirongLocale | null {
     return null;
   }
   return isDirongLocale(body.locale) ? body.locale : null;
+}
+
+function readThemeBody(body: unknown): DirongDashboardTheme | null {
+  if (!isRecord(body)) {
+    return null;
+  }
+  return isDirongDashboardTheme(body.theme) ? body.theme : null;
 }
 
 function readOptionalBodyString(body: unknown, key: string): string | null {
@@ -883,8 +1025,8 @@ function readNotionSchemaApplyOptions(body: unknown): NotionSchemaApplyOptions {
   return {
     createMissing: record.createMissing !== false,
     updateTypes: record.updateTypes === true,
-    deleteExtra: record.deleteExtra === true,
-    confirmDeleteExtra: record.confirmDeleteExtra === true,
+    deleteExtra: false,
+    confirmDeleteExtra: false,
   };
 }
 
@@ -934,7 +1076,8 @@ function dashboardDisplayKeys(
   }
   if (
     messageKey === "error.dashboard.requestInvalid.message" ||
-    messageKey === "settings.language.error.invalidLocale.message"
+    messageKey === "settings.language.error.invalidLocale.message" ||
+    messageKey === "settings.theme.error.invalidTheme.message"
   ) {
     return {
       titleKey: "statusDisplay.dashboard.requestInvalid.title",
@@ -943,6 +1086,12 @@ function dashboardDisplayKeys(
     };
   }
   if (messageKey === "settings.language.save.done.message") {
+    return {
+      titleKey: "statusDisplay.action.done.title",
+      descriptionKey: "statusDisplay.action.done.description",
+    };
+  }
+  if (messageKey === "settings.theme.save.done.message") {
     return {
       titleKey: "statusDisplay.action.done.title",
       descriptionKey: "statusDisplay.action.done.description",
@@ -986,6 +1135,23 @@ function contentTypeForAudio(format: string, filePath: string): string {
     return "audio/webm";
   }
   return "audio/ogg";
+}
+
+function contentTypeForAsset(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".png") {
+    return "image/png";
+  }
+  if (ext === ".jpg" || ext === ".jpeg") {
+    return "image/jpeg";
+  }
+  if (ext === ".webp") {
+    return "image/webp";
+  }
+  if (ext === ".svg") {
+    return "image/svg+xml";
+  }
+  return "application/octet-stream";
 }
 
 function normalizeListenError(

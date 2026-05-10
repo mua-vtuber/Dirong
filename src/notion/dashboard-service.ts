@@ -735,7 +735,7 @@ function schemaDiffUserAction(diff: NotionSchemaDiff): string | null {
     diff.missingOptions.length === 0
   ) {
     return diff.extra.length > 0
-      ? "관리 외 속성은 보기만 했습니다. 지우려면 삭제 옵션을 명시적으로 켜 주세요."
+      ? "관리 외 속성은 삭제하지 않습니다. 필요 없다면 Notion에서 직접 삭제해 주세요."
       : null;
   }
   return "스키마 맞추기를 누르면 누락 속성과 이름 변경, select 옵션 보강을 자동 적용합니다.";

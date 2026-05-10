@@ -1,7 +1,10 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import process from "node:process";
 import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
 import {
+  AttachmentBuilder,
   Client,
   Events,
   GatewayIntentBits,
@@ -74,6 +77,9 @@ import { backupDatabaseSnapshot } from "./sqlite-backup.js";
 const productRuntime = loadProductRuntimeSettings();
 const config = productRuntime.config;
 const appSettings = productRuntime.appSettings;
+const DIRONG_DISCORD_IMAGE_PATH = fileURLToPath(
+  new URL("../assets/dirong/dirong_discord.png", import.meta.url),
+);
 
 const database = new DirongDatabase(config.dbPath, config.dbBusyTimeoutMs);
 const store = new SessionStore(database, {
@@ -307,11 +313,12 @@ async function handleDirongCommand(
 
       await sendPublicNotice(interaction, [
         "디롱이가 이 음성 채널 녹음을 시작했습니다.",
-        "녹음 내용은 STT, AI 요약, Notion 회의록 작성에 사용될 수 있습니다.",
+        "음성 파일은 Dirong 실행 PC에 저장되며, Notion 업로드 완료 후 바로 삭제됩니다.",
+        "텍스트 처리 결과는 기본 30일 뒤 자동 삭제됩니다.",
         "참여를 원하지 않으면 음성 채널에서 나가 주세요.",
         `시작자: ${displayNameForMember(member)}`,
         `세션 ID: ${result.sessionId}`,
-      ].join("\n"));
+      ].join("\n"), { attachDirongImage: true });
 
       await interaction.editReply(
         [
@@ -684,12 +691,21 @@ function displayNameForMember(member: GuildMember): string {
 async function sendPublicNotice(
   interaction: ChatInputCommandInteraction,
   content: string,
+  options: { attachDirongImage?: boolean } = {},
 ): Promise<void> {
   const channel = interaction.channel;
   if (!channel || !("send" in channel) || typeof channel.send !== "function") {
     return;
   }
-  await channel.send({ content });
+  const files =
+    options.attachDirongImage && existsSync(DIRONG_DISCORD_IMAGE_PATH)
+      ? [
+          new AttachmentBuilder(DIRONG_DISCORD_IMAGE_PATH, {
+            name: "dirong_discord.png",
+          }),
+        ]
+      : undefined;
+  await channel.send({ content, ...(files ? { files } : {}) });
 }
 
 function openDashboardUrl(url: string): void {

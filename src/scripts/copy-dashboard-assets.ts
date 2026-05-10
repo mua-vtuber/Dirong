@@ -3,8 +3,13 @@ import path from "node:path";
 
 const sourceDir = path.resolve("src/dashboard/public");
 const targetDir = path.resolve("dist/dashboard/public");
+const assetSourceDir = path.resolve("src/assets");
+const assetTargetDir = path.resolve("dist/assets");
 
 copyDirectory(sourceDir, targetDir);
+if (existsSync(assetSourceDir)) {
+  copyDirectory(assetSourceDir, assetTargetDir);
+}
 
 function copyDirectory(source: string, target: string): void {
   if (!existsSync(source)) {

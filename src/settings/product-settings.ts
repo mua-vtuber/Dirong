@@ -25,7 +25,9 @@ import {
 } from "./dirong-user-data.js";
 import {
   type AiLocalSettings,
+  DEFAULT_DIRONG_DASHBOARD_THEME,
   DEFAULT_DIRONG_LOCALE,
+  type DirongDashboardTheme,
   type DirongLocale,
   type DirongLocalSettings,
   LocalSettingsStore,
@@ -59,6 +61,7 @@ export type ProductSetupStatusSnapshot = {
   generatedAt: string;
   locale: DirongLocale;
   notionSchemaLocale: DirongLocale;
+  dashboardTheme: DirongDashboardTheme;
   status: "not_configured" | "ready" | "blocked";
   userDataDir: string;
   settingsPath: string;
@@ -130,12 +133,30 @@ export class ProductSetupStatusSource {
     return this.settingsStore.read().app.locale ?? DEFAULT_DIRONG_LOCALE;
   }
 
+  getTheme(): DirongDashboardTheme {
+    return (
+      this.settingsStore.read().app.dashboardTheme ??
+      DEFAULT_DIRONG_DASHBOARD_THEME
+    );
+  }
+
   setLocale(locale: DirongLocale): ProductSetupStatusSnapshot {
     this.settingsStore.update((settings) => ({
       ...settings,
       app: {
         ...settings.app,
         locale,
+      },
+    }));
+    return this.getSnapshot();
+  }
+
+  setTheme(theme: DirongDashboardTheme): ProductSetupStatusSnapshot {
+    this.settingsStore.update((settings) => ({
+      ...settings,
+      app: {
+        ...settings.app,
+        dashboardTheme: theme,
       },
     }));
     return this.getSnapshot();
@@ -241,6 +262,8 @@ export function buildProductSetupStatus(input: {
   registryStore?: NotionRegistryStore;
 }): ProductSetupStatusSnapshot {
   const locale = input.settings.app.locale ?? DEFAULT_DIRONG_LOCALE;
+  const dashboardTheme =
+    input.settings.app.dashboardTheme ?? DEFAULT_DIRONG_DASHBOARD_THEME;
   const discordSecretRef =
     input.settings.discord.botTokenSecretRef ?? DEFAULT_SECRET_REFS.discordBotToken;
   const openAiSecretRef =
@@ -281,6 +304,7 @@ export function buildProductSetupStatus(input: {
     generatedAt: new Date().toISOString(),
     locale,
     notionSchemaLocale: locale,
+    dashboardTheme,
     status: featureStatuses.every((status) => status === "ready")
       ? "ready"
       : featureStatuses.includes("not_configured")

@@ -105,6 +105,7 @@ test("buildProductSetupStatus localizes setup messages and exposes locale keys",
 
     assert.equal(status.locale, "en");
     assert.equal(status.notionSchemaLocale, "en");
+    assert.equal(status.dashboardTheme, "system");
     assert.equal(
       status.features.discord.messageKey,
       "setup.discord.status.notConfigured.message",
@@ -141,6 +142,21 @@ test("ProductSetupStatusSource saves app locale through local settings", () => {
     assert.equal(status.locale, "en");
     assert.equal(status.notionSchemaLocale, "en");
     assert.equal(new LocalSettingsStore(paths.settingsFile).read().app.locale, "en");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ProductSetupStatusSource saves dashboard theme through local settings", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-product-"));
+  try {
+    const paths = getDirongUserDataPaths(dir);
+    const source = createProductSetupStatusSource({ paths });
+
+    const status = source.setTheme("dark");
+
+    assert.equal(status.dashboardTheme, "dark");
+    assert.equal(new LocalSettingsStore(paths.settingsFile).read().app.dashboardTheme, "dark");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

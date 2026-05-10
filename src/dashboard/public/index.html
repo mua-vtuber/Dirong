@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
   <title>Dirong Recording + STT Dashboard</title>
   <style>
     :root {
@@ -218,7 +219,306 @@
     input[type="number"] { max-width: 96px; }
     .relation-fields { margin-top: 8px; display: grid; gap: 6px; }
     .relation-fields label { display: block; }
+    .app-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: minmax(236px, 280px) minmax(0, 1fr);
+    }
+    .sidebar {
+      position: sticky;
+      top: 0;
+      align-self: start;
+      min-height: 100vh;
+      padding: 18px 14px;
+      border-right: 1px solid var(--line);
+      background: #fffaf4;
+    }
+    .brand-block {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 8px 18px;
+      border-bottom: 1px solid var(--line);
+    }
+    .brand-avatar {
+      width: 42px;
+      height: 42px;
+      object-fit: contain;
+      border-radius: 8px;
+      background: #ffffff;
+      border: 1px solid var(--line);
+    }
+    .brand-title { font-weight: 800; font-size: 18px; }
+    .brand-subtitle { color: var(--muted); font-size: 12px; margin-top: 2px; }
+    .sidebar-group { margin-top: 18px; display: grid; gap: 8px; }
+    .sidebar-label {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .nav-stack { display: grid; gap: 6px; }
+    .nav-button, .server-button {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      text-align: left;
+      border-radius: 8px;
+      min-height: 38px;
+    }
+    .nav-button.is-active {
+      border-color: #f97316;
+      background: #fff7ed;
+      color: #9a3412;
+      font-weight: 700;
+    }
+    .server-button {
+      background: #ffffff;
+      border-color: #f2d7bd;
+    }
+    .main-shell {
+      min-width: 0;
+      max-width: 1280px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 18px 20px 36px;
+    }
+    .content-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 0 0 16px;
+      margin-bottom: 16px;
+      border-bottom: 1px solid var(--line);
+      background: transparent;
+    }
+    .content-header h1 { font-size: 24px; }
+    .status-chip-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 9px;
+      background: var(--panel);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #9ca3af;
+      flex: 0 0 auto;
+    }
+    .tone-ready .status-dot, .card-state-ready { background: #16a34a; }
+    .tone-progress .status-dot, .card-state-progress { background: #f59e0b; }
+    .tone-danger .status-dot, .card-state-danger { background: #dc2626; }
+    .tone-muted .status-dot, .card-state-muted { background: #9ca3af; }
+    .sticky-warning {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      margin: -18px -20px 16px;
+      padding: 10px 20px;
+      border-bottom: 1px solid #fecaca;
+      background: #fef2f2;
+      color: #991b1b;
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .sticky-warning.is-visible { display: flex; }
+    .sticky-warning button {
+      border-color: #fca5a5;
+      background: #ffffff;
+      color: #991b1b;
+      font-weight: 700;
+    }
+    .app-view[hidden] { display: none; }
+    .flow-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .flow-card, .content-band, .locked-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+    }
+    .flow-card {
+      min-height: 150px;
+      display: grid;
+      gap: 8px;
+      align-content: start;
+    }
+    .flow-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .flow-card h3 { margin: 0; font-size: 15px; }
+    .card-state {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex: 0 0 auto;
+    }
+    .content-band { margin-bottom: 18px; }
+    .section-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .section-heading h2 { margin: 0; }
+    .locked-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .locked-card {
+      border-color: #fecaca;
+      background: #fff7f7;
+    }
+    .summary-list {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 0 0 10px;
+    }
+    .summary-pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 8px;
+      font-size: 12px;
+      color: var(--muted);
+      background: #fbfbf9;
+    }
+    .participant-list, .required-field-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .participant-item, .required-field {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fbfbf9;
+    }
+    .required-field.is-missing {
+      border-color: #fecaca;
+      background: #fff7f7;
+      color: #991b1b;
+    }
+    .tab-row {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 10px;
+      margin-bottom: 8px;
+    }
+    .tab-button {
+      white-space: nowrap;
+      border-radius: 999px;
+    }
+    .tab-button.is-active {
+      border-color: #f97316;
+      background: #fff7ed;
+      color: #9a3412;
+      font-weight: 700;
+    }
+    .settings-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .theme-options {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+    .theme-options label {
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 9px;
+      background: #ffffff;
+    }
+    body[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #171717;
+      --panel: #24201d;
+      --ink: #f5f5f4;
+      --muted: #b8b2aa;
+      --line: #4b4038;
+      --accent: #fb923c;
+      --warn: #fbbf24;
+      --error: #f87171;
+      background: var(--bg);
+    }
+    body[data-theme="dark"] .sidebar { background: #201a17; }
+    body[data-theme="dark"] button,
+    body[data-theme="dark"] input,
+    body[data-theme="dark"] textarea,
+    body[data-theme="dark"] select,
+    body[data-theme="dark"] .metric,
+    body[data-theme="dark"] .setup-card,
+    body[data-theme="dark"] .setup-panel,
+    body[data-theme="dark"] .setup-status-card,
+    body[data-theme="dark"] .participant-item,
+    body[data-theme="dark"] .required-field,
+    body[data-theme="dark"] .summary-pill {
+      background: #2d2824;
+      color: var(--ink);
+    }
+    @media (prefers-color-scheme: dark) {
+      body[data-theme="system"] {
+        color-scheme: dark;
+        --bg: #171717;
+        --panel: #24201d;
+        --ink: #f5f5f4;
+        --muted: #b8b2aa;
+        --line: #4b4038;
+        --accent: #fb923c;
+        --warn: #fbbf24;
+        --error: #f87171;
+      }
+      body[data-theme="system"] .sidebar { background: #201a17; }
+    }
     @media (max-width: 860px) {
+      .app-shell { grid-template-columns: 1fr; }
+      .sidebar {
+        position: relative;
+        min-height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .main-shell { padding: 14px; }
+      .sticky-warning { margin: -14px -14px 14px; padding: 10px 14px; align-items: flex-start; }
+      .content-header { display: block; }
+      .status-chip-row { justify-content: flex-start; margin-top: 10px; }
+      .flow-grid, .locked-grid, .settings-grid, .participant-list, .required-field-grid {
+        grid-template-columns: 1fr;
+      }
       .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .pipeline-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); }
       .setup-layout { grid-template-columns: 1fr; }
@@ -231,63 +531,159 @@
     }
   </style>
 </head>
-<body>
-  <header>
-    <h1>Dirong Recording + STT Dashboard</h1>
-    <div class="muted" id="generatedAt">loading</div>
-  </header>
-  <main>
-    <section id="setupWizard" class="setup-shell"></section>
-    <section class="grid" id="metrics"></section>
-    <section>
-      <h2>Pipeline Runtime</h2>
-      <div class="pipeline-grid" id="pipeline"></div>
-    </section>
-    <section>
-      <h2>Speakers</h2>
-      <div id="speakers"></div>
-    </section>
-    <section>
-      <h2>Recent Chunks</h2>
-      <div id="chunks"></div>
-    </section>
-    <section>
-      <h2>STT Queue</h2>
-      <div id="sttJobs"></div>
-    </section>
-    <section>
-      <h2>Transcript Segments</h2>
-      <div id="transcripts"></div>
-    </section>
-    <section>
-      <h2>AI Cleanup</h2>
-      <div id="aiCleanup"></div>
-    </section>
-    <section>
-      <h2>Latest Draft Preview</h2>
-      <div id="draftPreview"></div>
-    </section>
-    <section>
-      <h2>Notion Upload</h2>
-      <div id="notion"></div>
-    </section>
-    <section>
-      <h2>Notion Property Rules</h2>
-      <div id="notionProperties"></div>
-    </section>
-    <section>
-      <h2>Connection / Errors</h2>
-      <div id="events"></div>
-    </section>
-    <section>
-      <h2>Repair Items</h2>
-      <div id="repairs"></div>
-    </section>
-  </main>
+<body data-theme="system">
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Dirong navigation">
+      <div class="brand-block">
+        <img class="brand-avatar" src="/assets/dirong/dirong_head.png" alt="">
+        <div>
+          <div class="brand-title">Dirong</div>
+          <div class="brand-subtitle">Recording + STT Dashboard</div>
+        </div>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-label" data-i18n="dashboard.sidebar.servers.label">SERVERS</div>
+        <div id="sidebarServers"></div>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-label" data-i18n="dashboard.sidebar.sections.label">SECTIONS</div>
+        <nav id="sectionNav" class="nav-stack"></nav>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-label" data-i18n="dashboard.sidebar.quick.label">QUICK</div>
+        <div id="quickActions" class="nav-stack"></div>
+      </div>
+    </aside>
+    <main class="main-shell">
+      <div id="setupIncompleteBanner" class="sticky-warning"></div>
+      <header class="content-header">
+        <div>
+          <h1 id="viewTitle">Dirong Recording + STT Dashboard</h1>
+          <div class="muted" id="generatedAt">loading</div>
+        </div>
+        <div class="status-chip-row" id="statusChips"></div>
+      </header>
+
+      <section id="dashboardView" class="app-view">
+        <div id="lockedCards"></div>
+        <section class="flow-grid" id="pipeline"></section>
+        <section class="content-band">
+          <div class="section-heading">
+            <h2 id="participantsTitle">Participants</h2>
+          </div>
+          <div id="speakers"></div>
+        </section>
+        <section class="content-band">
+          <div class="section-heading">
+            <h2 id="audioTitle">Audio / Transcripts</h2>
+          </div>
+          <div id="metrics"></div>
+          <div id="chunks"></div>
+          <div id="transcripts"></div>
+        </section>
+        <section class="content-band">
+          <div class="section-heading">
+            <h2 id="notesTitle">Meeting Notes</h2>
+          </div>
+          <div id="draftPreview"></div>
+        </section>
+      </section>
+
+      <section id="dbView" class="app-view" hidden>
+        <div class="tab-row" id="dbTabs"></div>
+        <section class="content-band" id="dbPanel">
+          <div id="notion"></div>
+          <div id="notionProperties"></div>
+        </section>
+      </section>
+
+      <section id="logsView" class="app-view" hidden>
+        <div class="tab-row" id="logFilters"></div>
+        <section class="content-band">
+          <div class="section-heading">
+            <h2 id="needsAttentionTitle">Needs Attention</h2>
+          </div>
+          <div id="repairs"></div>
+        </section>
+        <section class="content-band">
+          <div class="section-heading">
+            <h2 id="timelineTitle">Event Timeline</h2>
+          </div>
+          <div id="events"></div>
+        </section>
+        <section class="content-band">
+          <div class="section-heading">
+            <h2 id="sttQueueTitle"></h2>
+          </div>
+          <div id="sttJobs"></div>
+        </section>
+        <section class="content-band">
+          <div class="section-heading">
+            <h2 id="aiCleanupTitle"></h2>
+          </div>
+          <div id="aiCleanup"></div>
+        </section>
+      </section>
+
+      <section id="settingsView" class="app-view" hidden>
+        <div class="tab-row" id="settingsTabs"></div>
+        <section class="content-band" id="settingsPanel"></section>
+        <section id="setupWizard" class="setup-shell"></section>
+      </section>
+    </main>
+  </div>
   <script>
     const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"
     }[ch]));
+    let i18nMessages = {};
+    let i18nLocale = 'ko';
+    let activeView = window.localStorage.getItem('dirong.dashboard.view') ?? 'dashboard';
+    let activeDbTab = window.localStorage.getItem('dirong.dashboard.dbTab') ?? 'meeting';
+    let activeSettingsTab = window.localStorage.getItem('dirong.dashboard.settingsTab') ?? 'discord';
+    let activeLogFilter = window.localStorage.getItem('dirong.dashboard.logFilter') ?? 'all';
+    function tr(key, params = {}) {
+      const template = i18nMessages[key] ?? key;
+      return String(template).replace(/\{(\w+)\}/g, (_match, name) =>
+        params[name] === undefined ? '' : String(params[name])
+      );
+    }
+    function i18n(key, params = {}) {
+      return escapeHtml(tr(key, params));
+    }
+    function applyStaticI18n() {
+      document.querySelectorAll('[data-i18n]').forEach((node) => {
+        node.textContent = tr(node.getAttribute('data-i18n'));
+      });
+      document.title = tr('dashboard.app.title');
+    }
+    function setActiveView(view) {
+      activeView = view;
+      window.localStorage.setItem('dirong.dashboard.view', view);
+      updateVisibleView();
+      refresh();
+    }
+    function setDbTab(tab) {
+      activeDbTab = tab;
+      window.localStorage.setItem('dirong.dashboard.dbTab', tab);
+      refresh();
+    }
+    function setSettingsTab(tab) {
+      activeSettingsTab = tab;
+      window.localStorage.setItem('dirong.dashboard.settingsTab', tab);
+      refresh();
+    }
+    function setLogFilter(filter) {
+      activeLogFilter = filter;
+      window.localStorage.setItem('dirong.dashboard.logFilter', filter);
+      refresh();
+    }
+    function updateVisibleView() {
+      for (const view of ['dashboard', 'db', 'logs', 'settings']) {
+        const node = document.getElementById(view + 'View');
+        if (node) node.hidden = view !== activeView;
+      }
+    }
     function renderHumanDisplay(source, options = {}) {
       const display = source?.display;
       const status = source?.status ?? options.status ?? '';
@@ -295,7 +691,7 @@
         const message = options.message ?? source?.message ?? status ?? '-';
         const action = options.userAction ?? source?.userAction ?? null;
         const technical = source?.technicalDetail
-          ? '<details><summary class="muted">자세히 보기</summary><pre>' + escapeHtml(source.technicalDetail) + '</pre></details>'
+          ? '<details><summary class="muted">' + i18n('dashboard.logs.details.toggle') + '</summary><pre>' + escapeHtml(source.technicalDetail) + '</pre></details>'
           : '';
         return '<div class="display-title ' + runtimeValueClass(status) + '">' + escapeHtml(message) + '</div>' +
           (action ? '<div class="display-next">' + escapeHtml(action) + '</div>' : '') + technical;
@@ -313,7 +709,7 @@
         '<tr><td>' + escapeHtml(detail.label) + '</td><td><pre>' +
         escapeHtml(detail.value) + '</pre></td></tr>'
       ).join('');
-      return '<details><summary class="muted">자세히 보기</summary>' +
+      return '<details><summary class="muted">' + i18n('dashboard.logs.details.toggle') + '</summary>' +
         '<table class="display-details-table"><tbody>' + rows + '</tbody></table></details>';
     }
     function displayTitle(source, fallback = '-') {
@@ -343,7 +739,7 @@
       return idx >= 0 ? text.slice(idx + 1) : text;
     };
     const table = (headers, rows) => {
-      if (!rows.length) return '<div class="muted">없음</div>';
+      if (!rows.length) return '<div class="muted">' + i18n('dashboard.common.none') + '</div>';
       return '<table><thead><tr>' + headers.map((h) => '<th>' + escapeHtml(h) + '</th>').join('') +
         '</tr></thead><tbody>' + rows.join('') + '</tbody></table>';
     };
@@ -793,12 +1189,20 @@
     }
     async function refresh() {
       try {
-        const [res, setupRes] = await Promise.all([
+        const [res, setupRes, i18nRes] = await Promise.all([
           fetch('/api/state', { cache: 'no-store' }),
-          fetch('/api/setup/state', { cache: 'no-store' })
+          fetch('/api/setup/state', { cache: 'no-store' }),
+          fetch('/api/i18n', { cache: 'no-store' })
         ]);
         if (!res.ok) {
           throw new Error('HTTP ' + res.status);
+        }
+        if (i18nRes.ok) {
+          const i18n = await i18nRes.json();
+          i18nLocale = i18n.locale ?? 'ko';
+          i18nMessages = i18n.messages ?? {};
+          document.documentElement.lang = i18nLocale;
+          applyStaticI18n();
         }
         const state = await res.json();
         const setup = setupRes.ok ? await setupRes.json() : state.setup ?? null;
@@ -813,113 +1217,565 @@
       }
     }
     function renderState(state, setup) {
-      document.getElementById('generatedAt').textContent = state.generatedAt;
-      renderSetupWizard(setup ?? state.setup ?? null);
-      const session = state.currentSession;
-      const runtime = state.runtime;
-      setHtml('metrics', [
-        metric('Recording', runtime.isRecording ? 'recording' : 'idle'),
-        metric('Session', session?.id ?? '-'),
-        metric('Voice Channel', runtime.voiceChannelName ?? session?.voice_channel_name ?? '-'),
-        metric('Open Chunks', runtime.openChunks ?? 0),
-        metric('Session Status', session?.status ?? '-'),
-        metric('DB', rel(state.dbPath)),
-        metric('STT Auto', displayTitle(state.sttAutomation)),
-        metric('AI Status', displayTitle(state.aiReadiness)),
-        metric('AI Cleanup', state.aiCleanupAutomation?.message ?? '-'),
-        metric('Notion', renderNotionMetric(state)),
-        metric('Alone Finalize', displayTitle(state.aloneFinalize)),
-        metric('AI Provider', state.aiReadiness ? state.aiReadiness.provider + ' / ' + state.aiReadiness.model : '-'),
-        metric('Queue', queueSummary(state.queueStats ?? [])),
-        metric('Repair Open', (state.recentRepairItems ?? []).filter((row) => row.status === 'open').length)
-      ].join(''));
+      const setupSnapshot = setup ?? state.setup ?? null;
+      const runtime = state.runtime ?? {};
+      const theme = setupSnapshot?.dashboardTheme ?? 'system';
+      document.body.dataset.theme = theme;
+      document.getElementById('generatedAt').textContent =
+        tr('dashboard.app.generatedAt') + ': ' + (state.generatedAt ?? '-');
+      document.getElementById('viewTitle').textContent = titleForView(activeView);
+      document.getElementById('participantsTitle').textContent = tr('dashboard.card.participants.title');
+      document.getElementById('audioTitle').textContent = tr('dashboard.audio.title');
+      document.getElementById('notesTitle').textContent = tr('dashboard.notes.title');
+      document.getElementById('needsAttentionTitle').textContent = tr('dashboard.logs.needsAttention.title');
+      document.getElementById('timelineTitle').textContent = tr('dashboard.logs.timeline.title');
+      document.getElementById('sttQueueTitle').textContent = tr('dashboard.logs.sttQueue.title');
+      document.getElementById('aiCleanupTitle').textContent = tr('dashboard.logs.aiCleanup.title');
 
-      setHtml('pipeline', [
-        renderPipelineSummary(state),
-        renderAloneFinalize(state.aloneFinalize),
-        renderSttAutomation(state.sttAutomation),
-        renderAiReadiness(state.aiReadiness),
-        renderAiCleanupAutomation(state.aiCleanupAutomation)
-      ].join(''));
-
-      setHtml('speakers', table(
-        ['display name', 'userId', 'bot', 'chunks', 'first seen ms'],
-        (state.speakers ?? []).map((s) => '<tr><td>' + escapeHtml(s.display_name_snapshot) +
-          '</td><td><code>' + escapeHtml(s.user_id) + '</code></td><td>' +
-          escapeHtml(Boolean(s.is_bot)) + '</td><td>' + escapeHtml(s.chunk_count) +
-          '</td><td>' + escapeHtml(s.first_seen_at_ms) + '</td></tr>')
-      ));
-
-      setHtml('chunks', table(
-        ['chunk', 'speaker', 'status', 'duration', 'raw', 'stt job', 'playback'],
-        (state.recentChunks ?? []).map((c) => '<tr><td><code>' + escapeHtml(c.id) +
-          '</code></td><td>' + escapeHtml(c.display_name_snapshot) +
-          '</td><td>' + escapeHtml(c.status) + ' / ' + escapeHtml(c.transcode_status) +
-          '</td><td>' + escapeHtml(c.duration_ms ?? '-') +
-          '</td><td>' + escapeHtml(rel(c.raw_audio_path)) + '<br>' + escapeHtml(c.raw_byte_size ?? '-') + ' bytes' +
-          '</td><td>' + escapeHtml(c.stt_job_id ? c.stt_job_status : 'missing') +
-          '</td><td>' + renderAudioControls(c) + '</td></tr>')
-      ));
-
-      setHtml('sttJobs', table(
-        ['job', 'status', 'chunk', 'attempts', 'input', 'sha256'],
-        (state.recentSttJobs ?? []).map((j) => '<tr><td><code>' + escapeHtml(j.id) +
-          '</code></td><td>' + escapeHtml(j.status) +
-          '</td><td><code>' + escapeHtml(j.chunk_id) + '</code><br>' +
-          escapeHtml(j.duration_ms ?? '-') + ' ms / ' + escapeHtml(j.stt_byte_size ?? '-') + ' bytes' +
-          '</td><td>' + escapeHtml(j.attempts) + ' / ' + escapeHtml(j.max_attempts) +
-          '</td><td>' + escapeHtml(rel(j.input_audio_path)) +
-          '</td><td><code>' + escapeHtml(shortHash(j.input_audio_sha256)) + '</code></td></tr>')
-      ));
-
-      setHtml('transcripts', table(
-        ['time', 'speaker', 'speech', 'source/provider/model', 'chunk', 'text'],
-        (state.recentTranscriptSegments ?? []).map((t) => '<tr><td>' +
-          escapeHtml(t.start_ms) + '-' + escapeHtml(t.end_ms) +
-          '</td><td>' + escapeHtml(t.display_name_snapshot) +
-          '</td><td>' + escapeHtml(t.speech_status ?? 'speech') +
-          '</td><td>' + escapeHtml(t.source) + ' / ' + escapeHtml(t.provider) +
-          '<br><code>' + escapeHtml(t.model) + '</code>' +
-          '</td><td><code>' + escapeHtml(t.chunk_id) + '</code></td><td>' +
-          escapeHtml((t.speech_status === 'no_speech' && !t.text) ? '(no speech)' : t.text) + '</td></tr>')
-      ));
-
-      setHtml('aiCleanup', table(
-        ['job', 'status', 'provider/model', 'attempts', 'input', 'error'],
-        (state.recentAiCleanupJobs ?? []).map((j) => '<tr><td><code>' + escapeHtml(j.id) +
-          '</code></td><td>' + escapeHtml(j.status) +
-          '</td><td>' + escapeHtml(j.provider) + '<br><code>' + escapeHtml(j.model) + '</code>' +
-          '</td><td>' + escapeHtml(j.attempts) + ' / ' + escapeHtml(j.max_attempts) +
-          '</td><td>' + escapeHtml(j.input_entry_count) + '<br><code>' + escapeHtml(shortHash(j.input_hash)) + '</code>' +
-          '</td><td>' + escapeHtml(j.failure_kind ?? '') + '<br>' + escapeHtml(j.last_error ?? '') + '</td></tr>')
-      ));
-
-      const draft = state.latestMeetingNotesDraft;
-      setHtml('draftPreview', draft
-        ? '<pre>' + escapeHtml(draft.markdown) + '</pre>'
-        : '<div class="muted">아직 AI cleanup draft가 없습니다.</div>');
-
-      setHtml('notion', renderNotionUpload(state));
+      renderSetupWizard(setupSnapshot);
+      renderSidebar(state, setupSnapshot);
+      renderSetupIncompleteBanner(setupSnapshot);
+      setHtml('statusChips', renderStatusChips(state, setupSnapshot));
+      setHtml('lockedCards', renderLockedCards(setupSnapshot));
+      setHtml('pipeline', renderPhaseFlowCards(state));
+      setHtml('speakers', renderParticipants(state));
+      setHtml('metrics', renderAudioSummary(state));
+      setHtml('chunks', renderAudioRows(state));
+      setHtml('transcripts', renderTranscriptRows(state));
+      setHtml('draftPreview', renderDraftPreview(state));
+      setHtml('dbTabs', renderTabs([
+        ['meeting', 'dashboard.db.tabs.meeting'],
+        ['members', 'dashboard.db.tabs.members'],
+        ['actionItems', 'dashboard.db.tabs.actionItems'],
+        ['customFields', 'dashboard.db.tabs.customFields']
+      ], activeDbTab, 'setDbTab'));
+      setHtml('settingsTabs', renderTabs([
+        ['discord', 'dashboard.settings.tabs.discord'],
+        ['stt', 'dashboard.settings.tabs.stt'],
+        ['ai', 'dashboard.settings.tabs.ai'],
+        ['notion', 'dashboard.settings.tabs.notion'],
+        ['retention', 'dashboard.settings.tabs.retention'],
+        ['aloneFinalize', 'dashboard.settings.tabs.aloneFinalize'],
+        ['reset', 'dashboard.settings.tabs.reset']
+      ], activeSettingsTab, 'setSettingsTab'));
+      setHtml('logFilters', renderTabs([
+        ['all', 'dashboard.logs.filters.all'],
+        ['needsAttention', 'dashboard.logs.filters.needsAttention'],
+        ['recording', 'dashboard.logs.filters.recording'],
+        ['stt', 'dashboard.logs.filters.stt'],
+        ['ai', 'dashboard.logs.filters.ai'],
+        ['notion', 'dashboard.logs.filters.notion'],
+        ['system', 'dashboard.logs.filters.system']
+      ], activeLogFilter, 'setLogFilter'));
+      setHtml('notion', renderDbPanel(state, setupSnapshot));
       if (!notionRulesDirty) {
-        setHtml('notionProperties', renderNotionPropertyRules(state));
+        setHtml('notionProperties', activeDbTab === 'customFields' ? renderNotionPropertyRules(state) : '');
       }
-
-      setHtml('events', table(
-        ['time', 'level', 'event', 'details'],
-        (state.recentConnectionEvents ?? []).map((e) => '<tr><td>' + escapeHtml(e.created_at) +
-          '</td><td class="' + escapeHtml(e.level) + '">' + escapeHtml(e.level) +
-          '</td><td>' + escapeHtml(e.event_type) +
-          '</td><td><code>' + escapeHtml(e.details_json ?? '') + '</code></td></tr>')
-      ));
-
-      setHtml('repairs', table(
-        ['updated', 'severity', 'type', 'status', 'path'],
-        (state.recentRepairItems ?? []).map((r) => '<tr><td>' + escapeHtml(r.updated_at) +
-          '</td><td class="' + escapeHtml(r.severity) + '">' + escapeHtml(r.severity) +
-          '</td><td>' + escapeHtml(r.item_type) +
-          '</td><td>' + escapeHtml(r.status) +
-          '</td><td>' + escapeHtml(rel(r.path)) + '</td></tr>')
-      ));
+      setHtml('settingsPanel', renderSettingsPanel(state, setupSnapshot));
+      setHtml('events', renderEventTimeline(state));
+      setHtml('repairs', renderNeedsAttention(state));
+      setHtml('sttJobs', renderSttJobTable(state));
+      setHtml('aiCleanup', renderAiCleanupTable(state));
+      updateVisibleView();
+    }
+    function titleForView(view) {
+      if (view === 'db') return tr('dashboard.nav.databaseSettings');
+      if (view === 'logs') return tr('dashboard.nav.logs');
+      if (view === 'settings') return tr('dashboard.nav.settings');
+      return tr('dashboard.nav.dashboard');
+    }
+    function renderSidebar(state, setup) {
+      const session = state.currentSession;
+      const hasServer = Boolean(session?.guild_id) || (setup?.features?.discord?.guildAllowlistCount ?? 0) > 0;
+      const serverLabel = hasServer
+        ? tr('dashboard.server.current')
+        : tr('dashboard.server.unselected');
+      setHtml('sidebarServers',
+        '<button type="button" class="server-button">' +
+        '<span>' + escapeHtml(serverLabel) + '</span><span class="muted">' +
+        escapeHtml(session?.guild_id ?? setup?.features?.discord?.guildAllowlistCount ?? '-') + '</span></button>' +
+        '<button type="button" class="server-button" onclick="setActiveView(\'settings\');setSettingsTab(\'discord\')">' +
+        i18n('dashboard.server.add.action') + '</button>'
+      );
+      const nav = [
+        ['dashboard', 'dashboard.nav.dashboard'],
+        ['db', 'dashboard.nav.databaseSettings'],
+        ['logs', 'dashboard.nav.logs'],
+        ['settings', 'dashboard.nav.settings']
+      ].map(([view, key]) => '<button type="button" class="nav-button' +
+        (activeView === view ? ' is-active' : '') + '" onclick="setActiveView(\'' + view + '\')">' +
+        '<span>' + i18n(key) + '</span></button>').join('');
+      setHtml('sectionNav', nav);
+      setHtml('quickActions',
+        '<button type="button" class="nav-button" title="/dirong start는 Discord에서 실행합니다" disabled>' +
+        '<span>' + i18n('dashboard.quick.startRecording') + '</span></button>' +
+        '<button type="button" class="nav-button" onclick="refresh()"><span>' +
+        i18n('dashboard.quick.refreshStatus') + '</span></button>'
+      );
+    }
+    function renderSetupIncompleteBanner(setup) {
+      const root = document.getElementById('setupIncompleteBanner');
+      if (!setup || setup.status === 'ready') {
+        root.classList.remove('is-visible');
+        root.innerHTML = '';
+        return;
+      }
+      root.classList.add('is-visible');
+      root.innerHTML =
+        '<div><strong>' + i18n('dashboard.setupIncomplete.banner.title') + '</strong> ' +
+        '<span>' + i18n('dashboard.setupIncomplete.banner.description') + '</span></div>' +
+        '<button type="button" onclick="setActiveView(\'settings\')">' +
+        i18n('dashboard.setupIncomplete.banner.action') + '</button>';
+    }
+    function renderStatusChips(state, setup) {
+      const chips = [
+        ['recording', 'dashboard.status.recording.label', state.runtime?.isRecording ? 'recording' : setup?.features?.recording?.status],
+        ['stt', 'dashboard.status.stt.label', setup?.features?.stt?.status ?? state.sttAutomation?.status],
+        ['ai', 'dashboard.status.ai.label', setup?.features?.ai?.status ?? state.aiReadiness?.status],
+        ['notion', 'dashboard.status.notion.label', setup?.features?.notion?.status ?? state.notion?.status]
+      ];
+      return chips.map(([_id, labelKey, status]) =>
+        '<span class="status-chip ' + statusTone(status) + '"><span class="status-dot"></span>' +
+        '<span>' + i18n(labelKey) + '</span><strong>' + escapeHtml(statusLabel(status)) +
+        '</strong></span>'
+      ).join('');
+    }
+    function renderLockedCards(setup) {
+      const features = setup?.features;
+      if (!features || setup.status === 'ready') return '';
+      const entries = [
+        ['Discord', features.discord],
+        ['STT', features.stt],
+        ['AI', features.ai],
+        ['Notion', features.notion],
+        ['Recording', features.recording]
+      ].filter(([, feature]) => feature?.status !== 'ready');
+      if (entries.length === 0) return '';
+      return '<div class="section-heading"><h2>' + i18n('dashboard.setupIncomplete.lockedTitle') + '</h2></div>' +
+        '<div class="locked-grid">' + entries.map(([label, feature]) =>
+          '<div class="locked-card"><div class="label">' + escapeHtml(label) + ' · ' +
+          escapeHtml(statusLabel(feature?.status)) + '</div>' + renderHumanDisplay(feature) + '</div>'
+        ).join('') + '</div>';
+    }
+    function renderPhaseFlowCards(state) {
+      return [
+        renderParticipantFlowCard(state),
+        renderRecordingFlowCard(state),
+        renderAiFlowCard(state),
+        renderNotionFlowCard(state)
+      ].join('');
+    }
+    function renderParticipantFlowCard(state) {
+      const speakers = state.speakers ?? [];
+      const humans = speakers.filter((s) => !s.is_bot);
+      const status = humans.length > 0 ? 'ready' : 'idle';
+      return flowCard('dashboard.card.participants.title', status,
+        humans.length > 0
+          ? humans.slice(0, 4).map((s) => escapeHtml(s.display_name_snapshot)).join('<br>')
+          : i18n('dashboard.card.participants.empty')
+      );
+    }
+    function renderRecordingFlowCard(state) {
+      const runtime = state.runtime ?? {};
+      const sttCounts = countStatuses(state.recentSttJobs ?? []);
+      const failed = (sttCounts.get('failed') ?? 0) + (sttCounts.get('failed_missing_file') ?? 0);
+      const status = runtime.isRecording ? 'processing' : state.currentSession ? 'ready' : 'idle';
+      const message = runtime.isRecording
+        ? tr('dashboard.card.recording.active')
+        : state.currentSession
+          ? tr('dashboard.card.recording.ended')
+          : tr('dashboard.card.recording.idle');
+      return flowCard('dashboard.card.recording.title', status,
+        escapeHtml(message) + '<br>' +
+        i18n('dashboard.card.recording.audioFiles', { count: (state.recentChunks ?? []).length }) + '<br>' +
+        i18n('dashboard.card.recording.sttSummary', { done: sttCounts.get('done') ?? 0, failed })
+      );
+    }
+    function renderAiFlowCard(state) {
+      const latestAiJob = (state.recentAiCleanupJobs ?? [])[0];
+      const draft = state.latestMeetingNotesDraft;
+      const status = draft ? 'ready' :
+        ['processing', 'queued'].includes(String(latestAiJob?.status)) ? 'processing' :
+        ['failed', 'blocked'].includes(String(latestAiJob?.status)) ? 'failed' : 'idle';
+      const key = draft ? 'dashboard.card.aiNotes.done' :
+        status === 'processing' ? 'dashboard.card.aiNotes.processing' :
+        status === 'failed' ? 'dashboard.card.aiNotes.failed' :
+        'dashboard.card.aiNotes.waiting';
+      const detail = latestAiJob
+        ? '<div class="muted">' + escapeHtml(latestAiJob.status) + ' / ' + escapeHtml(latestAiJob.provider) + '</div>'
+        : '';
+      return flowCard('dashboard.card.aiNotes.title', status, i18n(key) + detail);
+    }
+    function renderNotionFlowCard(state) {
+      const latest = state.latestNotionWrite;
+      const status = latest?.status === 'done' ? 'ready' :
+        ['processing', 'queued', 'retry_wait'].includes(String(state.notionAutomation?.status ?? latest?.status)) ? 'processing' :
+        ['failed', 'blocked'].includes(String(latest?.status ?? state.notion?.status)) ? 'failed' : 'idle';
+      const key = status === 'ready' ? 'dashboard.card.notionUpload.done' :
+        status === 'processing' ? 'dashboard.card.notionUpload.processing' :
+        status === 'failed' ? 'dashboard.card.notionUpload.failed' :
+        'dashboard.card.notionUpload.waiting';
+      const link = latest?.notion_page_url
+        ? '<div><a href="' + escapeHtml(latest.notion_page_url) + '" target="_blank" rel="noreferrer">' +
+          i18n('dashboard.common.openNotion') + '</a></div>'
+        : '';
+      return flowCard('dashboard.card.notionUpload.title', status, i18n(key) + link);
+    }
+    function flowCard(titleKey, status, body) {
+      return '<article class="flow-card"><div class="flow-card-header"><h3>' + i18n(titleKey) +
+        '</h3><span class="card-state ' + cardStateClass(status) + '"></span></div>' +
+        '<div class="value ' + runtimeValueClass(status) + '">' + body + '</div></article>';
+    }
+    function renderParticipants(state) {
+      const speakers = state.speakers ?? [];
+      if (speakers.length === 0) {
+        return '<div class="muted">' + i18n('dashboard.card.participants.empty') + '</div>';
+      }
+      return '<div class="participant-list">' + speakers.map((s) =>
+        '<div class="participant-item"><div class="value">' + escapeHtml(s.display_name_snapshot) +
+        (s.is_bot ? ' ' + i18n('dashboard.card.participants.botSuffix') : '') +
+        '</div><div class="muted"><code>' + escapeHtml(s.user_id) + '</code></div></div>'
+      ).join('') + '</div>';
+    }
+    function renderAudioSummary(state) {
+      const speakers = (state.speakers ?? []).filter((s) => !s.is_bot);
+      const sttCounts = countStatuses(state.recentSttJobs ?? []);
+      const failed = (sttCounts.get('failed') ?? 0) + (sttCounts.get('failed_missing_file') ?? 0);
+      return '<div class="summary-list">' +
+        speakers.map((s) => '<span class="summary-pill">' +
+          i18n('dashboard.audio.summary.speakerUtterances', { name: s.display_name_snapshot, count: s.chunk_count ?? 0 }) +
+          '</span>').join('') +
+        '<span class="summary-pill">' + i18n('dashboard.audio.summary.sttDone', { count: sttCounts.get('done') ?? 0 }) + '</span>' +
+        '<span class="summary-pill">' + i18n('dashboard.audio.summary.sttFailed', { count: failed }) + '</span></div>';
+    }
+    function renderAudioRows(state) {
+      const rows = (state.recentChunks ?? []).map((c) => '<tr><td>' +
+        escapeHtml(formatMs(c.started_at_ms ?? c.startedAtMs ?? 0)) + '</td><td>' +
+        escapeHtml(c.display_name_snapshot) + '</td><td>' +
+        escapeHtml(c.status) + ' / ' + escapeHtml(c.transcode_status) + '</td><td>' +
+        renderAudioControls(c) + '</td><td><details><summary>' +
+        i18n('dashboard.audio.transcriptToggle') + '</summary><code>' +
+        escapeHtml(c.stt_job_status ?? '-') + '</code></details></td></tr>');
+      return table([
+        tr('dashboard.table.time'),
+        tr('dashboard.table.speaker'),
+        tr('dashboard.table.status'),
+        tr('dashboard.table.playback'),
+        tr('dashboard.table.transcript')
+      ], rows);
+    }
+    function renderTranscriptRows(state) {
+      const rows = (state.recentTranscriptSegments ?? []).slice(0, 8).map((t) =>
+        '<tr><td>' + escapeHtml(formatMs(t.start_ms)) + '</td><td>' +
+        escapeHtml(t.display_name_snapshot) + '</td><td>' +
+        escapeHtml((t.speech_status === 'no_speech' && !t.text) ? '(no speech)' : t.text) +
+        '</td></tr>');
+      return rows.length ? table([
+        tr('dashboard.table.time'),
+        tr('dashboard.table.speaker'),
+        tr('dashboard.table.text')
+      ], rows) : '';
+    }
+    function renderDraftPreview(state) {
+      const draft = state.latestMeetingNotesDraft;
+      return draft
+        ? '<pre>' + escapeHtml(draft.markdown) + '</pre>'
+        : '<div class="muted">' + i18n('dashboard.notes.empty') + '</div>';
+    }
+    function renderDbPanel(state, setup) {
+      if (activeDbTab === 'customFields') {
+        return '<div class="section-heading"><h2>' + i18n('dashboard.db.customFields.title') + '</h2></div>' +
+          '<p class="muted">' + i18n('dashboard.db.customFields.unmanagedNotice') + '</p>';
+      }
+      const role = activeDbTab === 'members' ? 'member' : activeDbTab === 'actionItems' ? 'task' : 'meeting';
+      const registry = state.notion?.managedRegistry ?? setup?.features?.notion?.managedRegistry ?? null;
+      return renderManagedRegistryDetails(registry) + renderRequiredFields(registry, role);
+    }
+    function renderRequiredFields(registry, role) {
+      const database = (registry?.databases ?? []).find((db) => db.role === role);
+      if (!database) {
+        return '<div class="metric"><div class="label">' + i18n('dashboard.db.registry.title') + '</div>' +
+          '<div class="value">' + i18n('dashboard.db.registry.missing') + '</div></div>';
+      }
+      const missing = new Set(database.missingSemanticKeys ?? []);
+      const keys = requiredKeysForRole(role);
+      return '<div style="margin-top:12px"><div class="section-heading"><h2>' +
+        i18n('dashboard.db.requiredFields.title') + '</h2></div>' +
+        '<p class="muted">' + i18n('dashboard.db.requiredFields.info') + '</p>' +
+        '<div class="required-field-grid">' + keys.map((key) => {
+          const isMissing = missing.has(key);
+          return '<div class="required-field' + (isMissing ? ' is-missing' : '') + '">' +
+            '<div class="value">' + escapeHtml(propertyLabel(key)) + '</div><div class="muted">' +
+            (isMissing ? i18n('dashboard.db.requiredFields.missing') : i18n('dashboard.db.requiredFields.normal')) +
+            '</div></div>';
+        }).join('') + '</div>' +
+        (missing.size > 0 ? '<div class="setup-notice">' +
+          '<strong>' + i18n('dashboard.db.requiredFields.missingSummary', { count: missing.size }) + '</strong><br>' +
+          i18n('dashboard.db.requiredFields.repairComingSoon') + '</div>' : '') +
+        '</div>';
+    }
+    function renderSettingsPanel(state, setup) {
+      const featureMap = {
+        discord: setup?.features?.discord,
+        stt: setup?.features?.stt,
+        ai: setup?.features?.ai,
+        notion: setup?.features?.notion,
+        retention: setup?.features?.dataRetention,
+        aloneFinalize: state.aloneFinalize,
+        reset: null
+      };
+      if (activeSettingsTab === 'reset') {
+        return '<div class="metric"><div class="label">' + i18n('dashboard.settings.tabs.reset') + '</div>' +
+          '<div class="value error">' + i18n('dashboard.settings.resetDanger') + '</div></div>';
+      }
+      const theme = setup?.dashboardTheme ?? document.body.dataset.theme ?? 'system';
+      const body = activeSettingsTab === 'retention'
+        ? renderRetentionSettings(setup)
+        : activeSettingsTab === 'aloneFinalize'
+          ? renderAloneFinalize(state.aloneFinalize)
+          : '<div class="metric"><div class="label">' + i18n('dashboard.settings.tabs.' + activeSettingsTab) + '</div>' +
+            renderHumanDisplay(featureMap[activeSettingsTab]) +
+            '<div class="muted">' + i18n('dashboard.settings.secretsHidden') + '</div></div>';
+      return body + renderThemeSettings(theme);
+    }
+    function renderRetentionSettings(setup) {
+      const retention = setup?.features?.dataRetention;
+      const audioPolicy = retention?.deleteAudioAfterNotionUpload === false
+        ? 'dashboard.settings.retention.audioKept'
+        : 'dashboard.settings.retention.audioDeleteAfterNotion';
+      return '<div class="metric"><div class="label">' + i18n('dashboard.settings.tabs.retention') + '</div>' +
+        renderHumanDisplay(retention) +
+        '<div class="muted">' + i18n(audioPolicy) + '<br>' +
+        i18n('dashboard.settings.retention.textDraftDays', {
+          days: retention?.textDraftRetentionDays ?? 30
+        }) + '</div></div>';
+    }
+    function renderThemeSettings(theme) {
+      const options = ['system', 'light', 'dark'].map((value) =>
+        '<label><input type="radio" name="dashboardTheme" value="' + value + '"' +
+        (theme === value ? ' checked' : '') + '> ' + i18n('dashboard.settings.theme.' + value) + '</label>'
+      ).join('');
+      return '<div class="metric" style="margin-top:10px"><div class="label">' +
+        i18n('dashboard.settings.theme.label') + '</div><div class="theme-options">' + options + '</div>' +
+        '<div class="toolbar"><button type="button" onclick="saveDashboardTheme()">' +
+        i18n('dashboard.settings.theme.save') + '</button><span class="muted" id="themeStatus"></span></div></div>';
+    }
+    async function saveDashboardTheme() {
+      const theme = document.querySelector('input[name="dashboardTheme"]:checked')?.value ?? 'system';
+      const statusEl = document.getElementById('themeStatus');
+      if (statusEl) statusEl.textContent = tr('dashboard.common.saving');
+      try {
+        const res = await fetch('/api/settings/theme', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ theme })
+        });
+        const result = await res.json();
+        if (statusEl) statusEl.textContent = result.message ?? result.status;
+        await refresh();
+      } catch (error) {
+        if (statusEl) statusEl.textContent = error instanceof Error ? error.message : String(error);
+      }
+    }
+    function renderNeedsAttention(state) {
+      const repairs = (state.recentRepairItems ?? []).filter((row) => row.status === 'open');
+      if (repairs.length === 0) {
+        return '<div class="muted">' + i18n('dashboard.logs.needsAttention.empty') + '</div>';
+      }
+      return table([
+        tr('dashboard.table.updated'),
+        tr('dashboard.table.area'),
+        tr('dashboard.table.summary'),
+        tr('dashboard.table.nextAction'),
+        tr('dashboard.table.details')
+      ],
+        repairs.map((r) => '<tr><td>' + escapeHtml(r.updated_at) + '</td><td>' +
+          i18n('dashboard.logs.filters.' + logAreaId(r.item_type)) + '</td><td>' +
+          i18n('dashboard.logSummary.repairItem') + '</td><td>' +
+          i18n('dashboard.quick.refreshStatus') + '</td><td>' +
+          rawDetails({
+            type: r.item_type,
+            status: r.status,
+            severity: r.severity,
+            path: r.path,
+            chunkId: r.chunk_id,
+            sttJobId: r.stt_job_id
+          }) + '</td></tr>'));
+    }
+    function renderEventTimeline(state) {
+      const events = filterLogRows(state.recentConnectionEvents ?? []);
+      return table([
+        tr('dashboard.table.time'),
+        tr('dashboard.table.area'),
+        tr('dashboard.table.summary'),
+        tr('dashboard.table.nextAction'),
+        tr('dashboard.logs.details.toggle')
+      ],
+        events.map((e) => '<tr><td>' + escapeHtml(e.created_at) + '</td><td>' +
+          i18n('dashboard.logs.filters.' + logAreaId(e.event_type)) + '</td><td>' + logSummary(e) +
+          '</td><td>' + escapeHtml(nextActionForEvent(e)) + '</td><td><details><summary>' +
+          i18n('dashboard.logs.details.toggle') + '</summary><pre>' +
+          escapeHtml(JSON.stringify({
+            type: e.event_type,
+            level: e.level,
+            sessionId: e.session_id,
+            startedAtMs: e.started_at_ms,
+            endedAtMs: e.ended_at_ms,
+            details: safeJson(e.details_json)
+          }, null, 2)) + '</pre></details></td></tr>'));
+    }
+    function renderSttJobTable(state) {
+      return table([
+        tr('dashboard.table.job'),
+        tr('dashboard.table.status'),
+        tr('dashboard.table.nextAction'),
+        tr('dashboard.table.details')
+      ],
+        (state.recentSttJobs ?? []).map((j) => '<tr><td>' + i18n('dashboard.logSummary.sttJob') +
+          '</td><td>' + escapeHtml(statusLabel(j.status)) + '</td><td>' +
+          escapeHtml(jobNextAction(j.status)) + '</td><td>' +
+          rawDetails({
+            id: j.id,
+            chunkId: j.chunk_id,
+            attempts: j.attempts,
+            maxAttempts: j.max_attempts,
+            inputAudioPath: j.input_audio_path,
+            lastError: j.last_error
+          }) + '</td></tr>'));
+    }
+    function renderAiCleanupTable(state) {
+      return table([
+        tr('dashboard.table.job'),
+        tr('dashboard.table.status'),
+        tr('dashboard.table.nextAction'),
+        tr('dashboard.table.details')
+      ],
+        (state.recentAiCleanupJobs ?? []).map((j) => '<tr><td>' + i18n('dashboard.logSummary.aiJob') +
+          '</td><td>' + escapeHtml(statusLabel(j.status)) + '</td><td>' +
+          escapeHtml(jobNextAction(j.status)) + '</td><td>' +
+          rawDetails({
+            id: j.id,
+            provider: j.provider,
+            model: j.model,
+            attempts: j.attempts,
+            maxAttempts: j.max_attempts,
+            failureKind: j.failure_kind,
+            lastError: j.last_error,
+            promptPath: j.prompt_path,
+            rawOutputPath: j.raw_output_path,
+            stderrPath: j.stderr_path
+          }) + '</td></tr>'));
+    }
+    function renderTabs(items, active, handlerName) {
+      return items.map(([id, key]) => '<button type="button" class="tab-button' +
+        (active === id ? ' is-active' : '') + '" onclick="' + handlerName + '(\'' + id + '\')">' +
+        i18n(key) + '</button>').join('');
+    }
+    function statusLabel(status) {
+      const normalized = String(status ?? 'idle');
+      const map = {
+        ready: 'dashboard.status.value.ready',
+        connected: 'dashboard.status.value.connected',
+        checking: 'dashboard.status.value.checking',
+        countdown: 'dashboard.status.value.processing',
+        processing: 'dashboard.status.value.processing',
+        running: 'dashboard.status.value.processing',
+        queued: 'dashboard.status.value.processing',
+        warning: 'dashboard.status.value.warning',
+        blocked: 'dashboard.status.value.blocked',
+        repair_required: 'dashboard.status.value.warning',
+        not_configured: 'dashboard.status.value.notConfigured',
+        idle: 'dashboard.status.value.idle',
+        recording: 'dashboard.status.value.recording',
+        done: 'dashboard.status.value.done',
+        failed: 'dashboard.status.value.failed',
+        failed_missing_file: 'dashboard.status.value.failed',
+        not_installed: 'dashboard.status.value.notConfigured',
+        partial: 'dashboard.status.value.warning',
+        missing: 'dashboard.status.value.notConfigured',
+        retry_wait: 'dashboard.status.value.processing',
+        disabled: 'dashboard.status.value.disabled',
+        manual: 'dashboard.status.value.manual'
+      };
+      return tr(map[normalized] ?? map.idle);
+    }
+    function statusTone(status) {
+      const value = String(status ?? '');
+      if (['ready', 'done', 'connected'].includes(value)) return 'tone-ready';
+      if (['running', 'queued', 'processing', 'checking', 'recording', 'retry_wait'].includes(value)) return 'tone-progress';
+      if (['partial'].includes(value)) return 'tone-progress';
+      if (['failed', 'blocked', 'not_configured', 'repair_required'].includes(value)) return 'tone-danger';
+      return 'tone-muted';
+    }
+    function cardStateClass(status) {
+      const tone = statusTone(status);
+      if (tone === 'tone-ready') return 'card-state-ready';
+      if (tone === 'tone-progress') return 'card-state-progress';
+      if (tone === 'tone-danger') return 'card-state-danger';
+      return 'card-state-muted';
+    }
+    function filterLogRows(rows) {
+      if (activeLogFilter === 'all') return rows;
+      if (activeLogFilter === 'needsAttention') {
+        return rows.filter((row) => ['error', 'warn', 'warning'].includes(String(row.level)));
+      }
+      return rows.filter((row) => logAreaId(row.event_type) === activeLogFilter);
+    }
+    function logAreaId(type) {
+      const text = String(type ?? '').toLowerCase();
+      if (text.includes('stt')) return 'stt';
+      if (text.includes('ai')) return 'ai';
+      if (text.includes('notion')) return 'notion';
+      if (text.includes('chunk') || text.includes('voice') || text.includes('record')) return 'recording';
+      return 'system';
+    }
+    function nextActionForEvent(event) {
+      return ['error', 'warn', 'warning'].includes(String(event.level))
+        ? tr('dashboard.quick.refreshStatus')
+        : tr('dashboard.common.none');
+    }
+    function logSummary(event) {
+      return ['error', 'warn', 'warning'].includes(String(event.level))
+        ? i18n('dashboard.logSummary.attentionEvent')
+        : i18n('dashboard.logSummary.normalEvent');
+    }
+    function jobNextAction(status) {
+      return ['failed', 'blocked', 'failed_missing_file'].includes(String(status))
+        ? tr('dashboard.quick.refreshStatus')
+        : tr('dashboard.common.none');
+    }
+    function safeJson(value) {
+      if (!value) return null;
+      try {
+        return JSON.parse(value);
+      } catch (_error) {
+        return value;
+      }
+    }
+    function rawDetails(value) {
+      return '<details><summary>' + i18n('dashboard.logs.details.toggle') +
+        '</summary><pre>' + escapeHtml(JSON.stringify(value, null, 2)) + '</pre></details>';
+    }
+    function requiredKeysForRole(role) {
+      if (role === 'member') {
+        return ['member.discordName', 'member.notionPerson', 'member.organization', 'member.roles'];
+      }
+      if (role === 'task') {
+        return ['task.title', 'task.meeting', 'task.workerRelation', 'task.assignee', 'task.role', 'task.dueDate', 'task.status', 'task.evidence', 'task.sourceActionId'];
+      }
+      return ['meeting.title', 'meeting.date', 'meeting.time', 'meeting.channel', 'meeting.memberRelation', 'meeting.participants', 'meeting.actionItems', 'meeting.status', 'meeting.sessionId', 'meeting.draftId', 'meeting.contentHash', 'meeting.localStatus'];
+    }
+    function propertyLabel(key) {
+      const catalogKey = 'dashboard.db.requiredFields.labels.' + key;
+      const label = tr(catalogKey);
+      return label === catalogKey ? key : label;
+    }
+    function formatMs(ms) {
+      const value = Number(ms ?? 0);
+      const totalSeconds = Math.max(0, Math.floor(value / 1000));
+      const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
+      const seconds = String(totalSeconds % 60).padStart(2, '0');
+      return minutes + ':' + seconds;
     }
     function setHtml(id, html) {
       if (sectionCache.get(id) === html) {
@@ -1081,22 +1937,31 @@
       }
       const rows = databases.map((database) =>
         '<tr><td>' + escapeHtml(database.expectedName ?? database.role) + '</td>' +
-        '<td>' + escapeHtml(database.ready ? 'ready' : database.hasDatabase ? 'partial' : 'missing') + '</td>' +
+        '<td>' + escapeHtml(statusLabel(database.ready ? 'ready' : database.hasDatabase ? 'partial' : 'missing')) + '</td>' +
         '<td>' + escapeHtml((database.mappingCount ?? 0) + ' / ' + (database.expectedMappingCount ?? 0)) + '</td>' +
-        '<td>' + (database.url ? '<a href="' + escapeHtml(database.url) + '" target="_blank" rel="noreferrer">열기</a>' : '-') + '</td></tr>'
+        '<td>' + (database.url ? '<a href="' + escapeHtml(database.url) + '" target="_blank" rel="noreferrer">' +
+          i18n('dashboard.common.openNotion') + '</a>' : '-') + '</td></tr>'
       ).join('');
       const workspace = registry.workspace?.parentPageUrl
-        ? '<div class="muted">parent page: <a href="' + escapeHtml(registry.workspace.parentPageUrl) + '" target="_blank" rel="noreferrer">열기</a></div>'
+        ? '<div class="muted">' + i18n('dashboard.db.registry.parentPage') + ': <a href="' +
+          escapeHtml(registry.workspace.parentPageUrl) + '" target="_blank" rel="noreferrer">' +
+          i18n('dashboard.common.openNotion') + '</a></div>'
         : '';
       const actionItems = registry.status === 'ready'
-        ? '<div class="muted">' + escapeHtml(registry.actionItemUpload?.message ?? '액션 아이템 DB 생성됨, 액션 아이템 업로드는 후속입니다.') + '</div>'
+        ? '<div class="muted">' + escapeHtml(registry.actionItemUpload?.message ?? tr('dashboard.db.registry.actionItemsReady')) + '</div>'
         : '';
       return '<div style="margin-top:10px">' +
-        '<div class="label">managed registry · ' + escapeHtml(registry.status) +
-        ' · DB ' + escapeHtml((registry.databaseCount ?? 0) + '/' + (registry.expectedDatabaseCount ?? 3)) +
-        ' · mappings ' + escapeHtml((registry.propertyMappingCount ?? 0) + '/' + (registry.expectedPropertyMappingCount ?? 0)) + '</div>' +
+        '<div class="label">' + i18n('dashboard.db.registry.title') + ' · ' + escapeHtml(statusLabel(registry.status)) + '</div>' +
+        '<div class="muted">' + i18n('dashboard.db.registry.summary', {
+          databaseCount: registry.databaseCount ?? 0,
+          expectedDatabaseCount: registry.expectedDatabaseCount ?? 3,
+          mappingCount: registry.propertyMappingCount ?? 0,
+          expectedMappingCount: registry.expectedPropertyMappingCount ?? 0
+        }) + '</div>' +
         workspace +
-        (rows ? '<table><thead><tr><th>DB</th><th>상태</th><th>mapping</th><th>Notion</th></tr></thead><tbody>' + rows + '</tbody></table>' : '') +
+        (rows ? '<table><thead><tr><th>' + i18n('dashboard.table.database') + '</th><th>' +
+          i18n('dashboard.table.status') + '</th><th>' + i18n('dashboard.db.registry.fieldMappings') +
+          '</th><th>' + i18n('dashboard.table.notion') + '</th></tr></thead><tbody>' + rows + '</tbody></table>' : '') +
         actionItems + '</div>';
     }
     function renderNotionMetric(state) {
@@ -1122,32 +1987,45 @@
       const notion = state.notion;
       const custom = notion?.customProperties;
       if (!custom) {
-        return '<div class="metric"><div class="label">notion properties · unavailable</div>' +
-          '<div class="value">Notion 속성 설정을 아직 불러오지 못했습니다.</div></div>';
+        return '<div class="metric"><div class="label">' + i18n('dashboard.db.customFields.unavailable.label') + '</div>' +
+          '<div class="value">' + i18n('dashboard.db.customFields.unavailable.body') + '</div></div>';
       }
       const disabled = notion.status !== 'ready';
       const rows = (custom.rules ?? []).map((rule) => renderNotionPropertyRuleRow(rule, custom));
       const ruleTable = '<table id="notionPropertyRulesTable"><thead><tr>' +
-        ['on', 'property', 'type', 'source', 'description', 'limit', 'seen', ''].map((h) => '<th>' + escapeHtml(h) + '</th>').join('') +
+        [
+          'dashboard.db.customFields.columns.enabled',
+          'dashboard.db.customFields.columns.property',
+          'dashboard.db.customFields.columns.type',
+          'dashboard.db.customFields.columns.source',
+          'dashboard.db.customFields.columns.description',
+          'dashboard.db.customFields.columns.limit',
+          'dashboard.db.customFields.columns.lastSeen',
+          'dashboard.db.customFields.columns.actions'
+        ].map((key) => '<th>' + i18n(key) + '</th>').join('') +
         '</tr></thead><tbody>' + rows.join('') + '</tbody></table>';
       const preview = custom.promptPreview
-        ? '<details><summary class="muted">prompt preview</summary><pre>' + escapeHtml(custom.promptPreview) + '</pre></details>'
+        ? '<details><summary class="muted">' + i18n('dashboard.db.customFields.promptPreview') + '</summary><pre>' + escapeHtml(custom.promptPreview) + '</pre></details>'
         : '';
       const action = custom.userAction
         ? '<div class="value">' + escapeHtml(custom.userAction) + '</div>'
         : '';
       return '<div class="metric">' +
-        '<div class="label">custom properties · ' + escapeHtml(custom.enabledCount ?? 0) + ' enabled</div>' +
+        '<div class="label">' + i18n('dashboard.db.customFields.title') + ' · ' +
+        i18n('dashboard.db.customFields.enabledCount', { count: custom.enabledCount ?? 0 }) + '</div>' +
         '<div class="value">' + escapeHtml(custom.message) + '</div>' +
         action +
         '<div class="toolbar">' +
-        '<button type="button"' + (disabled ? ' disabled' : '') + ' onclick="syncNotionProperties()">스키마 다시 불러오기</button>' +
-        '<button type="button" onclick="addNotionPropertyRule()">추가</button>' +
-        '<button type="button" onclick="saveNotionPropertyRules()">저장</button>' +
-        '<button type="button"' + (disabled ? ' disabled' : '') + ' onclick="inspectNotionSchema()">스키마 검사</button>' +
-        '<button type="button"' + (disabled ? ' disabled' : '') + ' onclick="applyNotionSchema()">스키마 맞추기</button>' +
-        '<label class="muted"><input type="checkbox" id="notionSchemaUpdateTypes"> 타입 변경</label>' +
-        '<label class="muted"><input type="checkbox" id="notionSchemaDeleteExtra"> 관리 외 삭제</label>' +
+        '<button type="button"' + (disabled ? ' disabled' : '') + ' onclick="syncNotionProperties()">' +
+        i18n('dashboard.db.customFields.actions.refresh') + '</button>' +
+        '<button type="button" onclick="addNotionPropertyRule()">' + i18n('dashboard.db.customFields.actions.add') + '</button>' +
+        '<button type="button" onclick="saveNotionPropertyRules()">' + i18n('dashboard.db.customFields.actions.save') + '</button>' +
+        '<button type="button"' + (disabled ? ' disabled' : '') + ' onclick="inspectNotionSchema()">' +
+        i18n('dashboard.db.customFields.actions.inspect') + '</button>' +
+        '<button type="button"' + (disabled ? ' disabled' : '') + ' onclick="applyNotionSchema()">' +
+        i18n('dashboard.db.customFields.actions.apply') + '</button>' +
+        '<label class="muted"><input type="checkbox" id="notionSchemaUpdateTypes"> ' +
+        i18n('dashboard.db.customFields.actions.updateTypes') + '</label>' +
         '<span class="muted" id="notionPropertyStatus"></span>' +
         '</div>' + ruleTable + renderNotionSchemaResult(notionSchemaResult) + preview + '</div>';
     }
@@ -1170,25 +2048,31 @@
         escapeHtml(rule.maxLength ?? 1000) + '" oninput="markNotionRulesDirty()"></td>' +
         '<td class="muted">' + escapeHtml(rule.lastSeenAt ?? '-') + '</td>' +
         '<td><button type="button" onclick="deleteNotionRuleRow(this)"' +
-        (locked ? ' disabled title="기본 Members 규칙은 삭제할 수 없습니다."' : '') + '>삭제</button></td></tr>';
+        (locked ? ' disabled title="' + i18n('dashboard.db.customFields.protectedDelete') + '"' : '') + '>' +
+        i18n('dashboard.db.customFields.actions.remove') + '</button></td></tr>';
     }
     function renderPropertyTypeSelect(currentType, supportedTypes, disabled = false) {
       const types = supportedTypes.length ? supportedTypes : ['rich_text', 'select', 'multi_select', 'checkbox', 'date', 'relation'];
       const options = types.map((type) =>
         '<option value="' + escapeHtml(type) + '"' + (type === currentType ? ' selected' : '') + '>' +
-        escapeHtml(type) + '</option>'
+        escapeHtml(propertyTypeLabel(type)) + '</option>'
       );
       if (!types.includes(currentType)) {
         options.unshift('<option value="' + escapeHtml(currentType) + '" selected>' +
-          escapeHtml(currentType) + '</option>');
+          escapeHtml(propertyTypeLabel(currentType)) + '</option>');
       }
       return '<select data-field="propertyType" onchange="onNotionPropertyTypeChange(this)"' +
         (disabled ? ' disabled' : '') + '>' + options.join('') + '</select>';
     }
+    function propertyTypeLabel(type) {
+      const catalogKey = 'dashboard.db.customFields.type.' + type;
+      const label = tr(catalogKey);
+      return label === catalogKey ? type : label;
+    }
     function renderValueSourceSelect(currentSource, disabled = false) {
       const sources = [
-        ['ai', 'AI'],
-        ['participants', '참가자']
+        ['ai', tr('dashboard.db.customFields.source.ai')],
+        ['participants', tr('dashboard.db.customFields.source.participants')]
       ];
       return '<select data-field="valueSource" onchange="markNotionRulesDirty()"' +
         (disabled ? ' disabled' : '') + '>' +
@@ -1203,17 +2087,18 @@
         escapeHtml(rule.relationDataSourceId ?? '') + '">' +
         '<input type="hidden" data-field="relationTargetPageId" value="' +
         escapeHtml(rule.relationTargetPageId ?? '') + '">' +
-        '<label class="muted">대상 DB/data source URL' +
+        '<label class="muted">' + i18n('dashboard.db.customFields.relation.targetDatabaseUrl') +
         '<input type="text" data-field="relationTargetUrl" value="' + escapeHtml(rule.relationTargetUrl ?? '') +
         '" oninput="markNotionRulesDirty()"></label>' +
-        '<label class="muted">대상 page URL' +
+        '<label class="muted">' + i18n('dashboard.db.customFields.relation.targetPageUrl') +
         '<input type="text" data-field="relationTargetPageUrl" value="' + escapeHtml(rule.relationTargetPageUrl ?? '') +
         '" oninput="markNotionRulesDirty()"></label>' +
-        '<label class="muted">매칭 속성' +
+        '<label class="muted">' + i18n('dashboard.db.customFields.relation.matchProperty') +
         '<input type="text" data-field="relationMatchPropertyName" value="' +
         escapeHtml(rule.relationMatchPropertyName ?? 'Name') + '" oninput="markNotionRulesDirty()"></label>' +
         '<label class="muted"><input type="checkbox" data-field="relationAutoCreate"' +
-        (rule.relationAutoCreate ? ' checked' : '') + ' onchange="markNotionRulesDirty()"> 못 찾으면 새 페이지 만들기</label>' +
+        (rule.relationAutoCreate ? ' checked' : '') + ' onchange="markNotionRulesDirty()"> ' +
+        i18n('dashboard.db.customFields.relation.autoCreate') + '</label>' +
         '</div>';
     }
     function onNotionPropertyTypeChange(select) {
@@ -1254,7 +2139,7 @@
       if (!row) return;
       if (row.getAttribute('data-protected-rule') === 'true') {
         const statusEl = document.getElementById('notionPropertyStatus');
-        if (statusEl) statusEl.textContent = 'Members 규칙은 삭제할 수 없습니다.';
+        if (statusEl) statusEl.textContent = tr('dashboard.db.customFields.protectedDelete');
         return;
       }
       const original = row.getAttribute('data-original-property-name') ?? '';
@@ -1268,7 +2153,7 @@
     }
     async function syncNotionProperties() {
       const statusEl = document.getElementById('notionPropertyStatus');
-      if (statusEl) statusEl.textContent = 'syncing...';
+      if (statusEl) statusEl.textContent = tr('dashboard.db.customFields.status.syncing');
       try {
         const res = await fetch('/api/notion/properties/sync', {
           method: 'POST',
@@ -1277,7 +2162,7 @@
         });
         const result = await res.json();
         notionRulesDirty = false;
-        if (statusEl) statusEl.textContent = result.status + ': ' + result.message;
+        if (statusEl) statusEl.textContent = actionStatusText(result);
         refresh();
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -1294,19 +2179,50 @@
         : '';
       if (!diff) {
         return '<div style="margin-top:10px"><div class="value ' + runtimeValueClass(result.status) + '">' +
-          escapeHtml(result.status + ': ' + result.message) + '</div>' + warnings + '</div>';
+          escapeHtml(actionStatusText(result)) + '</div>' + warnings + '</div>';
       }
       const rows = []
-        .concat((diff.missing ?? []).map((item) => schemaRow('누락', item.propertyName, item.propertyType, item.source)))
-        .concat((diff.renames ?? []).map((item) => schemaRow('이름변경', item.fromName + ' -> ' + item.toName, item.propertyType, item.source)))
-        .concat((diff.wrongType ?? []).map((item) => schemaRow('타입불일치', item.propertyName, item.actualType + ' -> ' + item.expectedType, item.canUpdate ? '자동 가능' : '수동 필요')))
-        .concat((diff.missingOptions ?? []).map((item) => schemaRow('옵션누락', item.propertyName, item.missingOptions.join(', '), item.canUpdate ? '자동 가능' : '수동 필요')))
-        .concat((diff.extra ?? []).map((item) => schemaRow('관리외', item.propertyName, item.propertyType, item.canDelete ? '삭제 가능' : '보존')));
+        .concat((diff.missing ?? []).map((item) => schemaRow(
+          tr('dashboard.db.customFields.schemaResult.categories.missing'),
+          item.propertyName,
+          propertyTypeLabel(item.propertyType),
+          tr('dashboard.db.customFields.schemaResult.handling.autoPossible')
+        )))
+        .concat((diff.renames ?? []).map((item) => schemaRow(
+          tr('dashboard.db.customFields.schemaResult.categories.rename'),
+          item.fromName + ' -> ' + item.toName,
+          propertyTypeLabel(item.propertyType),
+          tr('dashboard.db.customFields.schemaResult.handling.autoPossible')
+        )))
+        .concat((diff.wrongType ?? []).map((item) => schemaRow(
+          tr('dashboard.db.customFields.schemaResult.categories.wrongType'),
+          item.propertyName,
+          propertyTypeLabel(item.actualType) + ' -> ' + propertyTypeLabel(item.expectedType),
+          item.canUpdate ? tr('dashboard.db.customFields.schemaResult.handling.autoPossible') : tr('dashboard.db.customFields.schemaResult.handling.manualNeeded')
+        )))
+        .concat((diff.missingOptions ?? []).map((item) => schemaRow(
+          tr('dashboard.db.customFields.schemaResult.categories.missingOptions'),
+          item.propertyName,
+          item.missingOptions.join(', '),
+          item.canUpdate ? tr('dashboard.db.customFields.schemaResult.handling.autoPossible') : tr('dashboard.db.customFields.schemaResult.handling.manualNeeded')
+        )))
+        .concat((diff.extra ?? []).map((item) => schemaRow(
+          tr('dashboard.db.customFields.schemaResult.categories.extra'),
+          item.propertyName,
+          propertyTypeLabel(item.propertyType),
+          tr('dashboard.db.customFields.schemaResult.handling.preserved')
+        )));
       const detail = rows.length
-        ? table(['구분', '속성', '타입/내용', '처리'], rows)
-        : '<div class="muted">스키마가 맞습니다.</div>';
+        ? table([
+            tr('dashboard.table.summary'),
+            tr('dashboard.db.customFields.columns.property'),
+            tr('dashboard.db.customFields.columns.type'),
+            tr('dashboard.table.nextAction')
+          ], rows)
+        : '<div class="muted">' + i18n('dashboard.db.customFields.schemaResult.ok') + '</div>';
       return '<div style="margin-top:10px">' +
-        '<div class="label">schema · ' + escapeHtml(result.status) + '</div>' +
+        '<div class="label">' + i18n('dashboard.db.customFields.schemaResult.title') + ' · ' +
+        escapeHtml(statusLabel(result.status)) + '</div>' +
         '<div class="value ' + runtimeValueClass(result.status) + '">' + escapeHtml(result.message) + '</div>' +
         (result.userAction ? '<div class="muted">' + escapeHtml(result.userAction) + '</div>' : '') +
         warnings + detail + '</div>';
@@ -1315,9 +2231,14 @@
       return '<tr><td>' + escapeHtml(kind) + '</td><td>' + escapeHtml(property) +
         '</td><td>' + escapeHtml(type) + '</td><td>' + escapeHtml(handling) + '</td></tr>';
     }
+    function actionStatusText(result) {
+      const label = statusLabel(result?.status);
+      const message = result?.message ?? '';
+      return message ? label + ': ' + message : label;
+    }
     async function saveNotionPropertyRules(options = {}) {
       const statusEl = document.getElementById('notionPropertyStatus');
-      if (statusEl) statusEl.textContent = 'saving...';
+      if (statusEl) statusEl.textContent = tr('dashboard.db.customFields.status.saving');
       const rules = Array.from(document.querySelectorAll('[data-notion-rule-row]')).map((row) => ({
         originalPropertyName: row.getAttribute('data-original-property-name') || null,
         propertyName: row.querySelector('[data-field="propertyName"]')?.value ?? '',
@@ -1342,7 +2263,7 @@
         });
         const result = await res.json();
         notionRulesDirty = false;
-        if (statusEl) statusEl.textContent = result.status + ': ' + result.message;
+        if (statusEl) statusEl.textContent = actionStatusText(result);
         if (options.refresh !== false) {
           refresh();
         }
@@ -1355,7 +2276,7 @@
     }
     async function inspectNotionSchema() {
       const statusEl = document.getElementById('notionPropertyStatus');
-      if (statusEl) statusEl.textContent = 'checking schema...';
+      if (statusEl) statusEl.textContent = tr('dashboard.db.customFields.status.checking');
       try {
         if (notionRulesDirty) {
           await saveNotionPropertyRules({ refresh: false });
@@ -1366,7 +2287,7 @@
           body: '{}'
         });
         notionSchemaResult = await res.json();
-        if (statusEl) statusEl.textContent = notionSchemaResult.status + ': ' + notionSchemaResult.message;
+        if (statusEl) statusEl.textContent = actionStatusText(notionSchemaResult);
         notionRulesDirty = false;
         refresh();
       } catch (error) {
@@ -1376,20 +2297,16 @@
     }
     async function applyNotionSchema() {
       const statusEl = document.getElementById('notionPropertyStatus');
-      if (statusEl) statusEl.textContent = 'applying schema...';
+      if (statusEl) statusEl.textContent = tr('dashboard.db.customFields.status.applying');
       try {
         if (notionRulesDirty) {
           await saveNotionPropertyRules({ refresh: false });
         }
-        const deleteExtra = document.getElementById('notionSchemaDeleteExtra')?.checked === true;
-        const confirmDeleteExtra = deleteExtra
-          ? window.confirm('관리 외 Notion 속성을 삭제합니다. 해당 컬럼 값도 사라질 수 있습니다. 계속할까요?')
-          : false;
         const body = {
           createMissing: true,
           updateTypes: document.getElementById('notionSchemaUpdateTypes')?.checked === true,
-          deleteExtra,
-          confirmDeleteExtra
+          deleteExtra: false,
+          confirmDeleteExtra: false
         };
         const res = await fetch('/api/notion/schema/apply', {
           method: 'POST',
@@ -1397,7 +2314,7 @@
           body: JSON.stringify(body)
         });
         notionSchemaResult = await res.json();
-        if (statusEl) statusEl.textContent = notionSchemaResult.status + ': ' + notionSchemaResult.message;
+        if (statusEl) statusEl.textContent = actionStatusText(notionSchemaResult);
         notionRulesDirty = false;
         refresh();
       } catch (error) {
@@ -1433,26 +2350,30 @@
         return '';
       }
       const countdown = aloneFinalize.status === 'countdown' && aloneFinalize.remainingMs !== null
-        ? '<div class="muted">자동 종료까지 ' + escapeHtml(Math.ceil(aloneFinalize.remainingMs / 1000)) + '초</div>'
+        ? '<div class="muted">' + i18n('dashboard.settings.aloneFinalize.countdown', {
+            seconds: Math.ceil(aloneFinalize.remainingMs / 1000)
+          }) + '</div>'
         : '';
       const warnings = aloneFinalize.warnings?.length
         ? '<div class="warn">' + aloneFinalize.warnings.map(escapeHtml).join(', ') + '</div>'
         : '';
       return '<div class="metric" style="margin-bottom:10px">' +
-        '<div class="label">alone finalize · ' + escapeHtml(aloneFinalize.status) +
-        ' · ' + escapeHtml(aloneFinalize.checkedAt ?? 'not checked') +
+        '<div class="label">' + i18n('dashboard.settings.aloneFinalize.title') + ' · ' +
+        escapeHtml(statusLabel(aloneFinalize.status)) + ' · ' +
+        i18n('dashboard.settings.aloneFinalize.checkedAt') + ': ' +
+        escapeHtml(aloneFinalize.checkedAt ?? tr('dashboard.settings.aloneFinalize.notChecked')) +
         '</div>' + renderHumanDisplay(aloneFinalize) +
         countdown + warnings + '</div>';
     }
     function renderAudioControls(c) {
       if (!(c.raw_byte_size > 0) || c.status === 'writing') {
-        return '<span class="muted">pending</span>';
+        return '<span class="muted">' + i18n('dashboard.audio.playback.pending') + '</span>';
       }
       const encoded = encodeURIComponent(c.id);
       const stt = c.stt_audio_path && c.stt_byte_size > 0
-        ? '<div class="label">STT-safe</div><audio controls preload="metadata" src="/audio/' + encoded + '/stt"></audio>'
+        ? '<div class="label">' + i18n('dashboard.audio.playback.sttSafe') + '</div><audio controls preload="metadata" src="/audio/' + encoded + '/stt"></audio>'
         : '';
-      return stt + '<div class="label">Raw</div><audio controls preload="metadata" src="/audio/' + encoded + '/raw"></audio>';
+      return stt + '<div class="label">' + i18n('dashboard.audio.playback.raw') + '</div><audio controls preload="metadata" src="/audio/' + encoded + '/raw"></audio>';
     }
     function shortHash(value) {
       if (!value) return '';

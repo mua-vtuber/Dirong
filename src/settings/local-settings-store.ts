@@ -12,6 +12,9 @@ import type { SttProviderName } from "./app-settings.js";
 export const DIRONG_LOCALES = ["ko", "en"] as const;
 export type DirongLocale = (typeof DIRONG_LOCALES)[number];
 export const DEFAULT_DIRONG_LOCALE: DirongLocale = "ko";
+export const DIRONG_DASHBOARD_THEMES = ["system", "light", "dark"] as const;
+export type DirongDashboardTheme = (typeof DIRONG_DASHBOARD_THEMES)[number];
+export const DEFAULT_DIRONG_DASHBOARD_THEME: DirongDashboardTheme = "system";
 export type AiProviderName = "claude";
 export type AiProviderMode = "cli" | "api";
 
@@ -44,6 +47,7 @@ export type DirongLocalSettings = {
   schemaVersion: 1;
   app: {
     locale?: DirongLocale;
+    dashboardTheme?: DirongDashboardTheme;
   };
   discord: {
     applicationId?: string;
@@ -71,6 +75,7 @@ export const DEFAULT_LOCAL_SETTINGS: DirongLocalSettings = {
   schemaVersion: 1,
   app: {
     locale: DEFAULT_DIRONG_LOCALE,
+    dashboardTheme: DEFAULT_DIRONG_DASHBOARD_THEME,
   },
   discord: {},
   stt: {},
@@ -133,6 +138,8 @@ export function normalizeLocalSettings(value: unknown): DirongLocalSettings {
     schemaVersion: 1,
     app: {
       locale: readLocale(app.locale) ?? defaults.app.locale,
+      dashboardTheme:
+        readDashboardTheme(app.dashboardTheme) ?? defaults.app.dashboardTheme,
     },
     discord: {
       applicationId: readString(discord.applicationId),
@@ -225,6 +232,16 @@ function readLocale(value: unknown): DirongLocale | undefined {
 
 export function isDirongLocale(value: unknown): value is DirongLocale {
   return DIRONG_LOCALES.includes(value as DirongLocale);
+}
+
+export function isDirongDashboardTheme(
+  value: unknown,
+): value is DirongDashboardTheme {
+  return DIRONG_DASHBOARD_THEMES.includes(value as DirongDashboardTheme);
+}
+
+function readDashboardTheme(value: unknown): DirongDashboardTheme | undefined {
+  return isDirongDashboardTheme(value) ? value : undefined;
 }
 
 function readSttProvider(value: unknown): SttProviderName | undefined {

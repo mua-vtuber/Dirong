@@ -12,6 +12,7 @@ test("LocalSettingsStore returns safe defaults when settings file is missing", (
     const settings = store.read();
 
     assert.equal(settings.app.locale, "ko");
+    assert.equal(settings.app.dashboardTheme, "system");
     assert.equal(settings.recording.aloneFinalizeEnabled, true);
     assert.equal(settings.retention.textDraftRetentionDays, 30);
     assert.equal(settings.discord.applicationId, undefined);
@@ -64,6 +65,22 @@ test("LocalSettingsStore reads and persists the app locale", () => {
 
     assert.equal(saved.app.locale, "en");
     assert.equal(store.read().app.locale, "en");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("LocalSettingsStore reads and persists dashboard theme", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-settings-"));
+  try {
+    const store = new LocalSettingsStore(path.join(dir, "settings.json"));
+    const saved = store.update((settings) => ({
+      ...settings,
+      app: { ...settings.app, dashboardTheme: "dark" },
+    }));
+
+    assert.equal(saved.app.dashboardTheme, "dark");
+    assert.equal(store.read().app.dashboardTheme, "dark");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

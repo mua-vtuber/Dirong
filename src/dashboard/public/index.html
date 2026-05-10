@@ -527,7 +527,7 @@
       --paper-muted: #665737;
       --paper-faint: #8b7c58;
       --paper-line: rgba(33, 26, 16, 0.55);
-      --card-line: #b45f17;
+      --card-line: #211a10;
       --inner-frame-line: #211a10;
       --sidebar: #16120d;
       --sidebar-line: #443820;
@@ -578,7 +578,7 @@
       --paper-muted: #594b31;
       --paper-faint: #756742;
       --paper-line: rgba(29, 23, 13, 0.36);
-      --card-line: #d18424;
+      --card-line: #120f0b;
       --inner-frame-line: #120f0b;
       --sidebar: #080705;
       --sidebar-line: #2f2818;
@@ -628,7 +628,7 @@
         --paper-muted: #594b31;
         --paper-faint: #756742;
         --paper-line: rgba(29, 23, 13, 0.36);
-        --card-line: #d18424;
+        --card-line: #120f0b;
         --inner-frame-line: #120f0b;
         --sidebar: #080705;
         --sidebar-line: #2f2818;
@@ -1284,6 +1284,28 @@
     #dbPanel table {
       border: 1.5px solid var(--inner-frame-line);
     }
+    .brand-avatar,
+    .nav-button:hover,
+    .server-button:hover,
+    .nav-button.is-active,
+    body[data-theme="dark"] .nav-button:hover,
+    body[data-theme="dark"] .server-button:hover,
+    body[data-theme="dark"] .nav-button.is-active,
+    .setup-step.is-active,
+    .setup-card.is-selected,
+    .status-chip.tone-progress {
+      border-color: var(--inner-frame-line);
+    }
+    .setup-card.is-selected {
+      box-shadow: inset 0 0 0 1px var(--inner-frame-line);
+    }
+    .setup-notice:not(.setup-ok) {
+      border-left-color: var(--inner-frame-line);
+    }
+    .tab-button.is-active,
+    body[data-theme="dark"] .tab-button.is-active {
+      box-shadow: 0 3px 0 var(--inner-frame-line);
+    }
     @media (max-width: 860px) {
       .app-shell { grid-template-columns: 1fr; }
       .sidebar {
@@ -1319,7 +1341,7 @@
       .sticky-warning button { min-width: 94px; }
       .tab-row { padding-bottom: 8px; }
       .tab-button { border: 1px solid var(--line); border-radius: 0; }
-      .tab-button.is-active { box-shadow: 0 2px 0 var(--accent); }
+      .tab-button.is-active { box-shadow: 0 2px 0 var(--inner-frame-line); }
     }
   </style>
 </head>

@@ -4,6 +4,8 @@ export type JsonObject = Record<string, unknown>;
 
 export type NotionDatabaseResponse = JsonObject;
 export type NotionDataSourceResponse = JsonObject;
+export type NotionCreateDatabaseBody = JsonObject;
+export type NotionCreateDataSourceBody = JsonObject;
 export type NotionUpdateDataSourceBody = JsonObject;
 export type NotionQueryBody = JsonObject;
 export type NotionQueryResponse = JsonObject;
@@ -15,7 +17,14 @@ export type NotionAppendChildrenResponse = JsonObject;
 export type NotionBlockChildrenResponse = JsonObject;
 
 export type NotionClient = {
+  retrievePage(pageId: string): Promise<NotionPageResponse>;
   retrieveDatabase(databaseId: string): Promise<NotionDatabaseResponse>;
+  createDatabase(
+    body: NotionCreateDatabaseBody,
+  ): Promise<NotionDatabaseResponse>;
+  createDataSource(
+    body: NotionCreateDataSourceBody,
+  ): Promise<NotionDataSourceResponse>;
   retrieveDataSource(dataSourceId: string): Promise<NotionDataSourceResponse>;
   updateDataSource(
     dataSourceId: string,
@@ -113,8 +122,24 @@ class FetchNotionClient implements NotionClient {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
   }
 
+  retrievePage(pageId: string): Promise<NotionPageResponse> {
+    return this.request("GET", `/v1/pages/${encodeURIComponent(pageId)}`);
+  }
+
   retrieveDatabase(databaseId: string): Promise<NotionDatabaseResponse> {
     return this.request("GET", `/v1/databases/${encodeURIComponent(databaseId)}`);
+  }
+
+  createDatabase(
+    body: NotionCreateDatabaseBody,
+  ): Promise<NotionDatabaseResponse> {
+    return this.request("POST", "/v1/databases", body);
+  }
+
+  createDataSource(
+    body: NotionCreateDataSourceBody,
+  ): Promise<NotionDataSourceResponse> {
+    return this.request("POST", "/v1/data_sources", body);
   }
 
   retrieveDataSource(dataSourceId: string): Promise<NotionDataSourceResponse> {

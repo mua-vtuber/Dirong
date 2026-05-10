@@ -3,6 +3,7 @@ import { PollingLoop } from "../runtime/polling-loop.js";
 import type { NotionClient } from "./client.js";
 import { NotionApiError } from "./client.js";
 import type { NotionCustomPropertyRule } from "./property-rules.js";
+import type { NotionRegistryStore } from "./registry-store.js";
 import type {
   NotionDraftCandidateRow,
   NotionDraftInputReadModel,
@@ -10,6 +11,7 @@ import type {
 import type { NotionRuntimeSettings } from "./settings.js";
 import { parseNotionTargetUrl } from "./target.js";
 import {
+  hasCompleteManagedNotionUploadRegistry,
   runNotionUpload,
   type NotionUploadResult,
   type NotionUploadStatus,
@@ -57,6 +59,7 @@ export type NotionAutomationServiceOptions = {
   batchLimit: number;
   workerId: string;
   leaseMs: number;
+  registryStore?: NotionRegistryStore | null;
   customPropertyRules?: () => readonly NotionCustomPropertyRule[];
 };
 
@@ -154,6 +157,7 @@ export class NotionAutomationService {
     const target = await resolveAutomationTargetId(
       this.options.settings,
       this.options.client,
+      this.options.registryStore ?? null,
     );
     if (!target.ok) {
       this.snapshot = makeSnapshot({
@@ -232,6 +236,7 @@ export class NotionAutomationService {
         client: this.options.client,
         readModel: this.options.readModel,
         writeStore: this.options.writeStore,
+        registryStore: this.options.registryStore ?? null,
         customPropertyRules: this.options.customPropertyRules?.() ?? [],
       });
       this.snapshot = snapshotFromRunResult({
@@ -313,6 +318,7 @@ function snapshotFromRunResult(input: {
 async function resolveAutomationTargetId(
   settings: NotionRuntimeSettings,
   client: NotionClient | null,
+  registryStore: NotionRegistryStore | null,
 ): Promise<
   | { ok: true; targetId: string }
   | {
@@ -326,12 +332,20 @@ async function resolveAutomationTargetId(
       technicalDetail: string | null;
     }
 > {
+  const managedMeeting = hasCompleteManagedNotionUploadRegistry(registryStore)
+    ? registryStore?.getManagedDatabase("meeting")
+    : null;
+  if (managedMeeting) {
+    return { ok: true, targetId: managedMeeting.dataSourceId };
+  }
+
   if (!settings.targetUrl) {
     return {
       ok: false,
       status: "not_configured",
       message: "Notion target URL is missing.",
-      userAction: "NOTION_TARGET_URL을 설정해 주세요.",
+      userAction:
+        "managed Notion DB를 생성하거나 전환기 fallback용 NOTION_TARGET_URL을 설정해 주세요.",
       technicalDetail: null,
     };
   }
@@ -480,7 +494,8 @@ function shouldRun(options: NotionAutomationServiceOptions): boolean {
 function isConfigured(options: NotionAutomationServiceOptions): boolean {
   return Boolean(
     options.settings.apiKey &&
-      options.settings.targetUrl &&
+      (options.settings.targetUrl ||
+        hasCompleteManagedNotionUploadRegistry(options.registryStore ?? null)) &&
       options.client,
   );
 }

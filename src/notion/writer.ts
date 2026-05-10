@@ -11,23 +11,37 @@ import type { NotionDraftInput } from "./draft-input.js";
 import {
   buildNotionPagePropertyValues,
   richText,
+  renderNotionPagePropertiesFromSemanticMappings,
   renderNotionPageProperties,
   sanitizeParticipantNames,
   type NotionParticipantsPropertyType,
   type NotionStatusPropertyType,
 } from "./page-properties.js";
 import type { NotionCustomPropertyRule } from "./property-rules.js";
-import { validateNotionDataSourceSchema } from "./schema.js";
+import {
+  validateNotionDataSourceSchema,
+  validateNotionDataSourceSchemaBySemanticKey,
+} from "./schema.js";
 import type {
   NotionDataSourceProperties,
   NotionResolvedPropertyIds,
+  NotionSemanticResolvedProperties,
+  NotionSemanticResolvedProperty,
 } from "./schema.js";
+import type {
+  NotionPropertySemanticKey,
+} from "./schema-presets.js";
 import type { NotionRuntimeSettings } from "./settings.js";
 import {
   normalizeNotionId,
   parseNotionPageUrl,
   parseNotionTargetUrl,
 } from "./target.js";
+import {
+  NotionRegistryStore,
+  type NotionManagedDatabase,
+  type NotionPropertyMapping,
+} from "./registry-store.js";
 import { NotionWriteStore, type NotionWriteRow } from "./write-store.js";
 
 export type NotionDraftSelector =
@@ -75,14 +89,66 @@ export type RunNotionUploadOptions = {
   client: NotionClient | null;
   readModel: NotionDraftInputReadModel;
   writeStore: NotionWriteStore | null;
+  registryStore?: NotionRegistryStore | null;
   customPropertyRules?: readonly NotionCustomPropertyRule[];
 };
 
-type ResolvedTarget = {
+type ResolvedTargetBase = {
+  id: string;
+  name: string;
+  url: string;
+  dataSource: Record<string, unknown>;
+  draftIdPropertyName: string;
+  sessionIdPropertyName: string;
+};
+
+type RemoteResolvedTarget = {
   id: string;
   name: string;
   dataSource: Record<string, unknown>;
 };
+
+type LegacyResolvedTarget = ResolvedTargetBase & {
+  kind: "legacy";
+  propertyIds: NotionResolvedPropertyIds;
+  propertyNames: NotionRuntimeSettings["propertyNames"];
+};
+
+type ManagedResolvedTarget = ResolvedTargetBase & {
+  kind: "managed";
+  meetingDatabase: NotionManagedDatabase;
+  memberDatabase: NotionManagedDatabase;
+  meetingProperties: NotionSemanticResolvedProperties;
+  memberDiscordNameProperty: NotionSemanticResolvedProperty;
+};
+
+type ResolvedTarget = LegacyResolvedTarget | ManagedResolvedTarget;
+
+type ManagedUploadRegistryCandidate = {
+  meetingDatabase: NotionManagedDatabase;
+  memberDatabase: NotionManagedDatabase;
+  meetingMappings: NotionPropertyMapping[];
+  memberMappings: NotionPropertyMapping[];
+};
+
+const MANAGED_MEETING_UPLOAD_SEMANTIC_KEYS = [
+  "meeting.title",
+  "meeting.date",
+  "meeting.time",
+  "meeting.channel",
+  "meeting.memberRelation",
+  "meeting.participants",
+  "meeting.actionItems",
+  "meeting.status",
+  "meeting.sessionId",
+  "meeting.draftId",
+  "meeting.contentHash",
+  "meeting.localStatus",
+] as const satisfies readonly NotionPropertySemanticKey[];
+
+const MANAGED_MEMBER_UPLOAD_SEMANTIC_KEYS = [
+  "member.discordName",
+] as const satisfies readonly NotionPropertySemanticKey[];
 
 export async function runNotionUpload(
   options: RunNotionUploadOptions,
@@ -98,13 +164,13 @@ export async function runNotionUpload(
     };
   }
 
-  if (!options.settings.apiKey || !options.settings.targetUrl) {
+  if (!options.settings.apiKey) {
     return {
       ...baseResult,
       status: "not_configured",
       message: "Notion settings are incomplete.",
       userAction:
-        "Notion 업로드를 켜려면 NOTION_API_KEY와 NOTION_TARGET_URL을 설정해 주세요.",
+        "Notion 업로드를 켜려면 NOTION_API_KEY를 설정해 주세요.",
     };
   }
 
@@ -117,39 +183,17 @@ export async function runNotionUpload(
     };
   }
 
-  const parsedTarget = parseNotionTargetUrl(options.settings.targetUrl);
-  if (parsedTarget.kind === "invalid") {
-    return {
-      ...baseResult,
-      status: "not_configured",
-      message: "Notion target URL is invalid.",
-      userAction:
-        "Notion 데이터베이스 또는 data source URL을 다시 복사해 붙여넣어 주세요.",
-      technicalDetail: parsedTarget.reason,
-    };
-  }
-
   try {
-    const target = await resolveTarget(options.client, parsedTarget);
-    const schemaValidation = validateNotionDataSourceSchema(
-      readDataSourceProperties(target.dataSource),
-      options.settings.propertyNames,
-    );
-    if (!schemaValidation.ok) {
-      return {
-        ...baseResult,
-        status: "blocked",
-        targetId: target.id,
-        targetName: target.name,
-        message: "Notion data source schema is not compatible.",
-        userAction: schemaValidation.userAction,
-        technicalDetail: JSON.stringify({
-          missing: schemaValidation.missing,
-          wrongType: schemaValidation.wrongType,
-          missingOptions: schemaValidation.missingOptions,
-        }),
-      };
+    const targetResolution = await resolveUploadTarget({
+      client: options.client,
+      settings: options.settings,
+      registryStore: options.registryStore ?? null,
+      baseResult,
+    });
+    if (!targetResolution.ok) {
+      return targetResolution.result;
     }
+    const target = targetResolution.target;
 
     const draftInput = loadDraftInput(options.readModel, options.selector);
     if (!draftInput) {
@@ -163,11 +207,21 @@ export async function runNotionUpload(
       };
     }
 
+    const memberRelations =
+      target.kind === "managed"
+        ? await resolveManagedMemberRelations({
+            client: options.client,
+            draftInput,
+            target,
+          })
+        : { pageIds: [], warnings: [] };
+
     const renderPlan = renderUploadPlan({
       draftInput,
       targetId: target.id,
-      settings: options.settings,
-      propertyIds: schemaValidation.propertyIds,
+      target,
+      memberRelationPageIds: memberRelations.pageIds,
+      extraWarnings: memberRelations.warnings,
     });
 
     if (options.dryRun) {
@@ -211,8 +265,9 @@ export async function runNotionUpload(
 function renderUploadPlan(input: {
   draftInput: NotionDraftInput;
   targetId: string;
-  settings: NotionRuntimeSettings;
-  propertyIds: NotionResolvedPropertyIds;
+  target: ResolvedTarget;
+  memberRelationPageIds: readonly string[];
+  extraWarnings: readonly string[];
 }): {
   contentHash: string;
   blocks: RenderedNotionBlock[];
@@ -233,35 +288,59 @@ function renderUploadPlan(input: {
     renderedBlocks: hashBlocks.map((block) => block.block),
   });
   const blocks = renderNotionBlocks(input.draftInput, { contentHash });
-  const statusPropertyType = readStatusPropertyType(
-    input.propertyIds.status.type,
-  );
-  const participantsPropertyType = readParticipantsPropertyType(
-    input.propertyIds.participants.type,
-  );
+  const properties =
+    input.target.kind === "managed"
+      ? renderNotionPagePropertiesFromSemanticMappings({
+          draftInput: input.draftInput,
+          propertiesBySemanticKey: input.target.meetingProperties,
+          contentHash,
+          status: "draft",
+          localStatus: "Notion upload in progress",
+          memberRelationPageIds: input.memberRelationPageIds,
+        }).properties
+      : renderNotionPageProperties({
+          draftInput: input.draftInput,
+          propertyNames: input.target.propertyNames,
+          contentHash,
+          status: "draft",
+          statusPropertyType: readStatusPropertyType(
+            input.target.propertyIds.status.type,
+          ),
+          participantsPropertyType: readParticipantsPropertyType(
+            input.target.propertyIds.participants.type,
+          ),
+          localStatus: "Notion upload in progress",
+        }).properties;
+  const doneProperties =
+    input.target.kind === "managed"
+      ? renderNotionPagePropertiesFromSemanticMappings({
+          draftInput: input.draftInput,
+          propertiesBySemanticKey: input.target.meetingProperties,
+          contentHash,
+          status: "done",
+          localStatus: "Notion upload complete",
+          memberRelationPageIds: input.memberRelationPageIds,
+        }).properties
+      : renderNotionPageProperties({
+          draftInput: input.draftInput,
+          propertyNames: input.target.propertyNames,
+          contentHash,
+          status: "done",
+          statusPropertyType: readStatusPropertyType(
+            input.target.propertyIds.status.type,
+          ),
+          participantsPropertyType: readParticipantsPropertyType(
+            input.target.propertyIds.participants.type,
+          ),
+          localStatus: "Notion upload complete",
+        }).properties;
 
   return {
     contentHash,
     blocks,
-    warnings: propertyValues.warnings,
-    properties: renderNotionPageProperties({
-      draftInput: input.draftInput,
-      propertyNames: input.settings.propertyNames,
-      contentHash,
-      status: "draft",
-      statusPropertyType,
-      participantsPropertyType,
-      localStatus: "Notion upload in progress",
-    }).properties,
-    doneProperties: renderNotionPageProperties({
-      draftInput: input.draftInput,
-      propertyNames: input.settings.propertyNames,
-      contentHash,
-      status: "done",
-      statusPropertyType,
-      participantsPropertyType,
-      localStatus: "Notion upload complete",
-    }).properties,
+    warnings: [...propertyValues.warnings, ...input.extraWarnings],
+    properties,
+    doneProperties,
   };
 }
 
@@ -271,6 +350,238 @@ function readStatusPropertyType(type: string): NotionStatusPropertyType {
 
 function readParticipantsPropertyType(type: string): NotionParticipantsPropertyType {
   return type === "rollup" ? "rollup" : "multi_select";
+}
+
+async function resolveUploadTarget(input: {
+  client: NotionClient;
+  settings: NotionRuntimeSettings;
+  registryStore: NotionRegistryStore | null;
+  baseResult: NotionUploadResult;
+}): Promise<
+  | { ok: true; target: ResolvedTarget }
+  | { ok: false; result: NotionUploadResult }
+> {
+  const managedCandidate = loadManagedUploadRegistryCandidate(input.registryStore);
+  if (managedCandidate) {
+    return await resolveManagedUploadTarget({
+      client: input.client,
+      candidate: managedCandidate,
+      baseResult: input.baseResult,
+    });
+  }
+
+  if (!input.settings.targetUrl) {
+    return {
+      ok: false,
+      result: {
+        ...input.baseResult,
+        status: "not_configured",
+        message: "Notion target is not configured.",
+        userAction:
+          "managed Notion DB를 생성하거나 전환기 fallback용 NOTION_TARGET_URL을 설정해 주세요.",
+      },
+    };
+  }
+
+  const parsedTarget = parseNotionTargetUrl(input.settings.targetUrl);
+  if (parsedTarget.kind === "invalid") {
+    return {
+      ok: false,
+      result: {
+        ...input.baseResult,
+        status: "not_configured",
+        message: "Notion target URL is invalid.",
+        userAction:
+          "Notion 데이터베이스 또는 data source URL을 다시 복사해 붙여넣어 주세요.",
+        technicalDetail: parsedTarget.reason,
+      },
+    };
+  }
+
+  const target = await resolveTarget(input.client, parsedTarget);
+  const schemaValidation = validateNotionDataSourceSchema(
+    readDataSourceProperties(target.dataSource),
+    input.settings.propertyNames,
+  );
+  if (!schemaValidation.ok) {
+    return {
+      ok: false,
+      result: {
+        ...input.baseResult,
+        status: "blocked",
+        targetId: target.id,
+        targetName: target.name,
+        message: "Notion data source schema is not compatible.",
+        userAction: schemaValidation.userAction,
+        technicalDetail: JSON.stringify({
+          missing: schemaValidation.missing,
+          wrongType: schemaValidation.wrongType,
+          missingOptions: schemaValidation.missingOptions,
+        }),
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    target: {
+      ...target,
+      kind: "legacy",
+      url: input.settings.targetUrl,
+      propertyIds: schemaValidation.propertyIds,
+      propertyNames: input.settings.propertyNames,
+      draftIdPropertyName: input.settings.propertyNames.draftId,
+      sessionIdPropertyName: input.settings.propertyNames.sessionId,
+    },
+  };
+}
+
+async function resolveManagedUploadTarget(input: {
+  client: NotionClient;
+  candidate: ManagedUploadRegistryCandidate;
+  baseResult: NotionUploadResult;
+}): Promise<
+  | { ok: true; target: ManagedResolvedTarget }
+  | { ok: false; result: NotionUploadResult }
+> {
+  const meetingDataSource = await input.client.retrieveDataSource(
+    input.candidate.meetingDatabase.dataSourceId,
+  );
+  const meetingValidation = validateNotionDataSourceSchemaBySemanticKey({
+    databaseRole: "meeting",
+    properties: readDataSourceProperties(meetingDataSource),
+    mappings: input.candidate.meetingMappings,
+    requiredSemanticKeys: MANAGED_MEETING_UPLOAD_SEMANTIC_KEYS,
+  });
+  if (!meetingValidation.ok) {
+    return {
+      ok: false,
+      result: {
+        ...input.baseResult,
+        status: "blocked",
+        targetId: input.candidate.meetingDatabase.dataSourceId,
+        targetName: input.candidate.meetingDatabase.name,
+        message: "Managed Notion meeting DB schema is not compatible.",
+        userAction: meetingValidation.userAction,
+        technicalDetail: JSON.stringify({
+          missing: meetingValidation.missing,
+          wrongType: meetingValidation.wrongType,
+          missingOptions: meetingValidation.missingOptions,
+        }),
+      },
+    };
+  }
+
+  const memberDataSource = await input.client.retrieveDataSource(
+    input.candidate.memberDatabase.dataSourceId,
+  );
+  const memberValidation = validateNotionDataSourceSchemaBySemanticKey({
+    databaseRole: "member",
+    properties: readDataSourceProperties(memberDataSource),
+    mappings: input.candidate.memberMappings,
+    requiredSemanticKeys: MANAGED_MEMBER_UPLOAD_SEMANTIC_KEYS,
+  });
+  if (!memberValidation.ok) {
+    return {
+      ok: false,
+      result: {
+        ...input.baseResult,
+        status: "blocked",
+        targetId: input.candidate.memberDatabase.dataSourceId,
+        targetName: input.candidate.memberDatabase.name,
+        message: "Managed Notion member DB schema is not compatible.",
+        userAction: memberValidation.userAction,
+        technicalDetail: JSON.stringify({
+          missing: memberValidation.missing,
+          wrongType: memberValidation.wrongType,
+          missingOptions: memberValidation.missingOptions,
+        }),
+      },
+    };
+  }
+
+  const draftId = requireSemanticResolvedProperty(
+    meetingValidation.propertyIds,
+    "meeting.draftId",
+  );
+  const sessionId = requireSemanticResolvedProperty(
+    meetingValidation.propertyIds,
+    "meeting.sessionId",
+  );
+  return {
+    ok: true,
+    target: {
+      kind: "managed",
+      id: input.candidate.meetingDatabase.dataSourceId,
+      name: readTargetName(meetingDataSource) || input.candidate.meetingDatabase.name,
+      url: input.candidate.meetingDatabase.url,
+      dataSource: meetingDataSource,
+      draftIdPropertyName: draftId.name,
+      sessionIdPropertyName: sessionId.name,
+      meetingDatabase: input.candidate.meetingDatabase,
+      memberDatabase: input.candidate.memberDatabase,
+      meetingProperties: meetingValidation.propertyIds,
+      memberDiscordNameProperty: requireSemanticResolvedProperty(
+        memberValidation.propertyIds,
+        "member.discordName",
+      ),
+    },
+  };
+}
+
+function loadManagedUploadRegistryCandidate(
+  registryStore: NotionRegistryStore | null,
+): ManagedUploadRegistryCandidate | null {
+  if (!registryStore) {
+    return null;
+  }
+
+  const meetingDatabase = registryStore.getManagedDatabase("meeting");
+  const memberDatabase = registryStore.getManagedDatabase("member");
+  if (!meetingDatabase || !memberDatabase) {
+    return null;
+  }
+
+  const meetingMappings = registryStore.listPropertyMappings("meeting");
+  const memberMappings = registryStore.listPropertyMappings("member");
+  if (
+    !hasRequiredMappings(meetingMappings, MANAGED_MEETING_UPLOAD_SEMANTIC_KEYS) ||
+    !hasRequiredMappings(memberMappings, MANAGED_MEMBER_UPLOAD_SEMANTIC_KEYS)
+  ) {
+    return null;
+  }
+
+  return {
+    meetingDatabase,
+    memberDatabase,
+    meetingMappings,
+    memberMappings,
+  };
+}
+
+export function hasCompleteManagedNotionUploadRegistry(
+  registryStore: NotionRegistryStore | null,
+): boolean {
+  return loadManagedUploadRegistryCandidate(registryStore) !== null;
+}
+
+function hasRequiredMappings(
+  mappings: readonly NotionPropertyMapping[],
+  requiredSemanticKeys: readonly NotionPropertySemanticKey[],
+): boolean {
+  const keys = new Set(mappings.map((mapping) => mapping.semanticKey));
+  return requiredSemanticKeys.every((semanticKey) => keys.has(semanticKey));
+}
+
+function requireSemanticResolvedProperty(
+  properties: NotionSemanticResolvedProperties,
+  semanticKey: NotionPropertySemanticKey,
+): NotionSemanticResolvedProperty {
+  const property = properties[semanticKey];
+  if (!property) {
+    throw new Error(`Managed Notion mapping is missing: ${semanticKey}`);
+  }
+  return property;
 }
 
 async function executeWrite(input: {
@@ -291,7 +602,7 @@ async function executeWrite(input: {
     draftId: draftInput.draft.id,
     targetType: "data_source",
     targetId: target.id,
-    targetUrl: options.settings.targetUrl ?? target.id,
+    targetUrl: target.url,
     contentHash: renderPlan.contentHash,
     maxAttempts: options.settings.maxAttempts,
     nowIso,
@@ -307,6 +618,7 @@ async function executeWrite(input: {
       blockCount: renderPlan.blocks.length,
       dbChanged: false,
       message: "Notion write is already done.",
+      warnings: renderPlan.warnings,
     });
   }
 
@@ -344,8 +656,8 @@ async function executeWrite(input: {
       target,
       draftInput,
       properties: { ...renderPlan.properties, ...customProperties },
-      propertyDraftIdName: options.settings.propertyNames.draftId,
-      propertySessionIdName: options.settings.propertyNames.sessionId,
+      propertyDraftIdName: target.draftIdPropertyName,
+      propertySessionIdName: target.sessionIdPropertyName,
       nowIso,
     });
     await recoverRemoteBlocks({
@@ -383,6 +695,7 @@ async function executeWrite(input: {
       blockCount: renderPlan.blocks.length,
       dbChanged: true,
       message: "Notion upload complete.",
+      warnings: renderPlan.warnings,
     });
   } catch (error) {
     if (error instanceof NotionApiErrorClass) {
@@ -551,6 +864,87 @@ async function renderNotionCustomPageProperties(input: {
   return properties;
 }
 
+async function resolveManagedMemberRelations(input: {
+  client: NotionClient | null;
+  draftInput: NotionDraftInput;
+  target: ManagedResolvedTarget;
+}): Promise<{ pageIds: string[]; warnings: string[] }> {
+  const warnings: string[] = [];
+  if (!input.client) {
+    return { pageIds: [], warnings };
+  }
+
+  const participants = buildNotionPagePropertyValues({
+    draftInput: input.draftInput,
+  });
+
+  const pageIds: string[] = [];
+  const seenPageIds = new Set<string>();
+  for (const name of participants.values.participants) {
+    const pageId = await findManagedMemberPageByDiscordName({
+      client: input.client,
+      target: input.target,
+      name,
+    });
+    if (!pageId) {
+      warnings.push(
+        `Notion 작업자 DB에서 Discord 참가자 "${name}"를 찾지 못해 참가자 relation에서 제외했습니다.`,
+      );
+      continue;
+    }
+    if (seenPageIds.has(pageId)) {
+      continue;
+    }
+    seenPageIds.add(pageId);
+    pageIds.push(pageId);
+  }
+
+  return { pageIds, warnings };
+}
+
+async function findManagedMemberPageByDiscordName(input: {
+  client: NotionClient;
+  target: ManagedResolvedTarget;
+  name: string;
+}): Promise<string | null> {
+  const filter = buildManagedMemberMatchFilter(
+    input.target.memberDiscordNameProperty,
+    input.name,
+  );
+  if (!filter) {
+    return null;
+  }
+
+  const existing = await input.client.queryDataSource(
+    input.target.memberDatabase.dataSourceId,
+    {
+      filter,
+      page_size: 2,
+    },
+  );
+  const results = readResults(existing);
+  return results.length === 1 ? readId(results[0]) : null;
+}
+
+function buildManagedMemberMatchFilter(
+  property: NotionSemanticResolvedProperty,
+  value: string,
+): Record<string, unknown> | null {
+  if (property.type === "title") {
+    return {
+      property: property.name,
+      title: { equals: value },
+    };
+  }
+  if (property.type === "rich_text") {
+    return {
+      property: property.name,
+      rich_text: { equals: value },
+    };
+  }
+  return null;
+}
+
 function readCustomPropertyValues(
   draftInput: NotionDraftInput,
   rule: NotionCustomPropertyRule,
@@ -651,7 +1045,7 @@ function readRelationTargetPageId(rule: NotionCustomPropertyRule): string | null
 async function resolveRelationTarget(
   client: NotionClient,
   rule: NotionCustomPropertyRule,
-): Promise<ResolvedTarget | null> {
+): Promise<RemoteResolvedTarget | null> {
   if (rule.relationTargetUrl) {
     const parsed = parseNotionTargetUrl(rule.relationTargetUrl);
     if (parsed.kind !== "invalid") {
@@ -837,7 +1231,7 @@ async function appendRemainingBlocks(input: {
 async function resolveTarget(
   client: NotionClient,
   parsedTarget: Exclude<ReturnType<typeof parseNotionTargetUrl>, { kind: "invalid" }>,
-): Promise<ResolvedTarget> {
+): Promise<RemoteResolvedTarget> {
   if (parsedTarget.kind === "data_source_id") {
     const dataSource = await client.retrieveDataSource(parsedTarget.id);
     return {
@@ -961,6 +1355,7 @@ function doneResult(input: {
   blockCount: number;
   dbChanged: boolean;
   message: string;
+  warnings?: readonly string[];
 }): NotionUploadResult {
   return {
     ...createBaseResult(input.dryRun),
@@ -976,6 +1371,7 @@ function doneResult(input: {
     contentHash: input.contentHash,
     blockCount: input.blockCount,
     message: input.message,
+    warnings: [...(input.warnings ?? [])],
   };
 }
 

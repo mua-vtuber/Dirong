@@ -3,6 +3,7 @@ import test from "node:test";
 import { makeNotionDraftInput } from "./test-fixtures.js";
 import {
   buildNotionPagePropertyValues,
+  renderNotionPagePropertiesFromSemanticMappings,
   renderNotionPageProperties,
 } from "./page-properties.js";
 import { DEFAULT_NOTION_PROPERTY_NAMES } from "./settings.js";
@@ -63,6 +64,39 @@ test("renderNotionPageProperties skips Participants when it is a rollup", () => 
   });
 
   assert.equal("Participants" in rendered.properties, false);
+});
+
+test("renderNotionPagePropertiesFromSemanticMappings uses managed property names and member relation", () => {
+  const input = makeNotionDraftInput();
+  const rendered = renderNotionPagePropertiesFromSemanticMappings({
+    draftInput: input,
+    contentHash: "abc123",
+    memberRelationPageIds: ["member-1", "member-2"],
+    propertiesBySemanticKey: {
+      "meeting.title": { name: "회의록", type: "title" },
+      "meeting.date": { name: "날짜", type: "date" },
+      "meeting.time": { name: "회의 시간", type: "rich_text" },
+      "meeting.channel": { name: "채널", type: "rich_text" },
+      "meeting.memberRelation": { name: "참가자 연결", type: "relation" },
+      "meeting.participants": { name: "참가자", type: "rollup" },
+      "meeting.status": { name: "상태", type: "select" },
+      "meeting.sessionId": { name: "Dirong 세션 ID", type: "rich_text" },
+      "meeting.draftId": { name: "Dirong 초안 ID", type: "rich_text" },
+      "meeting.contentHash": { name: "Dirong 내용 해시", type: "rich_text" },
+      "meeting.localStatus": { name: "Dirong 상태", type: "rich_text" },
+    },
+  });
+
+  assert.deepEqual(rendered.properties["회의록"], {
+    title: [{ text: { content: "주간 회의" } }],
+  });
+  assert.equal("참가자" in rendered.properties, false);
+  assert.deepEqual(rendered.properties["참가자 연결"], {
+    relation: [{ id: "member-1" }, { id: "member-2" }],
+  });
+  assert.deepEqual(rendered.properties["Dirong 내용 해시"], {
+    rich_text: [{ text: { content: "abc123" } }],
+  });
 });
 
 test("buildNotionPagePropertyValues applies fallbacks and participant sanitization", () => {

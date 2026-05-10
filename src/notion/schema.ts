@@ -1,5 +1,10 @@
 import type { NotionPropertyNames } from "./settings.js";
 import { NOTION_PAGE_STATUS_VALUES } from "./page-properties.js";
+import type {
+  NotionDatabaseRole,
+  NotionPropertySemanticKey,
+  NotionSchemaPresetPropertyType,
+} from "./schema-presets.js";
 
 export type NotionPropertyNameKey = keyof NotionPropertyNames;
 
@@ -44,6 +49,43 @@ export type NotionSchemaValidation =
       ok: false;
       missing: string[];
       wrongType: NotionSchemaWrongType[];
+      missingOptions: NotionSchemaMissingOption[];
+      userAction: string;
+    };
+
+export type NotionSemanticResolvedProperty = NotionResolvedProperty & {
+  semanticKey: NotionPropertySemanticKey;
+};
+
+export type NotionSemanticResolvedProperties = Partial<
+  Record<NotionPropertySemanticKey, NotionSemanticResolvedProperty>
+>;
+
+export type NotionSemanticPropertyMappingInput = {
+  semanticKey: NotionPropertySemanticKey;
+  propertyName: string;
+  propertyId: string | null;
+  propertyType: NotionSchemaPresetPropertyType;
+};
+
+export type NotionSemanticSchemaMissing = {
+  semanticKey: NotionPropertySemanticKey;
+  property: string;
+};
+
+export type NotionSemanticSchemaWrongType = {
+  semanticKey: NotionPropertySemanticKey;
+  property: string;
+  expected: string;
+  actual: string;
+};
+
+export type NotionSemanticSchemaValidation =
+  | { ok: true; propertyIds: NotionSemanticResolvedProperties }
+  | {
+      ok: false;
+      missing: NotionSemanticSchemaMissing[];
+      wrongType: NotionSemanticSchemaWrongType[];
       missingOptions: NotionSchemaMissingOption[];
       userAction: string;
     };
@@ -132,6 +174,81 @@ export function validateNotionDataSourceSchema(
   };
 }
 
+export function validateNotionDataSourceSchemaBySemanticKey(input: {
+  databaseRole: NotionDatabaseRole;
+  properties: NotionDataSourceProperties;
+  mappings: readonly NotionSemanticPropertyMappingInput[];
+  requiredSemanticKeys: readonly NotionPropertySemanticKey[];
+}): NotionSemanticSchemaValidation {
+  const missing: NotionSemanticSchemaMissing[] = [];
+  const wrongType: NotionSemanticSchemaWrongType[] = [];
+  const resolved: NotionSemanticResolvedProperties = {};
+  const mappingsByKey = new Map(
+    input.mappings.map((mapping) => [mapping.semanticKey, mapping]),
+  );
+  const actualProperties = listActualProperties(input.properties);
+
+  for (const semanticKey of input.requiredSemanticKeys) {
+    const requirement = semanticRequirement(semanticKey);
+    const mapping = mappingsByKey.get(semanticKey);
+    if (!mapping) {
+      missing.push({ semanticKey, property: semanticKey });
+      continue;
+    }
+
+    const actual = findActualProperty(actualProperties, mapping);
+    const propertyName = mapping.propertyName;
+    if (!actual) {
+      missing.push({ semanticKey, property: propertyName });
+      continue;
+    }
+
+    if (!requirement.accepts.includes(actual.type)) {
+      wrongType.push({
+        semanticKey,
+        property: actual.name,
+        expected: requirement.expected,
+        actual: actual.type,
+      });
+      continue;
+    }
+
+    if (semanticKey === "meeting.status" && actual.type === "status") {
+      const missingOptions = NOTION_PAGE_STATUS_VALUES.filter(
+        (option) => !readPropertyOptionNames(actual.property, "status").has(option),
+      );
+      if (missingOptions.length > 0) {
+        wrongType.push({
+          semanticKey,
+          property: actual.name,
+          expected: `status options: ${NOTION_PAGE_STATUS_VALUES.join(", ")}`,
+          actual: `missing options: ${missingOptions.join(", ")}`,
+        });
+        continue;
+      }
+    }
+
+    resolved[semanticKey] = {
+      semanticKey,
+      id: actual.id ?? actual.name,
+      name: actual.name,
+      type: actual.type,
+    };
+  }
+
+  if (missing.length === 0 && wrongType.length === 0) {
+    return { ok: true, propertyIds: resolved };
+  }
+
+  return {
+    ok: false,
+    missing,
+    wrongType,
+    missingOptions: [],
+    userAction: buildSemanticSchemaUserAction(missing, wrongType),
+  };
+}
+
 function readPropertyOptionNames(
   property: NotionDataSourceProperty,
   type: "select" | "status",
@@ -148,6 +265,99 @@ function readPropertyOptionNames(
           : null,
       )
       .filter((name): name is string => name !== null),
+  );
+}
+
+function semanticRequirement(semanticKey: NotionPropertySemanticKey): {
+  expected: string;
+  accepts: readonly string[];
+} {
+  if (semanticKey === "meeting.title" || semanticKey === "member.discordName") {
+    return { expected: "title", accepts: ["title"] };
+  }
+  if (
+    semanticKey === "meeting.date" ||
+    semanticKey === "task.dueDate"
+  ) {
+    return { expected: "date", accepts: ["date"] };
+  }
+  if (
+    semanticKey === "meeting.time" ||
+    semanticKey === "meeting.channel" ||
+    semanticKey === "meeting.sessionId" ||
+    semanticKey === "meeting.draftId" ||
+    semanticKey === "meeting.contentHash" ||
+    semanticKey === "meeting.localStatus" ||
+    semanticKey === "task.evidence" ||
+    semanticKey === "task.sourceActionId"
+  ) {
+    return { expected: "rich_text", accepts: ["rich_text"] };
+  }
+  if (
+    semanticKey === "meeting.memberRelation" ||
+    semanticKey === "meeting.actionItems" ||
+    semanticKey === "task.meeting" ||
+    semanticKey === "task.workerRelation"
+  ) {
+    return { expected: "relation", accepts: ["relation"] };
+  }
+  if (
+    semanticKey === "meeting.participants" ||
+    semanticKey === "task.assignee" ||
+    semanticKey === "task.role"
+  ) {
+    return { expected: "rollup", accepts: ["rollup"] };
+  }
+  if (semanticKey === "meeting.status" || semanticKey === "task.status") {
+    return { expected: "select or status", accepts: ["select", "status"] };
+  }
+  if (semanticKey === "member.notionPerson") {
+    return { expected: "people", accepts: ["people"] };
+  }
+  if (semanticKey === "member.organization") {
+    return { expected: "select", accepts: ["select"] };
+  }
+  if (semanticKey === "member.roles") {
+    return { expected: "multi_select", accepts: ["multi_select"] };
+  }
+  return { expected: "mapped type", accepts: [] };
+}
+
+function listActualProperties(
+  properties: NotionDataSourceProperties,
+): Array<{
+  key: string;
+  id: string | null;
+  name: string;
+  type: string;
+  property: NotionDataSourceProperty;
+}> {
+  return Object.entries(properties).map(([key, property]) => ({
+    key,
+    id: typeof property.id === "string" ? property.id : null,
+    name: cleanInline(property.name ?? key) || key,
+    type: cleanInline(property.type ?? "unknown") || "unknown",
+    property,
+  }));
+}
+
+function findActualProperty(
+  actualProperties: ReturnType<typeof listActualProperties>,
+  mapping: NotionSemanticPropertyMappingInput,
+): ReturnType<typeof listActualProperties>[number] | null {
+  if (mapping.propertyId) {
+    const byId = actualProperties.find((property) => property.id === mapping.propertyId);
+    if (byId) {
+      return byId;
+    }
+  }
+
+  return (
+    actualProperties.find(
+      (property) =>
+        property.key === mapping.propertyName ||
+        property.name === mapping.propertyName,
+    ) ?? null
   );
 }
 
@@ -170,6 +380,36 @@ function buildSchemaUserAction(
   }
   messages.push("속성을 수정한 뒤 Dirong 연결 테스트를 다시 실행해 주세요.");
   return messages.join(" ");
+}
+
+function buildSemanticSchemaUserAction(
+  missing: NotionSemanticSchemaMissing[],
+  wrongType: NotionSemanticSchemaWrongType[],
+): string {
+  const messages: string[] = [];
+  if (missing.length > 0) {
+    messages.push(
+      `Notion managed DB에 필요한 semantic 속성을 확인해 주세요: ${missing
+        .map((item) => `${item.semanticKey}(${item.property})`)
+        .join(", ")}`,
+    );
+  }
+  if (wrongType.length > 0) {
+    messages.push(
+      `Notion managed DB 속성 타입을 확인해 주세요: ${wrongType
+        .map(
+          (item) =>
+            `${item.semanticKey}:${item.property}(${item.actual} -> ${item.expected})`,
+        )
+        .join(", ")}`,
+    );
+  }
+  messages.push("managed DB registry와 Notion schema를 확인한 뒤 다시 시도해 주세요.");
+  return messages.join(" ");
+}
+
+function cleanInline(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

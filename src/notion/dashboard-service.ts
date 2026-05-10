@@ -23,7 +23,12 @@ import {
   type NotionSchemaDiff,
 } from "./schema-manager.js";
 import { parseNotionPageUrl, parseNotionTargetUrl } from "./target.js";
-import { runNotionUpload, type NotionDraftSelector } from "./writer.js";
+import {
+  hasCompleteManagedNotionUploadRegistry,
+  runNotionUpload,
+  type NotionDraftSelector,
+} from "./writer.js";
+import { NotionRegistryStore } from "./registry-store.js";
 import { NotionWriteStore } from "./write-store.js";
 import { SqlRunner } from "../storage/sql-runner.js";
 import type { DirongDatabase } from "../storage/sqlite.js";
@@ -92,6 +97,7 @@ export type NotionDashboardSchemaActionResult = {
 export class NotionDashboardService {
   private readonly runner: SqlRunner;
   private readonly propertyRuleStore: NotionCustomPropertyRuleStore;
+  private readonly registryStore: NotionRegistryStore;
 
   constructor(
     private readonly input: {
@@ -103,11 +109,16 @@ export class NotionDashboardService {
   ) {
     this.runner = new SqlRunner(input.database);
     this.propertyRuleStore = new NotionCustomPropertyRuleStore(this.runner);
+    this.registryStore = new NotionRegistryStore(this.runner);
   }
 
   getSnapshot(): NotionDashboardSnapshot {
     const settings = this.input.settings;
-    const configured = Boolean(settings.apiKey && settings.targetUrl);
+    const configured = Boolean(
+      settings.apiKey &&
+        (settings.targetUrl ||
+          hasCompleteManagedNotionUploadRegistry(this.registryStore)),
+    );
     const customProperties = this.getCustomPropertiesSnapshot();
     if (!settings.enabled) {
       return {
@@ -130,7 +141,8 @@ export class NotionDashboardService {
         uploadMode: settings.uploadMode,
         targetUrl: settings.targetUrl,
         message: "Notion upload settings are incomplete.",
-        userAction: "NOTION_API_KEY와 NOTION_TARGET_URL을 설정해 주세요.",
+        userAction:
+          "NOTION_API_KEY를 설정하고 managed DB를 생성하거나 NOTION_TARGET_URL을 설정해 주세요.",
         settings: snapshotNotionRuntimeSettings(settings),
         customProperties,
       };
@@ -180,6 +192,7 @@ export class NotionDashboardService {
       client,
       readModel: new NotionDraftInputReadModel(this.runner),
       writeStore: new NotionWriteStore(this.runner),
+      registryStore: this.registryStore,
       customPropertyRules: this.propertyRuleStore.listEnabledRules(),
     });
 

@@ -149,9 +149,24 @@ test("NotionAutomationService repairs expired write leases before selecting work
 class FakeNotionClient implements NotionClient {
   readonly calls: Array<{ method: string; body?: unknown }> = [];
 
+  async retrievePage(): Promise<Record<string, unknown>> {
+    this.calls.push({ method: "retrievePage" });
+    return { id: "page-1", object: "page" };
+  }
+
   async retrieveDatabase(): Promise<Record<string, unknown>> {
     this.calls.push({ method: "retrieveDatabase" });
     return { data_sources: [{ id: targetId }] };
+  }
+
+  async createDatabase(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    this.calls.push({ method: "createDatabase", body });
+    return { id: "database-1", data_sources: [{ id: targetId }] };
+  }
+
+  async createDataSource(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    this.calls.push({ method: "createDataSource", body });
+    return { id: "data-source-1", properties: {} };
   }
 
   async retrieveDataSource(): Promise<Record<string, unknown>> {

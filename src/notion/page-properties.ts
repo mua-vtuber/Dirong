@@ -1,4 +1,5 @@
 import type { NotionDraftInput } from "./draft-input.js";
+import type { NotionPropertySemanticKey } from "./schema-presets.js";
 import type { NotionPropertyNames } from "./settings.js";
 
 export type NotionPageStatus = "draft" | "done" | "retry_wait" | "failed";
@@ -33,6 +34,15 @@ export type NotionPagePropertyRenderResult = {
   properties: NotionPageProperties;
   warnings: string[];
 };
+
+export type NotionSemanticPageProperty = {
+  name: string;
+  type: string;
+};
+
+export type NotionSemanticPageProperties = Partial<
+  Record<NotionPropertySemanticKey, NotionSemanticPageProperty>
+>;
 
 export function buildNotionPagePropertyValues(input: {
   draftInput: NotionDraftInput;
@@ -129,6 +139,43 @@ export function renderNotionPageProperties(input: {
   };
 }
 
+export function renderNotionPagePropertiesFromSemanticMappings(input: {
+  draftInput: NotionDraftInput;
+  propertiesBySemanticKey: NotionSemanticPageProperties;
+  contentHash: string;
+  memberRelationPageIds?: readonly string[];
+  status?: NotionPageStatus;
+  localStatus?: string;
+}): NotionPagePropertyRenderResult {
+  const propertyNames = propertyNamesFromSemanticMappings(
+    input.propertiesBySemanticKey,
+  );
+  const rendered = renderNotionPageProperties({
+    draftInput: input.draftInput,
+    propertyNames,
+    contentHash: input.contentHash,
+    status: input.status,
+    localStatus: input.localStatus,
+    statusPropertyType: readStatusPropertyType(
+      input.propertiesBySemanticKey["meeting.status"]?.type,
+    ),
+    participantsPropertyType: readParticipantsPropertyType(
+      input.propertiesBySemanticKey["meeting.participants"]?.type,
+    ),
+  });
+
+  const relationProperty =
+    input.propertiesBySemanticKey["meeting.memberRelation"];
+  const relationPageIds = [...(input.memberRelationPageIds ?? [])];
+  if (relationProperty && relationPageIds.length > 0) {
+    rendered.properties[relationProperty.name] = {
+      relation: relationPageIds.slice(0, 100).map((id) => ({ id })),
+    };
+  }
+
+  return rendered;
+}
+
 function renderStatusProperty(
   propertyType: NotionStatusPropertyType,
   status: NotionPageStatus,
@@ -137,6 +184,70 @@ function renderStatusProperty(
     return { status: { name: status } };
   }
   return { select: { name: status } };
+}
+
+function propertyNamesFromSemanticMappings(
+  propertiesBySemanticKey: NotionSemanticPageProperties,
+): NotionPropertyNames {
+  return {
+    title: requireSemanticPropertyName(propertiesBySemanticKey, "meeting.title"),
+    date: requireSemanticPropertyName(propertiesBySemanticKey, "meeting.date"),
+    meetingTime: requireSemanticPropertyName(
+      propertiesBySemanticKey,
+      "meeting.time",
+    ),
+    channel: requireSemanticPropertyName(
+      propertiesBySemanticKey,
+      "meeting.channel",
+    ),
+    participants: requireSemanticPropertyName(
+      propertiesBySemanticKey,
+      "meeting.participants",
+    ),
+    status: requireSemanticPropertyName(
+      propertiesBySemanticKey,
+      "meeting.status",
+    ),
+    sessionId: requireSemanticPropertyName(
+      propertiesBySemanticKey,
+      "meeting.sessionId",
+    ),
+    draftId: requireSemanticPropertyName(
+      propertiesBySemanticKey,
+      "meeting.draftId",
+    ),
+    contentHash: requireSemanticPropertyName(
+      propertiesBySemanticKey,
+      "meeting.contentHash",
+    ),
+    localStatus: requireSemanticPropertyName(
+      propertiesBySemanticKey,
+      "meeting.localStatus",
+    ),
+  };
+}
+
+function requireSemanticPropertyName(
+  propertiesBySemanticKey: NotionSemanticPageProperties,
+  semanticKey: NotionPropertySemanticKey,
+): string {
+  const property = propertiesBySemanticKey[semanticKey];
+  if (!property?.name) {
+    throw new Error(`Notion semantic property mapping is missing: ${semanticKey}`);
+  }
+  return property.name;
+}
+
+function readStatusPropertyType(
+  type: string | undefined,
+): NotionStatusPropertyType {
+  return type === "status" ? "status" : "select";
+}
+
+function readParticipantsPropertyType(
+  type: string | undefined,
+): NotionParticipantsPropertyType {
+  return type === "rollup" ? "rollup" : "multi_select";
 }
 
 export function richText(content: string): NotionRichText {

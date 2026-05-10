@@ -3,6 +3,7 @@ import { printCliError } from "../cli/error-output.js";
 import { loadPhase1Config } from "../config.js";
 import { createNotionClient } from "../notion/client.js";
 import { NotionDraftInputReadModel } from "../notion/draft-input-read-model.js";
+import { NotionRegistryStore } from "../notion/registry-store.js";
 import { NotionCustomPropertyRuleStore } from "../notion/property-rules.js";
 import { runNotionUpload } from "../notion/writer.js";
 import type { NotionDraftSelector } from "../notion/writer.js";
@@ -39,6 +40,7 @@ try {
     client,
     readModel: new NotionDraftInputReadModel(runner),
     writeStore: options.dryRun ? null : new NotionWriteStore(runner),
+    registryStore: new NotionRegistryStore(runner),
     customPropertyRules: new NotionCustomPropertyRuleStore(runner).listEnabledRules(),
   });
 

@@ -7,6 +7,8 @@ import { NotionApiError, type NotionClient } from "./client.js";
 import { NotionDraftInputReadModel } from "./draft-input-read-model.js";
 import type { NotionDataSourceProperties } from "./schema.js";
 import { DEFAULT_NOTION_PROPERTY_NAMES, type NotionRuntimeSettings } from "./settings.js";
+import { KOREAN_NOTION_SCHEMA_PRESET } from "./schema-presets.js";
+import { NotionRegistryStore } from "./registry-store.js";
 import { makeNotionDraftInput } from "./test-fixtures.js";
 import { runNotionUpload } from "./writer.js";
 import { NotionWriteStore } from "./write-store.js";
@@ -17,6 +19,8 @@ const nowIso = "2026-05-07T00:00:00.000Z";
 const targetId = "01234567-89ab-cdef-0123-456789abcdef";
 const relationTargetId = "11111111-2222-3333-4444-555555555555";
 const relationTargetPageId = "22222222-3333-4444-5555-666666666666";
+const managedMeetingDataSourceId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+const managedMemberDataSourceId = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff";
 
 test("runNotionUpload dry-run validates schema and renders without DB or page writes", async () => {
   const fixture = createFixture();
@@ -160,6 +164,176 @@ test("runNotionUpload does not write Participants when it is a rollup", async ()
     assert.equal(result.status, "done");
     assert.equal("Participants" in createdProperties, false);
     assert.equal("Participants" in (doneUpdate?.properties ?? {}), false);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("runNotionUpload uses managed meeting registry and writes matched member relation", async () => {
+  const fixture = createFixture();
+  seedManagedRegistry(fixture.registryStore);
+  try {
+    const client = new FakeNotionClient();
+    const result = await runNotionUpload({
+      settings: notionSettings({ targetUrl: targetId }),
+      selector: { kind: "draft", draftId: fixture.draftId },
+      dryRun: false,
+      force: false,
+      workerId: "writer-test",
+      leaseMs: 60000,
+      nowIso,
+      client,
+      readModel: new NotionDraftInputReadModel(fixture.runner),
+      writeStore: fixture.writeStore,
+      registryStore: fixture.registryStore,
+    });
+    const createdProperties = client.createPageBodies[0]?.properties as Record<
+      string,
+      unknown
+    >;
+
+    assert.equal(result.status, "done");
+    assert.equal(result.targetId, managedMeetingDataSourceId);
+    assert.deepEqual(client.createPageBodies[0]?.parent, {
+      data_source_id: managedMeetingDataSourceId,
+    });
+    assert.equal("참가자" in createdProperties, false);
+    assert.deepEqual(createdProperties["참가자 연결"], {
+      relation: [{ id: "member-taniar" }, { id: "member-ari" }],
+    });
+    assert.deepEqual(createdProperties["회의록"], {
+      title: [{ text: { content: "주간 회의" } }],
+    });
+  } finally {
+    fixture.close();
+  }
+});
+
+test("runNotionUpload falls back to legacy target when managed registry is incomplete", async () => {
+  const fixture = createFixture();
+  fixture.registryStore.upsertManagedDatabase({
+    role: "meeting",
+    locale: "ko",
+    databaseId: "managed-meeting-db",
+    dataSourceId: managedMeetingDataSourceId,
+    url: "https://notion.so/managed-meeting",
+    name: "회의록",
+    createdByDirong: true,
+    schemaVersion: "notion-managed-db-v1",
+    nowIso,
+  });
+  try {
+    const client = new FakeNotionClient();
+    const result = await runNotionUpload({
+      settings: notionSettings({ targetUrl: targetId }),
+      selector: { kind: "draft", draftId: fixture.draftId },
+      dryRun: false,
+      force: false,
+      workerId: "writer-test",
+      leaseMs: 60000,
+      nowIso,
+      client,
+      readModel: new NotionDraftInputReadModel(fixture.runner),
+      writeStore: fixture.writeStore,
+      registryStore: fixture.registryStore,
+    });
+
+    assert.equal(result.status, "done");
+    assert.equal(result.targetId, targetId);
+    assert.deepEqual(client.createPageBodies[0]?.parent, {
+      data_source_id: targetId,
+    });
+  } finally {
+    fixture.close();
+  }
+});
+
+test("runNotionUpload keeps managed upload successful when a member is unmatched", async () => {
+  const fixture = createFixture();
+  seedManagedRegistry(fixture.registryStore);
+  try {
+    const client = new FakeNotionClient({
+      memberQueryResultsByName: {
+        Taniar: [{ id: "member-taniar" }],
+        Ari: [],
+      },
+    });
+    const result = await runNotionUpload({
+      settings: notionSettings({ targetUrl: null }),
+      selector: { kind: "draft", draftId: fixture.draftId },
+      dryRun: false,
+      force: false,
+      workerId: "writer-test",
+      leaseMs: 60000,
+      nowIso,
+      client,
+      readModel: new NotionDraftInputReadModel(fixture.runner),
+      writeStore: fixture.writeStore,
+      registryStore: fixture.registryStore,
+    });
+    const createdProperties = client.createPageBodies[0]?.properties as Record<
+      string,
+      unknown
+    >;
+
+    assert.equal(result.status, "done");
+    assert.deepEqual(createdProperties["참가자 연결"], {
+      relation: [{ id: "member-taniar" }],
+    });
+    assert.match(result.warnings.join("\n"), /Ari/);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("runNotionUpload renders managed properties from semantic mappings", async () => {
+  const fixture = createFixture();
+  seedManagedRegistry(fixture.registryStore, {
+    meetingPropertyNameOverrides: {
+      "meeting.title": "미팅 제목",
+      "meeting.status": "업로드 상태",
+      "meeting.memberRelation": "멤버 링크",
+      "meeting.participants": "참석자 롤업",
+    },
+  });
+  try {
+    const client = new FakeNotionClient({
+      managedMeetingProperties: koreanManagedMeetingProperties({
+        "회의록": "미팅 제목",
+        "상태": "업로드 상태",
+        "참가자 연결": "멤버 링크",
+        "참가자": "참석자 롤업",
+      }),
+    });
+    const result = await runNotionUpload({
+      settings: notionSettings({ targetUrl: null }),
+      selector: { kind: "draft", draftId: fixture.draftId },
+      dryRun: false,
+      force: false,
+      workerId: "writer-test",
+      leaseMs: 60000,
+      nowIso,
+      client,
+      readModel: new NotionDraftInputReadModel(fixture.runner),
+      writeStore: fixture.writeStore,
+      registryStore: fixture.registryStore,
+    });
+    const createdProperties = client.createPageBodies[0]?.properties as Record<
+      string,
+      unknown
+    >;
+
+    assert.equal(result.status, "done");
+    assert.deepEqual(createdProperties["미팅 제목"], {
+      title: [{ text: { content: "주간 회의" } }],
+    });
+    assert.deepEqual(createdProperties["업로드 상태"], {
+      select: { name: "draft" },
+    });
+    assert.deepEqual(createdProperties["멤버 링크"], {
+      relation: [{ id: "member-taniar" }, { id: "member-ari" }],
+    });
+    assert.equal("참석자 롤업" in createdProperties, false);
   } finally {
     fixture.close();
   }
@@ -523,14 +697,32 @@ class FakeNotionClient implements NotionClient {
       queryResults?: unknown[];
       queryResultsByProperty?: Record<string, unknown[]>;
       relationQueryResults?: unknown[];
+      memberQueryResultsByName?: Record<string, unknown[]>;
       appendError?: NotionApiError;
       properties?: NotionDataSourceProperties;
+      managedMeetingProperties?: NotionDataSourceProperties;
+      managedMemberProperties?: NotionDataSourceProperties;
     } = {},
   ) {}
+
+  async retrievePage(): Promise<Record<string, unknown>> {
+    this.calls.push({ method: "retrievePage" });
+    return { id: "page-1", object: "page" };
+  }
 
   async retrieveDatabase(): Promise<Record<string, unknown>> {
     this.calls.push({ method: "retrieveDatabase" });
     return { data_sources: [{ id: targetId }] };
+  }
+
+  async createDatabase(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    this.calls.push({ method: "createDatabase", body });
+    return { id: "database-1", data_sources: [{ id: targetId }] };
+  }
+
+  async createDataSource(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    this.calls.push({ method: "createDataSource", body });
+    return { id: "data-source-1", properties: {} };
   }
 
   async retrieveDataSource(dataSourceId: string = targetId): Promise<Record<string, unknown>> {
@@ -542,6 +734,22 @@ class FakeNotionClient implements NotionClient {
         properties: {
           Name: { id: "title", type: "title" },
         },
+      };
+    }
+    if (dataSourceId === managedMeetingDataSourceId) {
+      return {
+        id: managedMeetingDataSourceId,
+        name: "회의록",
+        properties:
+          this.options.managedMeetingProperties ?? koreanManagedMeetingProperties(),
+      };
+    }
+    if (dataSourceId === managedMemberDataSourceId) {
+      return {
+        id: managedMemberDataSourceId,
+        name: "작업자",
+        properties:
+          this.options.managedMemberProperties ?? koreanManagedMemberProperties(),
       };
     }
     return {
@@ -568,6 +776,17 @@ class FakeNotionClient implements NotionClient {
     body: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     this.calls.push({ method: "queryDataSource", body });
+    if (dataSourceId === managedMemberDataSourceId) {
+      const value = readFilterEquals(body);
+      const fallback: Record<string, unknown[]> = {
+        Taniar: [{ id: "member-taniar" }],
+        Ari: [{ id: "member-ari" }],
+      };
+      return {
+        results:
+          (this.options.memberQueryResultsByName ?? fallback)[value ?? ""] ?? [],
+      };
+    }
     if (dataSourceId === relationTargetId) {
       return { results: this.options.relationQueryResults ?? [] };
     }
@@ -628,6 +847,7 @@ type WriterFixture = {
   database: DirongDatabase;
   runner: SqlRunner;
   writeStore: NotionWriteStore;
+  registryStore: NotionRegistryStore;
   sessionId: string;
   draftId: string;
   close: () => void;
@@ -640,6 +860,7 @@ function createFixture(
   const database = new DirongDatabase(path.join(dir, "dirong.sqlite"), 1000);
   const runner = new SqlRunner(database);
   const writeStore = new NotionWriteStore(runner);
+  const registryStore = new NotionRegistryStore(runner);
   const draftInput = makeNotionDraftInput(options);
   insertSession(database, dir, draftInput);
   insertSpeaker(database, draftInput);
@@ -651,6 +872,7 @@ function createFixture(
     database,
     runner,
     writeStore,
+    registryStore,
     sessionId: draftInput.session.id,
     draftId: draftInput.draft.id,
     close: () => {
@@ -660,7 +882,9 @@ function createFixture(
   };
 }
 
-function notionSettings(): NotionRuntimeSettings {
+function notionSettings(
+  overrides: Partial<NotionRuntimeSettings> = {},
+): NotionRuntimeSettings {
   return {
     enabled: true,
     apiKey: "ntn_test_secret",
@@ -675,6 +899,7 @@ function notionSettings(): NotionRuntimeSettings {
     leaseMs: 60000,
     maxAttempts: 3,
     propertyNames: DEFAULT_NOTION_PROPERTY_NAMES,
+    ...overrides,
   };
 }
 
@@ -691,6 +916,93 @@ function completeProperties(): Record<string, { id: string; type: string }> {
     "Dirong Content Hash": { id: "content-hash-id", type: "rich_text" },
     "Local Status": { id: "local-status-id", type: "rich_text" },
   };
+}
+
+function koreanManagedMeetingProperties(
+  rename: Record<string, string> = {},
+): NotionDataSourceProperties {
+  const property = (name: string, id: string, type: string) => ({
+    [rename[name] ?? name]: { id, type },
+  });
+  return {
+    ...property("회의록", "meeting-title-id", "title"),
+    ...property("날짜", "meeting-date-id", "date"),
+    ...property("회의 시간", "meeting-time-id", "rich_text"),
+    ...property("채널", "meeting-channel-id", "rich_text"),
+    ...property("참가자 연결", "meeting-member-relation-id", "relation"),
+    ...property("참가자", "meeting-participants-id", "rollup"),
+    ...property("액션 아이템", "meeting-action-items-id", "relation"),
+    ...property("상태", "meeting-status-id", "select"),
+    ...property("Dirong 세션 ID", "meeting-session-id", "rich_text"),
+    ...property("Dirong 초안 ID", "meeting-draft-id", "rich_text"),
+    ...property("Dirong 내용 해시", "meeting-hash-id", "rich_text"),
+    ...property("Dirong 상태", "meeting-local-status-id", "rich_text"),
+  };
+}
+
+function koreanManagedMemberProperties(): NotionDataSourceProperties {
+  return {
+    "디스코드 닉네임": { id: "member-discord-name-id", type: "title" },
+    "노션 연결": { id: "member-notion-person-id", type: "people" },
+    "소속": { id: "member-organization-id", type: "select" },
+    "담당": { id: "member-roles-id", type: "multi_select" },
+  };
+}
+
+function seedManagedRegistry(
+  store: NotionRegistryStore,
+  options: {
+    meetingPropertyNameOverrides?: Partial<Record<string, string>>;
+  } = {},
+): void {
+  store.upsertManagedDatabase({
+    role: "meeting",
+    locale: "ko",
+    databaseId: "managed-meeting-db",
+    dataSourceId: managedMeetingDataSourceId,
+    url: "https://notion.so/managed-meeting",
+    name: "회의록",
+    createdByDirong: true,
+    schemaVersion: "notion-managed-db-v1",
+    nowIso,
+  });
+  store.upsertManagedDatabase({
+    role: "member",
+    locale: "ko",
+    databaseId: "managed-member-db",
+    dataSourceId: managedMemberDataSourceId,
+    url: "https://notion.so/managed-member",
+    name: "작업자",
+    createdByDirong: true,
+    schemaVersion: "notion-managed-db-v1",
+    nowIso,
+  });
+
+  for (const property of KOREAN_NOTION_SCHEMA_PRESET.databases.meeting.properties) {
+    store.upsertPropertyMapping({
+      databaseRole: "meeting",
+      semanticKey: property.key,
+      propertyName:
+        options.meetingPropertyNameOverrides?.[property.key] ?? property.name,
+      propertyId: null,
+      propertyType: property.type,
+      locked: property.locked,
+      sourceKind: "system",
+      nowIso,
+    });
+  }
+  for (const property of KOREAN_NOTION_SCHEMA_PRESET.databases.member.properties) {
+    store.upsertPropertyMapping({
+      databaseRole: "member",
+      semanticKey: property.key,
+      propertyName: property.name,
+      propertyId: null,
+      propertyType: property.type,
+      locked: property.locked,
+      sourceKind: "system",
+      nowIso,
+    });
+  }
 }
 
 function insertSession(
@@ -831,6 +1143,21 @@ function readFilterProperty(body: unknown): string | null {
     return null;
   }
   return typeof body.filter.property === "string" ? body.filter.property : null;
+}
+
+function readFilterEquals(body: unknown): string | null {
+  if (!isRecord(body) || !isRecord(body.filter)) {
+    return null;
+  }
+  const title = body.filter.title;
+  if (isRecord(title) && typeof title.equals === "string") {
+    return title.equals;
+  }
+  const richText = body.filter.rich_text;
+  if (isRecord(richText) && typeof richText.equals === "string") {
+    return richText.equals;
+  }
+  return null;
 }
 
 function readCreatedRelationTitle(body: unknown): string | null {

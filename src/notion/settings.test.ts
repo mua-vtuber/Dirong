@@ -59,14 +59,22 @@ test("loadNotionSettingsFromEnv accepts missing token and target when disabled",
   assert.equal(settings.targetUrl, null);
 });
 
-test("loadNotionSettingsFromEnv requires token and target when enabled", () => {
+test("loadNotionSettingsFromEnv requires token when enabled", () => {
   assert.throws(
     () =>
       loadNotionSettingsFromEnv({
         NOTION_EXPORT_ENABLED: "true",
       } as NodeJS.ProcessEnv),
-    /NOTION_API_KEY, NOTION_TARGET_URL/,
+    /NOTION_API_KEY/,
   );
+
+  const settings = loadNotionSettingsFromEnv({
+    NOTION_EXPORT_ENABLED: "true",
+    NOTION_API_KEY: "ntn_test_secret",
+  } as NodeJS.ProcessEnv);
+
+  assert.equal(settings.enabled, true);
+  assert.equal(settings.targetUrl, null);
 });
 
 test("loadNotionSettingsFromEnv rejects unsupported MVP switches", () => {

@@ -13,6 +13,16 @@ import test from "node:test";
 import { applySchemaMigrations } from "./migrations.js";
 import { DirongDatabase } from "./sqlite.js";
 
+const EXPECTED_MIGRATION_IDS = [
+  "001_transcript_segments_speech_status",
+  "002_notion_writes",
+  "003_notion_custom_property_rules",
+  "004_notion_relation_property_rules",
+  "005_notion_relation_target_pages",
+  "006_notion_custom_property_value_source",
+  "007_notion_registry",
+];
+
 test("DirongDatabase upgrades legacy transcript_segments speech_status", () => {
   const fixture = createLegacyTranscriptFixture();
   try {
@@ -24,17 +34,13 @@ test("DirongDatabase upgrades legacy transcript_segments speech_status", () => {
         { id: "seg_empty", speech_status: "no_speech" },
         { id: "seg_speech", speech_status: "speech" },
       ]);
-      assert.deepEqual(readMigrationIds(database.db), [
-        "001_transcript_segments_speech_status",
-        "002_notion_writes",
-        "003_notion_custom_property_rules",
-        "004_notion_relation_property_rules",
-        "005_notion_relation_target_pages",
-        "006_notion_custom_property_value_source",
-      ]);
+      assert.deepEqual(readMigrationIds(database.db), EXPECTED_MIGRATION_IDS);
       assert.equal(tableExists(database.db, "notion_writes"), true);
       assert.equal(tableExists(database.db, "notion_blocks"), true);
       assert.equal(tableExists(database.db, "notion_custom_property_rules"), true);
+      assert.equal(tableExists(database.db, "notion_workspace_settings"), true);
+      assert.equal(tableExists(database.db, "notion_managed_databases"), true);
+      assert.equal(tableExists(database.db, "notion_property_mappings"), true);
     } finally {
       database.close();
     }
@@ -57,14 +63,7 @@ test("DirongDatabase backs up existing DB before pending migrations", () => {
         getColumnNames(backup, "transcript_segments").includes("speech_status"),
         false,
       );
-      assert.deepEqual(readMigrationIds(migrated), [
-        "001_transcript_segments_speech_status",
-        "002_notion_writes",
-        "003_notion_custom_property_rules",
-        "004_notion_relation_property_rules",
-        "005_notion_relation_target_pages",
-        "006_notion_custom_property_value_source",
-      ]);
+      assert.deepEqual(readMigrationIds(migrated), EXPECTED_MIGRATION_IDS);
     } finally {
       migrated.close();
       backup.close();
@@ -110,14 +109,7 @@ test("applySchemaMigrations is idempotent", () => {
       applySchemaMigrations(database.db);
       applySchemaMigrations(database.db);
 
-      assert.deepEqual(readMigrationIds(database.db), [
-        "001_transcript_segments_speech_status",
-        "002_notion_writes",
-        "003_notion_custom_property_rules",
-        "004_notion_relation_property_rules",
-        "005_notion_relation_target_pages",
-        "006_notion_custom_property_value_source",
-      ]);
+      assert.deepEqual(readMigrationIds(database.db), EXPECTED_MIGRATION_IDS);
     } finally {
       database.close();
     }
@@ -137,14 +129,7 @@ test("DirongDatabase records migrations on a fresh baseline schema", () => {
           "speech_status",
         ),
       );
-      assert.deepEqual(readMigrationIds(database.db), [
-        "001_transcript_segments_speech_status",
-        "002_notion_writes",
-        "003_notion_custom_property_rules",
-        "004_notion_relation_property_rules",
-        "005_notion_relation_target_pages",
-        "006_notion_custom_property_value_source",
-      ]);
+      assert.deepEqual(readMigrationIds(database.db), EXPECTED_MIGRATION_IDS);
       assert.ok(getColumnNames(database.db, "notion_writes").includes("draft_id"));
       assert.ok(getColumnNames(database.db, "notion_blocks").includes("block_index"));
       assert.ok(
@@ -167,6 +152,21 @@ test("DirongDatabase records migrations on a fresh baseline schema", () => {
           "value_source",
         ),
       );
+      assert.ok(
+        getColumnNames(database.db, "notion_workspace_settings").includes(
+          "parent_page_id",
+        ),
+      );
+      assert.ok(
+        getColumnNames(database.db, "notion_managed_databases").includes(
+          "data_source_id",
+        ),
+      );
+      assert.ok(
+        getColumnNames(database.db, "notion_property_mappings").includes(
+          "semantic_key",
+        ),
+      );
     } finally {
       database.close();
     }
@@ -183,14 +183,24 @@ test("DirongDatabase adds Phase 5 Notion tables to pre-Phase-5 databases", () =>
       assert.equal(tableExists(database.db, "notion_writes"), true);
       assert.equal(tableExists(database.db, "notion_blocks"), true);
       assert.equal(tableExists(database.db, "notion_custom_property_rules"), true);
-      assert.deepEqual(readMigrationIds(database.db), [
-        "001_transcript_segments_speech_status",
-        "002_notion_writes",
-        "003_notion_custom_property_rules",
-        "004_notion_relation_property_rules",
-        "005_notion_relation_target_pages",
-        "006_notion_custom_property_value_source",
-      ]);
+      assert.deepEqual(readMigrationIds(database.db), EXPECTED_MIGRATION_IDS);
+    } finally {
+      database.close();
+    }
+  } finally {
+    fixture.close();
+  }
+});
+
+test("DirongDatabase adds Notion registry tables to pre-Phase-2 databases", () => {
+  const fixture = createPrePhase2RegistryFixture();
+  try {
+    const database = new DirongDatabase(fixture.dbPath, 1000);
+    try {
+      assert.equal(tableExists(database.db, "notion_workspace_settings"), true);
+      assert.equal(tableExists(database.db, "notion_managed_databases"), true);
+      assert.equal(tableExists(database.db, "notion_property_mappings"), true);
+      assert.deepEqual(readMigrationIds(database.db), EXPECTED_MIGRATION_IDS);
     } finally {
       database.close();
     }
@@ -348,6 +358,35 @@ CREATE TABLE meeting_notes_drafts (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+`);
+  } finally {
+    db.close();
+  }
+  return fixture;
+}
+
+function createPrePhase2RegistryFixture(): {
+  dir: string;
+  dbPath: string;
+  close: () => void;
+} {
+  const fixture = createEmptyFixture();
+  const db = new DatabaseSync(fixture.dbPath);
+  try {
+    db.exec(`
+CREATE TABLE dirong_migrations (
+  id TEXT PRIMARY KEY,
+  applied_at TEXT NOT NULL
+);
+
+INSERT INTO dirong_migrations (id, applied_at)
+VALUES
+  ('001_transcript_segments_speech_status', '2026-05-10T00:00:00.000Z'),
+  ('002_notion_writes', '2026-05-10T00:00:00.000Z'),
+  ('003_notion_custom_property_rules', '2026-05-10T00:00:00.000Z'),
+  ('004_notion_relation_property_rules', '2026-05-10T00:00:00.000Z'),
+  ('005_notion_relation_target_pages', '2026-05-10T00:00:00.000Z'),
+  ('006_notion_custom_property_value_source', '2026-05-10T00:00:00.000Z');
 `);
   } finally {
     db.close();

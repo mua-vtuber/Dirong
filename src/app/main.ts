@@ -53,6 +53,7 @@ import {
   buildNotionCustomPropertyPrompt,
   NotionCustomPropertyRuleStore,
 } from "../notion/property-rules.js";
+import { NotionRegistryStore } from "../notion/registry-store.js";
 import { NotionWriteStore } from "../notion/write-store.js";
 import { RecordingProducer } from "../recording/recording-producer.js";
 import { runStartupRepair } from "../storage/repair-scan.js";
@@ -517,6 +518,7 @@ function createNotionAutomationService(
     batchLimit: 1,
     workerId: `phase5-notion-auto-${process.pid}`,
     leaseMs: settings.leaseMs || config.sttLeaseMs,
+    registryStore: new NotionRegistryStore(runner),
     customPropertyRules: () => notionPropertyRuleStore.listEnabledRules(),
   });
 }

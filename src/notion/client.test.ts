@@ -49,6 +49,39 @@ test("Notion client supports data source query and block children retrieval", as
   });
 });
 
+test("Notion client supports page, database, and data source creation APIs", async () => {
+  await withFakeNotionServer(async ({ baseUrl, requests }) => {
+    const client = createNotionClient({ apiKey, apiVersion, baseUrl });
+
+    await client.retrievePage("page/id");
+    await client.createDatabase({
+      parent: { type: "page_id", page_id: "parent" },
+      title: [{ type: "text", text: { content: "회의록" } }],
+      initial_data_source: { properties: { 회의록: { title: {} } } },
+    });
+    await client.createDataSource({
+      parent: { type: "database_id", database_id: "database" },
+      properties: { Name: { title: {} } },
+    });
+
+    assert.equal(requests[0]?.method, "GET");
+    assert.equal(requests[0]?.url, "/v1/pages/page%2Fid");
+    assert.equal(requests[1]?.method, "POST");
+    assert.equal(requests[1]?.url, "/v1/databases");
+    assert.deepEqual(requests[1]?.body, {
+      parent: { type: "page_id", page_id: "parent" },
+      title: [{ type: "text", text: { content: "회의록" } }],
+      initial_data_source: { properties: { 회의록: { title: {} } } },
+    });
+    assert.equal(requests[2]?.method, "POST");
+    assert.equal(requests[2]?.url, "/v1/data_sources");
+    assert.deepEqual(requests[2]?.body, {
+      parent: { type: "database_id", database_id: "database" },
+      properties: { Name: { title: {} } },
+    });
+  });
+});
+
 test("Notion client updates data source properties", async () => {
   await withFakeNotionServer(async ({ baseUrl, requests }) => {
     const client = createNotionClient({ apiKey, apiVersion, baseUrl });

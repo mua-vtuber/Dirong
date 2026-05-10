@@ -68,7 +68,6 @@ export function validateNotionRuntimeSettings(
 
   const missingKeys = [
     settings.apiKey ? null : "NOTION_API_KEY",
-    settings.targetUrl ? null : "NOTION_TARGET_URL",
   ].filter((key): key is string => key !== null);
 
   if (missingKeys.length === 0) {
@@ -79,7 +78,7 @@ export function validateNotionRuntimeSettings(
     ok: false,
     missingKeys,
     userAction:
-      "Notion 업로드를 켜려면 .env에 NOTION_API_KEY와 NOTION_TARGET_URL을 설정해 주세요.",
+      "Notion 업로드를 켜려면 .env에 NOTION_API_KEY를 설정해 주세요. managed DB registry가 없으면 NOTION_TARGET_URL도 필요합니다.",
   };
 }
 

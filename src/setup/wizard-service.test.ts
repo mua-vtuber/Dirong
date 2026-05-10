@@ -44,6 +44,7 @@ test("SetupWizardService saves Discord application ID and bot token without retu
     });
     assert.equal(appResult.ok, true);
     assert.equal(appResult.messageKey, "setup.discord.applicationId.save.done.message");
+    assert.equal(appResult.display?.title, "설정을 저장했어요");
     assert.match(String(appResult.inviteUrl), new RegExp(appId));
 
     const tokenResult = fixture.service.saveDiscordBotToken({
@@ -52,6 +53,10 @@ test("SetupWizardService saves Discord application ID and bot token without retu
     const serialized = JSON.stringify(tokenResult);
 
     assert.equal(tokenResult.ok, true);
+    assert.match(
+      tokenResult.display?.details.find((detail) => detail.label === "message")?.value ?? "",
+      /Discord bot token/,
+    );
     assert.equal(
       fixture.settings.read().discord.botTokenSecretRef,
       DEFAULT_SECRET_REFS.discordBotToken,

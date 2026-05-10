@@ -1,6 +1,11 @@
 import type { Phase1Config } from "../config.js";
 import { t, type LocaleKey } from "../i18n/catalog.js";
 import {
+  buildHumanStatusDisplay,
+  type HumanStatusDisplay,
+  type HumanStatusDisplayInput,
+} from "../messages/human-status.js";
+import {
   DEFAULT_NOTION_API_VERSION,
   DEFAULT_NOTION_BASE_URL,
   DEFAULT_NOTION_PROPERTY_NAMES,
@@ -46,6 +51,7 @@ export type ProductSetupFeatureSnapshot = {
   message: string;
   userActionKey: LocaleKey | null;
   userAction: string | null;
+  display?: HumanStatusDisplay;
   missing: string[];
 };
 
@@ -629,9 +635,121 @@ function withLocalizedText<T extends { status: ProductFeatureStatus; missing: st
   locale: DirongLocale,
   input: T & { messageKey: LocaleKey; userActionKey: LocaleKey | null },
 ): T & ProductSetupFeatureSnapshot {
+  const message = t(locale, input.messageKey);
+  const userAction = input.userActionKey ? t(locale, input.userActionKey) : null;
   return {
     ...input,
-    message: t(locale, input.messageKey),
-    userAction: input.userActionKey ? t(locale, input.userActionKey) : null,
+    message,
+    userAction,
+    display: buildHumanStatusDisplay(locale, {
+      ...setupDisplayKeysForMessage(input.messageKey),
+      status: input.status,
+      message,
+      userAction,
+      messageKey: input.messageKey,
+      userActionKey: input.userActionKey,
+      details: [{ label: "missing", value: input.missing }],
+    }),
   };
+}
+
+function setupDisplayKeysForMessage(
+  messageKey: LocaleKey,
+): Pick<
+  HumanStatusDisplayInput,
+  "titleKey" | "descriptionKey" | "nextActionKey"
+> {
+  switch (messageKey) {
+    case "setup.discord.status.ready.message":
+      return {
+        titleKey: "statusDisplay.discord.ready.title",
+        descriptionKey: "statusDisplay.discord.ready.description",
+      };
+    case "setup.stt.status.notConfigured.message":
+      return {
+        titleKey: "statusDisplay.stt.notConfigured.title",
+        descriptionKey: "statusDisplay.stt.notConfigured.description",
+        nextActionKey: "statusDisplay.stt.notConfigured.nextAction",
+      };
+    case "setup.stt.status.openAiApiKeyMissing.message":
+      return {
+        titleKey: "statusDisplay.stt.openAiApiKeyMissing.title",
+        descriptionKey: "statusDisplay.stt.openAiApiKeyMissing.description",
+        nextActionKey: "statusDisplay.stt.openAiApiKeyMissing.nextAction",
+      };
+    case "setup.stt.status.ready.message":
+      return {
+        titleKey: "statusDisplay.stt.ready.title",
+        descriptionKey: "statusDisplay.stt.ready.description",
+      };
+    case "setup.ai.status.notConfigured.message":
+      return {
+        titleKey: "statusDisplay.claude.notConfigured.title",
+        descriptionKey: "statusDisplay.claude.notConfigured.description",
+        nextActionKey: "statusDisplay.claude.notConfigured.nextAction",
+      };
+    case "setup.ai.status.claudeApiKeyMissing.message":
+      return {
+        titleKey: "statusDisplay.claude.apiKeyMissing.title",
+        descriptionKey: "statusDisplay.claude.apiKeyMissing.description",
+        nextActionKey: "statusDisplay.claude.apiKeyMissing.nextAction",
+      };
+    case "setup.ai.status.claudeCliCommandMissing.message":
+      return {
+        titleKey: "statusDisplay.claude.cliCommandMissing.title",
+        descriptionKey: "statusDisplay.claude.cliCommandMissing.description",
+        nextActionKey: "statusDisplay.claude.cliCommandMissing.nextAction",
+      };
+    case "setup.ai.status.ready.message":
+      return {
+        titleKey: "statusDisplay.claude.ready.title",
+        descriptionKey: "statusDisplay.claude.ready.description",
+      };
+    case "setup.notion.status.notConfigured.message":
+      return {
+        titleKey: "statusDisplay.notion.notConfigured.title",
+        descriptionKey: "statusDisplay.notion.notConfigured.description",
+        nextActionKey: "statusDisplay.notion.notConfigured.nextAction",
+      };
+    case "setup.notion.status.registryMissing.message":
+      return {
+        titleKey: "statusDisplay.notion.registryMissing.title",
+        descriptionKey: "statusDisplay.notion.registryMissing.description",
+        nextActionKey: "statusDisplay.notion.registryMissing.nextAction",
+      };
+    case "setup.notion.status.registryPartial.message":
+      return {
+        titleKey: "statusDisplay.notion.registryPartial.title",
+        descriptionKey: "statusDisplay.notion.registryPartial.description",
+        nextActionKey: "statusDisplay.notion.registryPartial.nextAction",
+      };
+    case "setup.notion.status.ready.message":
+      return {
+        titleKey: "statusDisplay.notion.ready.title",
+        descriptionKey: "statusDisplay.notion.ready.description",
+      };
+    case "setup.recording.status.blocked.message":
+      return {
+        titleKey: "statusDisplay.recording.blocked.title",
+        descriptionKey: "statusDisplay.recording.blocked.description",
+        nextActionKey: "statusDisplay.recording.blocked.nextAction",
+      };
+    case "setup.recording.status.ready.message":
+      return {
+        titleKey: "statusDisplay.recording.ready.title",
+        descriptionKey: "statusDisplay.recording.ready.description",
+      };
+    case "setup.dataRetention.status.ready.message":
+      return {
+        titleKey: "statusDisplay.dataRetention.ready.title",
+        descriptionKey: "statusDisplay.dataRetention.ready.description",
+      };
+    case "setup.discord.status.notConfigured.message":
+    default:
+      return {
+        titleKey: "statusDisplay.discord.notConfigured.title",
+        descriptionKey: "statusDisplay.discord.notConfigured.description",
+        nextActionKey: "statusDisplay.discord.notConfigured.nextAction",
+      };
+  }
 }

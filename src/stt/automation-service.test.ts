@@ -28,6 +28,7 @@ test("SttAutomationService processes queued STT jobs", async () => {
     const snapshot = await service.runOnce();
 
     assert.equal(snapshot.status, "done");
+    assert.equal(snapshot.display?.title, "STT 설정이 준비됐어요");
     assert.equal(snapshot.lastRun?.examined, 1);
     assert.equal(snapshot.lastRun?.done, 1);
     assert.equal(fixture.countQueuedSttJobs(), 0);

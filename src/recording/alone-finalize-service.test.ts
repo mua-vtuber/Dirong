@@ -28,6 +28,10 @@ test("AloneFinalizeService starts grace timer when everyone leaves", async () =>
     const snapshot = service.getSnapshot();
     assert.equal(snapshot.status, "countdown");
     assert.equal(snapshot.remainingMs, 5000);
+    assert.equal(
+      snapshot.display?.title,
+      "디롱이가 혼자 남아 자동 종료를 기다리고 있어요",
+    );
     assert.match(snapshot.message, /5초 후 자동 종료/);
     assert.deepEqual(fixture.eventTypes(), ["alone_since"]);
     assert.equal(fixture.producer.stopCalls.length, 0);

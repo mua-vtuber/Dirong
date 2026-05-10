@@ -72,6 +72,7 @@ test("buildProductSetupStatus reports ready Discord without exposing token value
     const serialized = JSON.stringify(status);
 
     assert.equal(status.features.discord.status, "ready");
+    assert.equal(status.features.discord.display?.title, "Discord 봇 연결이 준비됐어요");
     assert.equal(status.secrets.discordBot.displayValue, "[REDACTED]");
     assert.doesNotMatch(serialized, /discord-secret-raw-value/);
   } finally {
@@ -115,6 +116,14 @@ test("buildProductSetupStatus localizes setup messages and exposes locale keys",
     assert.equal(
       status.features.discord.userActionKey,
       "setup.discord.status.notConfigured.action",
+    );
+    assert.equal(
+      status.features.discord.display?.title,
+      "Discord bot connection is not finished yet",
+    );
+    assert.match(
+      status.features.discord.display?.details.find((detail) => detail.label === "message")?.value ?? "",
+      /Discord bot connection setup is not complete yet/,
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -185,6 +194,14 @@ test("buildProductSetupStatus reports partial Notion registry as blocked", () =>
     assert.equal(
       status.features.notion.messageKey,
       "setup.notion.status.registryPartial.message",
+    );
+    assert.equal(
+      status.features.notion.display?.title,
+      "Notion DB 설정이 완성되지 않았어요",
+    );
+    assert.match(
+      status.features.notion.display?.details.find((detail) => detail.label === "missing")?.value ?? "",
+      /notion\.managedRegistry\.partial/,
     );
   } finally {
     database.close();

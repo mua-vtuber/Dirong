@@ -1,4 +1,5 @@
 import { AiCleanupProviderError } from "./provider.js";
+import type { HumanStatusDisplay } from "../../messages/human-status.js";
 import type {
   AiCleanupProvider,
   AiCleanupProviderResetReason,
@@ -53,6 +54,7 @@ export type AiProviderRuntimeReadinessSnapshot = {
   message: string;
   userAction: string | null;
   technicalDetail: string | null;
+  display?: HumanStatusDisplay;
 };
 
 export type AiProviderLifecycleCallOptions = {

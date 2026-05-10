@@ -3,6 +3,11 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import path from "node:path";
 import { DirongError, redactForJson } from "../errors.js";
 import { t, type LocaleKey } from "../i18n/catalog.js";
+import {
+  buildHumanStatusDisplay,
+  type HumanStatusDisplay,
+  type HumanStatusDisplayInput,
+} from "../messages/human-status.js";
 import type { AiCleanupAutomationSnapshot } from "../ai/cleanup/automation-service.js";
 import type { AiProviderRuntimeReadinessSnapshot } from "../ai/cleanup/provider-lifecycle.js";
 import type { Phase1Config } from "../config.js";
@@ -552,21 +557,17 @@ export class DashboardServer {
       sendJson(response, result);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      response.writeHead(400, {
-        "Content-Type": "application/json; charset=utf-8",
-        "Cache-Control": "no-store",
-        "X-Content-Type-Options": "nosniff",
-      });
-      response.end(`${JSON.stringify(redactForJson({
-        ok: false,
-        status: "failed",
+      const localized = withMessageKeys(locale, {
         messageKey: "error.dashboard.requestInvalid.message",
-        message: t(locale, "error.dashboard.requestInvalid.message"),
         userActionKey: "action.request.retry",
-        userAction: t(locale, "action.request.retry"),
+        status: "failed",
         technicalDetail: message,
+      });
+      sendJson(response, {
+        ok: false,
         pageUrl: null,
-      }))}\n`);
+        ...localized,
+      }, 400);
     }
   }
 
@@ -615,22 +616,18 @@ export class DashboardServer {
       sendJson(response, result);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      response.writeHead(400, {
-        "Content-Type": "application/json; charset=utf-8",
-        "Cache-Control": "no-store",
-        "X-Content-Type-Options": "nosniff",
-      });
-      response.end(`${JSON.stringify(redactForJson({
-        ok: false,
-        status: "failed",
+      const localized = withMessageKeys(locale, {
         messageKey: "error.dashboard.requestInvalid.message",
-        message: t(locale, "error.dashboard.requestInvalid.message"),
         userActionKey: "action.request.retry",
-        userAction: t(locale, "action.request.retry"),
+        status: "failed",
         technicalDetail: message,
+      });
+      sendJson(response, {
+        ok: false,
         warnings: [],
         customProperties: null,
-      }))}\n`);
+        ...localized,
+      }, 400);
     }
   }
 
@@ -681,23 +678,19 @@ export class DashboardServer {
       sendJson(response, result);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      response.writeHead(400, {
-        "Content-Type": "application/json; charset=utf-8",
-        "Cache-Control": "no-store",
-        "X-Content-Type-Options": "nosniff",
-      });
-      response.end(`${JSON.stringify(redactForJson({
-        ok: false,
-        status: "failed",
+      const localized = withMessageKeys(locale, {
         messageKey: "error.dashboard.requestInvalid.message",
-        message: t(locale, "error.dashboard.requestInvalid.message"),
         userActionKey: "action.request.retry",
-        userAction: t(locale, "action.request.retry"),
+        status: "failed",
         technicalDetail: message,
+      });
+      sendJson(response, {
+        ok: false,
         warnings: [],
         diff: null,
         operations: null,
-      }))}\n`);
+        ...localized,
+      }, 400);
     }
   }
 }
@@ -898,12 +891,82 @@ function readNotionSchemaApplyOptions(body: unknown): NotionSchemaApplyOptions {
 function withMessageKeys<T>(
   locale: DirongLocale,
   input: T & { messageKey: LocaleKey; userActionKey: LocaleKey | null },
-): T & { message: string; userAction: string | null } {
+): T & {
+  message: string;
+  userAction: string | null;
+  display: HumanStatusDisplay;
+} {
+  const message = t(locale, input.messageKey);
+  const userAction = input.userActionKey ? t(locale, input.userActionKey) : null;
   return {
     ...input,
-    message: t(locale, input.messageKey),
-    userAction: input.userActionKey ? t(locale, input.userActionKey) : null,
+    message,
+    userAction,
+    display: buildHumanStatusDisplay(locale, {
+      ...dashboardDisplayKeys(input.messageKey),
+      status: readStatusValue(input),
+      message,
+      userAction,
+      technicalDetail: readStringValue(input, "technicalDetail") ?? readStringValue(input, "detail"),
+      messageKey: input.messageKey,
+      userActionKey: input.userActionKey,
+    }),
   };
+}
+
+function dashboardDisplayKeys(
+  messageKey: LocaleKey,
+): Pick<
+  HumanStatusDisplayInput,
+  "titleKey" | "descriptionKey" | "nextActionKey"
+> {
+  if (
+    messageKey === "error.dashboard.setupStatusSourceMissing.message" ||
+    messageKey === "error.dashboard.settingsSourceMissing.message" ||
+    messageKey === "error.dashboard.setupWizardSourceMissing.message" ||
+    messageKey === "error.dashboard.notionActionSourceMissing.message"
+  ) {
+    return {
+      titleKey: "statusDisplay.dashboard.sourceMissing.title",
+      descriptionKey: "statusDisplay.dashboard.sourceMissing.description",
+      nextActionKey: "statusDisplay.dashboard.sourceMissing.nextAction",
+    };
+  }
+  if (
+    messageKey === "error.dashboard.requestInvalid.message" ||
+    messageKey === "settings.language.error.invalidLocale.message"
+  ) {
+    return {
+      titleKey: "statusDisplay.dashboard.requestInvalid.title",
+      descriptionKey: "statusDisplay.dashboard.requestInvalid.description",
+      nextActionKey: "statusDisplay.dashboard.requestInvalid.nextAction",
+    };
+  }
+  if (messageKey === "settings.language.save.done.message") {
+    return {
+      titleKey: "statusDisplay.action.done.title",
+      descriptionKey: "statusDisplay.action.done.description",
+    };
+  }
+  return {
+    titleKey: "statusDisplay.action.ready.title",
+    descriptionKey: "statusDisplay.action.ready.description",
+  };
+}
+
+function readStatusValue(value: unknown): string | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  return typeof value.status === "string" ? value.status : null;
+}
+
+function readStringValue(value: unknown, key: string): string | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const entry = value[key];
+  return typeof entry === "string" ? entry : null;
 }
 
 function sendText(response: ServerResponse, statusCode: number, text: string): void {

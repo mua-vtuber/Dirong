@@ -1,6 +1,12 @@
 import type { VoiceState } from "discord.js";
 import { redactSensitiveText } from "../errors.js";
 import {
+  buildHumanStatusDisplay,
+  formatHumanStatusDisplayForText,
+  type HumanStatusDisplay,
+  type HumanStatusDisplayInput,
+} from "../messages/human-status.js";
+import {
   cloneAloneFinalizeSnapshot,
   createInitialAloneFinalizeSnapshot,
   reduceAloneFinalizeSnapshot,
@@ -37,6 +43,7 @@ export type AloneFinalizeSnapshot = {
   message: string;
   userAction: string | null;
   technicalDetail: string | null;
+  display?: HumanStatusDisplay;
   warnings: string[];
 };
 
@@ -128,7 +135,9 @@ export class AloneFinalizeService {
   }
 
   getSnapshot(): AloneFinalizeSnapshot {
-    return cloneAloneFinalizeSnapshot(this.withDynamicCountdown(this.snapshot));
+    return withAloneFinalizeDisplay(
+      cloneAloneFinalizeSnapshot(this.withDynamicCountdown(this.snapshot)),
+    );
   }
 
   async handleVoiceStateUpdate(
@@ -591,17 +600,19 @@ export class AloneFinalizeService {
 export function formatAloneFinalizeForStatus(
   snapshot: AloneFinalizeSnapshot,
 ): string {
+  const display = snapshot.display ?? buildAloneFinalizeDisplay(snapshot);
   const lines = [
-    `혼자 남음 자동 종료: ${snapshot.message}`,
+    formatHumanStatusDisplayForText(display, {
+      title: "녹음 자동 종료",
+      description: "설명",
+      nextAction: "녹음 자동 종료 조치",
+    }),
   ];
   if (snapshot.sessionId) {
     lines.push(`혼자 남음 세션: ${snapshot.sessionId}`);
   }
   if (snapshot.status === "countdown" && snapshot.remainingMs !== null) {
     lines.push(`자동 종료까지: ${Math.ceil(snapshot.remainingMs / 1000)}초`);
-  }
-  if (snapshot.userAction) {
-    lines.push(`혼자 남음 조치: ${snapshot.userAction}`);
   }
   return lines.join("\n");
 }
@@ -614,4 +625,97 @@ function summarizeError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   const redacted = redactSensitiveText(message);
   return redacted.length <= 1000 ? redacted : `${redacted.slice(0, 1000)}...`;
+}
+
+function withAloneFinalizeDisplay(
+  snapshot: AloneFinalizeSnapshot,
+): AloneFinalizeSnapshot {
+  return {
+    ...snapshot,
+    display: buildAloneFinalizeDisplay(snapshot),
+  };
+}
+
+function buildAloneFinalizeDisplay(
+  snapshot: AloneFinalizeSnapshot,
+): HumanStatusDisplay {
+  return buildHumanStatusDisplay(undefined, {
+    ...aloneFinalizeDisplayKeys(snapshot.status),
+    status: snapshot.status,
+    message: snapshot.message,
+    userAction: snapshot.userAction,
+    technicalDetail: snapshot.technicalDetail,
+    details: [
+      { label: "sessionId", value: snapshot.sessionId },
+      { label: "voiceChannelId", value: snapshot.voiceChannelId },
+      { label: "aloneSince", value: snapshot.aloneSince },
+      { label: "finalizeAt", value: snapshot.finalizeAt },
+      { label: "remainingMs", value: snapshot.remainingMs },
+      { label: "nonBotMemberCount", value: snapshot.nonBotMemberCount },
+      { label: "warnings", value: snapshot.warnings },
+    ],
+  });
+}
+
+function aloneFinalizeDisplayKeys(
+  status: AloneFinalizeStatus,
+): Pick<
+  HumanStatusDisplayInput,
+  "titleKey" | "descriptionKey" | "nextActionKey"
+> {
+  if (status === "disabled") {
+    return {
+      titleKey: "statusDisplay.recording.disabled.title",
+      descriptionKey: "statusDisplay.recording.disabled.description",
+    };
+  }
+  if (status === "countdown") {
+    return {
+      titleKey: "statusDisplay.recording.countdown.title",
+      descriptionKey: "statusDisplay.recording.countdown.description",
+      nextActionKey: "statusDisplay.recording.countdown.nextAction",
+    };
+  }
+  if (status === "deferred_reconnecting") {
+    return {
+      titleKey: "statusDisplay.recording.deferredReconnecting.title",
+      descriptionKey: "statusDisplay.recording.deferredReconnecting.description",
+    };
+  }
+  if (status === "triggering") {
+    return {
+      titleKey: "statusDisplay.recording.triggering.title",
+      descriptionKey: "statusDisplay.recording.triggering.description",
+    };
+  }
+  if (status === "finalized") {
+    return {
+      titleKey: "statusDisplay.recording.finalized.title",
+      descriptionKey: "statusDisplay.recording.finalized.description",
+    };
+  }
+  if (status === "skipped") {
+    return {
+      titleKey: "statusDisplay.recording.skipped.title",
+      descriptionKey: "statusDisplay.recording.skipped.description",
+      nextActionKey: "statusDisplay.recording.skipped.nextAction",
+    };
+  }
+  if (status === "failed") {
+    return {
+      titleKey: "statusDisplay.recording.failed.title",
+      descriptionKey: "statusDisplay.recording.failed.description",
+      nextActionKey: "statusDisplay.recording.failed.nextAction",
+    };
+  }
+  if (status === "stopped") {
+    return {
+      titleKey: "statusDisplay.recording.stopped.title",
+      descriptionKey: "statusDisplay.recording.stopped.description",
+    };
+  }
+  return {
+    titleKey: "statusDisplay.recording.idle.title",
+    descriptionKey: "statusDisplay.recording.idle.description",
+  };
 }

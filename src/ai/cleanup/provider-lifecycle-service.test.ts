@@ -45,6 +45,7 @@ test("AiProviderLifecycleService keeps a failed readiness snapshot without throw
   assert.equal(provider.preflightCalls, 1);
   assert.equal(snapshot.status, "not_installed");
   assert.equal(snapshot.message, "AI 도구를 찾지 못함");
+  assert.equal(snapshot.display?.title, "Claude 도구를 찾지 못했어요");
   assert.equal(service.getSnapshot().status, "not_installed");
 });
 
@@ -93,9 +94,10 @@ test("formatAiReadinessForStatus renders user-facing status text", () => {
       technicalDetail: "hidden detail",
     }),
     [
-      "AI 상태: AI 로그인 필요",
+      "AI 상태: Claude 로그인이 필요해요",
+      "설명: Claude CLI를 사용할 수 있지만 로그인 상태가 준비되지 않았습니다.",
+      "AI 조치: 터미널에서 Claude CLI 로그인을 완료한 뒤 다시 확인해 주세요.",
       "AI provider: claude-cli / haiku",
-      "AI 조치: 터미널에서 AI CLI 로그인을 완료한 뒤 다시 확인해 주세요.",
     ].join("\n"),
   );
 });

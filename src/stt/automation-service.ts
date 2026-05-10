@@ -1,4 +1,10 @@
 import { redactSensitiveText } from "../errors.js";
+import {
+  buildHumanStatusDisplay,
+  formatHumanStatusDisplayForText,
+  type HumanStatusDisplay,
+  type HumanStatusDisplayInput,
+} from "../messages/human-status.js";
 import { PollingLoop } from "../runtime/polling-loop.js";
 import type { SessionStore } from "../storage/session-store.js";
 import type { SttProvider } from "./provider.js";
@@ -21,6 +27,7 @@ export type SttAutomationSnapshot = {
   message: string;
   userAction: string | null;
   technicalDetail: string | null;
+  display?: HumanStatusDisplay;
   lastRun: SttRunResult | null;
 };
 
@@ -163,8 +170,13 @@ export class SttAutomationService {
 export function formatSttAutomationForStatus(
   snapshot: SttAutomationSnapshot,
 ): string {
+  const display = snapshot.display ?? buildSttAutomationDisplay(snapshot);
   const lines = [
-    `STT 자동화: ${snapshot.message}`,
+    formatHumanStatusDisplayForText(display, {
+      title: "STT 자동화",
+      description: "설명",
+      nextAction: "STT 조치",
+    }),
     `STT provider: ${snapshot.provider} / ${snapshot.model}`,
   ];
   if (snapshot.lastRun) {
@@ -178,9 +190,6 @@ export function formatSttAutomationForStatus(
         `more:${snapshot.lastRun.remainingQueuedHint > 0 ? "yes" : "no"}`,
       ].join(" "),
     );
-  }
-  if (snapshot.userAction) {
-    lines.push(`STT 조치: ${snapshot.userAction}`);
   }
   return lines.join("\n");
 }
@@ -210,18 +219,29 @@ function summarizeFailedSamples(result: SttRunResult): string | null {
 }
 
 function makeSnapshot(snapshot: SttAutomationSnapshot): SttAutomationSnapshot {
+  const technicalDetail =
+    snapshot.technicalDetail === null
+      ? null
+      : redactSensitiveText(snapshot.technicalDetail);
   return cloneSnapshot({
     ...snapshot,
-    technicalDetail:
-      snapshot.technicalDetail === null
-        ? null
-        : redactSensitiveText(snapshot.technicalDetail),
+    technicalDetail,
+    display: buildSttAutomationDisplay({
+      ...snapshot,
+      technicalDetail,
+    }),
   });
 }
 
 function cloneSnapshot(snapshot: SttAutomationSnapshot): SttAutomationSnapshot {
   return {
     ...snapshot,
+    display: snapshot.display
+      ? {
+          ...snapshot.display,
+          details: snapshot.display.details.map((detail) => ({ ...detail })),
+        }
+      : undefined,
     lastRun: snapshot.lastRun
       ? {
           ...snapshot.lastRun,
@@ -235,4 +255,59 @@ function summarizeError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   const redacted = redactSensitiveText(message);
   return redacted.length <= 1000 ? redacted : `${redacted.slice(0, 1000)}...`;
+}
+
+function buildSttAutomationDisplay(
+  snapshot: SttAutomationSnapshot,
+): HumanStatusDisplay {
+  return buildHumanStatusDisplay(undefined, {
+    ...sttAutomationDisplayKeys(snapshot.status),
+    status: snapshot.status,
+    message: snapshot.message,
+    userAction: snapshot.userAction,
+    technicalDetail: snapshot.technicalDetail,
+    details: [
+      { label: "provider", value: snapshot.provider },
+      { label: "model", value: snapshot.model },
+      { label: "lastRun", value: snapshot.lastRun },
+    ],
+  });
+}
+
+function sttAutomationDisplayKeys(
+  status: SttAutomationStatus,
+): Pick<
+  HumanStatusDisplayInput,
+  "titleKey" | "descriptionKey" | "nextActionKey"
+> {
+  if (status === "disabled") {
+    return {
+      titleKey: "statusDisplay.stt.notConfigured.title",
+      descriptionKey: "statusDisplay.stt.notConfigured.description",
+      nextActionKey: "statusDisplay.stt.notConfigured.nextAction",
+    };
+  }
+  if (status === "running") {
+    return {
+      titleKey: "statusDisplay.stt.ready.title",
+      descriptionKey: "statusDisplay.stt.ready.description",
+    };
+  }
+  if (status === "failed") {
+    return {
+      titleKey: "statusDisplay.action.failed.title",
+      descriptionKey: "statusDisplay.action.failed.description",
+      nextActionKey: "statusDisplay.action.failed.nextAction",
+    };
+  }
+  if (status === "stopped") {
+    return {
+      titleKey: "statusDisplay.action.ready.title",
+      descriptionKey: "statusDisplay.action.ready.description",
+    };
+  }
+  return {
+    titleKey: "statusDisplay.stt.ready.title",
+    descriptionKey: "statusDisplay.stt.ready.description",
+  };
 }

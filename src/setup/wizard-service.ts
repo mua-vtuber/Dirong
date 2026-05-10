@@ -7,6 +7,11 @@ import {
 import { redactSensitiveText } from "../errors.js";
 import { t, type LocaleKey } from "../i18n/catalog.js";
 import {
+  buildHumanStatusDisplay,
+  type HumanStatusDisplay,
+  type HumanStatusDisplayInput,
+} from "../messages/human-status.js";
+import {
   createNotionClient,
   NotionApiError,
   type NotionClient,
@@ -76,6 +81,7 @@ export type SetupWizardActionResult = {
   message: string;
   userActionKey: LocaleKey | null;
   userAction: string | null;
+  display?: HumanStatusDisplay;
   httpStatus: number;
   setup: SetupWizardStateSnapshot;
   [key: string]: unknown;
@@ -863,11 +869,23 @@ export class SetupWizardService {
   private result(input: ResultInput): SetupWizardActionResult {
     const setup = this.buildState();
     const locale = setup.locale;
+    const message = t(locale, input.messageKey);
+    const userAction = input.userActionKey ? t(locale, input.userActionKey) : null;
     return {
       httpStatus: input.httpStatus ?? (input.ok ? 200 : 400),
       ...input,
-      message: t(locale, input.messageKey),
-      userAction: input.userActionKey ? t(locale, input.userActionKey) : null,
+      message,
+      userAction,
+      display: buildHumanStatusDisplay(locale, {
+        ...wizardActionDisplayKeys(input.status),
+        status: input.status,
+        message,
+        userAction,
+        technicalDetail:
+          typeof input.technicalDetail === "string" ? input.technicalDetail : null,
+        messageKey: input.messageKey,
+        userActionKey: input.userActionKey,
+      }),
       setup,
     };
   }
@@ -881,6 +899,45 @@ type ResultInput = {
   httpStatus?: number;
   [key: string]: unknown;
 };
+
+function wizardActionDisplayKeys(
+  status: SetupWizardActionResult["status"],
+): Pick<
+  HumanStatusDisplayInput,
+  "titleKey" | "descriptionKey" | "nextActionKey"
+> {
+  if (status === "done") {
+    return {
+      titleKey: "statusDisplay.action.done.title",
+      descriptionKey: "statusDisplay.action.done.description",
+    };
+  }
+  if (status === "ready") {
+    return {
+      titleKey: "statusDisplay.action.ready.title",
+      descriptionKey: "statusDisplay.action.ready.description",
+    };
+  }
+  if (status === "blocked") {
+    return {
+      titleKey: "statusDisplay.action.blocked.title",
+      descriptionKey: "statusDisplay.action.blocked.description",
+      nextActionKey: "statusDisplay.action.blocked.nextAction",
+    };
+  }
+  if (status === "not_configured") {
+    return {
+      titleKey: "statusDisplay.action.notConfigured.title",
+      descriptionKey: "statusDisplay.action.notConfigured.description",
+      nextActionKey: "statusDisplay.action.notConfigured.nextAction",
+    };
+  }
+  return {
+    titleKey: "statusDisplay.action.failed.title",
+    descriptionKey: "statusDisplay.action.failed.description",
+    nextActionKey: "statusDisplay.action.failed.nextAction",
+  };
+}
 
 class DiscordJsSetupGateway implements DiscordSetupGateway {
   async testConnection(input: {

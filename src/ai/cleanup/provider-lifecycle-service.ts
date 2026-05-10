@@ -1,4 +1,9 @@
 import { redactSensitiveText } from "../../errors.js";
+import {
+  buildHumanStatusDisplay,
+  formatHumanStatusDisplayForText,
+  type HumanStatusDisplayInput,
+} from "../../messages/human-status.js";
 import type {
   AiMeetingNotesProvider,
   AiProviderLifecycleCallOptions,
@@ -30,7 +35,7 @@ export class AiProviderLifecycleService {
     private readonly provider: AiMeetingNotesProvider,
     private readonly options: AiProviderLifecycleServiceOptions,
   ) {
-    this.snapshot = provider.getReadiness();
+    this.snapshot = sanitizeSnapshot(provider.getReadiness());
   }
 
   startPrepareInBackground(): Promise<AiProviderRuntimeReadinessSnapshot> {
@@ -95,28 +100,97 @@ export class AiProviderLifecycleService {
 export function formatAiReadinessForStatus(
   snapshot: AiProviderRuntimeReadinessSnapshot,
 ): string {
+  const display = snapshot.display ?? buildAiReadinessDisplay(snapshot);
   const lines = [
-    `AI 상태: ${snapshot.message}`,
+    formatHumanStatusDisplayForText(display, {
+      title: "AI 상태",
+      description: "설명",
+      nextAction: "AI 조치",
+    }),
     `AI provider: ${snapshot.provider} / ${snapshot.model}`,
   ];
-  if (snapshot.userAction) {
-    lines.push(`AI 조치: ${snapshot.userAction}`);
-  }
   return lines.join("\n");
 }
 
 function sanitizeSnapshot(
   snapshot: AiProviderRuntimeReadinessSnapshot,
 ): AiProviderRuntimeReadinessSnapshot {
+  const technicalDetail =
+    snapshot.technicalDetail === null
+      ? null
+      : redactSensitiveText(snapshot.technicalDetail);
   return {
     ...snapshot,
-    technicalDetail:
-      snapshot.technicalDetail === null
-        ? null
-        : redactSensitiveText(snapshot.technicalDetail),
+    technicalDetail,
+    display: buildAiReadinessDisplay({
+      ...snapshot,
+      technicalDetail,
+    }),
   };
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function buildAiReadinessDisplay(
+  snapshot: AiProviderRuntimeReadinessSnapshot,
+) {
+  return buildHumanStatusDisplay(undefined, {
+    ...aiReadinessDisplayKeys(snapshot.status),
+    status: snapshot.status,
+    message: snapshot.message,
+    userAction: snapshot.userAction,
+    technicalDetail: snapshot.technicalDetail,
+    details: [
+      { label: "provider", value: snapshot.provider },
+      { label: "model", value: snapshot.model },
+      { label: "checkedAt", value: snapshot.checkedAt },
+    ],
+  });
+}
+
+function aiReadinessDisplayKeys(
+  status: AiProviderRuntimeReadinessSnapshot["status"],
+): Pick<
+  HumanStatusDisplayInput,
+  "titleKey" | "descriptionKey" | "nextActionKey"
+> {
+  if (status === "preparing") {
+    return {
+      titleKey: "statusDisplay.claude.preparing.title",
+      descriptionKey: "statusDisplay.claude.preparing.description",
+    };
+  }
+  if (status === "ready" || status === "idle" || status === "degraded") {
+    return {
+      titleKey: "statusDisplay.claude.ready.title",
+      descriptionKey: "statusDisplay.claude.ready.description",
+    };
+  }
+  if (status === "login_required" || status === "auth_required") {
+    return {
+      titleKey: "statusDisplay.claude.loginRequired.title",
+      descriptionKey: "statusDisplay.claude.loginRequired.description",
+      nextActionKey: "statusDisplay.claude.loginRequired.nextAction",
+    };
+  }
+  if (status === "not_installed" || status === "server_unreachable") {
+    return {
+      titleKey: "statusDisplay.claude.toolMissing.title",
+      descriptionKey: "statusDisplay.claude.toolMissing.description",
+      nextActionKey: "statusDisplay.claude.toolMissing.nextAction",
+    };
+  }
+  if (status === "stopped") {
+    return {
+      titleKey: "statusDisplay.claude.stopped.title",
+      descriptionKey: "statusDisplay.claude.stopped.description",
+    };
+  }
+  return {
+    titleKey: "statusDisplay.claude.failed.title",
+    descriptionKey: "statusDisplay.claude.failed.description",
+    nextActionKey: "statusDisplay.claude.failed.nextAction",
+  };
 }

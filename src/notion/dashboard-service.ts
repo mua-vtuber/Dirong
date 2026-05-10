@@ -1,5 +1,10 @@
 import type { Phase1Config } from "../config.js";
 import {
+  buildHumanStatusDisplay,
+  type HumanStatusDisplay,
+  type HumanStatusDisplayInput,
+} from "../messages/human-status.js";
+import {
   createNotionClient,
   NotionApiError,
   type NotionClient,
@@ -55,6 +60,7 @@ export type NotionDashboardSnapshot = {
   targetUrl: string | null;
   message: string;
   userAction: string | null;
+  display?: HumanStatusDisplay;
   managedRegistry?: ManagedNotionRegistrySnapshot;
   settings: ReturnType<typeof snapshotNotionRuntimeSettings>;
   customProperties: NotionCustomPropertiesDashboardSnapshot;
@@ -71,6 +77,8 @@ export type NotionDashboardActionResult = {
   status: string;
   message: string;
   userAction: string | null;
+  display?: HumanStatusDisplay;
+  technicalDetail?: string | null;
   pageUrl: string | null;
 };
 
@@ -127,57 +135,95 @@ export class NotionDashboardService {
     );
     const customProperties = this.getCustomPropertiesSnapshot();
     if (!settings.enabled) {
+      const message = "Notion upload is disabled.";
+      const userAction = "NOTION_EXPORT_ENABLED=true로 켤 수 있습니다.";
       return {
         enabled: false,
         configured,
         status: "disabled",
         uploadMode: settings.uploadMode,
         targetUrl: settings.targetUrl,
-        message: "Notion upload is disabled.",
-        userAction: "NOTION_EXPORT_ENABLED=true로 켤 수 있습니다.",
+        message,
+        userAction,
+        display: buildNotionDashboardDisplay({
+          status: "disabled",
+          message,
+          userAction,
+          uploadMode: settings.uploadMode,
+          targetUrl: settings.targetUrl,
+        }),
         managedRegistry,
         settings: snapshotNotionRuntimeSettings(settings),
         customProperties,
       };
     }
     if (managedRegistry.status === "partial") {
+      const message = "Notion managed DB registry가 일부만 저장되어 업로드를 막았습니다.";
+      const userAction =
+        "기존 DB/필드를 자동 수정하지 않습니다. Notion 설정/복구 화면에서 registry 상태를 확인해 주세요.";
       return {
         enabled: true,
         configured: false,
         status: "blocked",
         uploadMode: settings.uploadMode,
         targetUrl: settings.targetUrl,
-        message: "Notion managed DB registry가 일부만 저장되어 업로드를 막았습니다.",
-        userAction:
-          "기존 DB/필드를 자동 수정하지 않습니다. Notion 설정/복구 화면에서 registry 상태를 확인해 주세요.",
+        message,
+        userAction,
+        display: buildNotionDashboardDisplay({
+          status: "blocked",
+          message,
+          userAction,
+          uploadMode: settings.uploadMode,
+          targetUrl: settings.targetUrl,
+          managedRegistry,
+        }),
         managedRegistry,
         settings: snapshotNotionRuntimeSettings(settings),
         customProperties,
       };
     }
     if (!configured) {
+      const message = "Notion upload settings are incomplete.";
+      const userAction =
+        "Notion token과 parent page URL을 저장한 뒤 managed DB 세트를 생성해 주세요.";
       return {
         enabled: true,
         configured: false,
         status: "not_configured",
         uploadMode: settings.uploadMode,
         targetUrl: settings.targetUrl,
-        message: "Notion upload settings are incomplete.",
-        userAction:
-          "Notion token과 parent page URL을 저장한 뒤 managed DB 세트를 생성해 주세요.",
+        message,
+        userAction,
+        display: buildNotionDashboardDisplay({
+          status: "not_configured",
+          message,
+          userAction,
+          uploadMode: settings.uploadMode,
+          targetUrl: settings.targetUrl,
+          managedRegistry,
+        }),
         managedRegistry,
         settings: snapshotNotionRuntimeSettings(settings),
         customProperties,
       };
     }
+    const message = "Notion upload is configured.";
     return {
       enabled: true,
       configured: true,
       status: "ready",
       uploadMode: settings.uploadMode,
       targetUrl: settings.targetUrl,
-      message: "Notion upload is configured.",
+      message,
       userAction: null,
+      display: buildNotionDashboardDisplay({
+        status: "ready",
+        message,
+        userAction: null,
+        uploadMode: settings.uploadMode,
+        targetUrl: settings.targetUrl,
+        managedRegistry,
+      }),
       managedRegistry,
       settings: snapshotNotionRuntimeSettings(settings),
       customProperties,
@@ -225,6 +271,22 @@ export class NotionDashboardService {
       status: result.status,
       message: result.message,
       userAction: result.userAction,
+      display: buildNotionUploadActionDisplay({
+        status: result.status,
+        message: result.message,
+        userAction: result.userAction,
+        technicalDetail: result.technicalDetail,
+        details: [
+          { label: "sessionId", value: result.sessionId },
+          { label: "draftId", value: result.draftId },
+          { label: "targetId", value: result.targetId },
+          { label: "writeId", value: result.writeId },
+          { label: "pageId", value: result.pageId },
+          { label: "contentHash", value: result.contentHash },
+          { label: "warnings", value: result.warnings },
+        ],
+      }),
+      technicalDetail: result.technicalDetail,
       pageUrl: result.pageUrl,
     };
   }
@@ -677,4 +739,117 @@ function schemaDiffUserAction(diff: NotionSchemaDiff): string | null {
       : null;
   }
   return "스키마 맞추기를 누르면 누락 속성과 이름 변경, select 옵션 보강을 자동 적용합니다.";
+}
+
+function buildNotionDashboardDisplay(input: {
+  status: NotionDashboardSnapshot["status"];
+  message: string;
+  userAction: string | null;
+  uploadMode: string;
+  targetUrl: string | null;
+  managedRegistry?: ManagedNotionRegistrySnapshot;
+}): HumanStatusDisplay {
+  return buildHumanStatusDisplay(undefined, {
+    ...notionDashboardDisplayKeys(input.status),
+    status: input.status,
+    message: input.message,
+    userAction: input.userAction,
+    details: [
+      { label: "uploadMode", value: input.uploadMode },
+      { label: "targetUrl", value: input.targetUrl },
+      { label: "managedRegistry", value: input.managedRegistry },
+    ],
+  });
+}
+
+function buildNotionUploadActionDisplay(input: {
+  status: string;
+  message: string;
+  userAction: string | null;
+  technicalDetail: string | null;
+  details: readonly { label: string; value: unknown }[];
+}): HumanStatusDisplay {
+  return buildHumanStatusDisplay(undefined, {
+    ...notionUploadDisplayKeys(input.status),
+    status: input.status,
+    message: input.message,
+    userAction: input.userAction,
+    technicalDetail: input.technicalDetail,
+    details: input.details,
+  });
+}
+
+function notionDashboardDisplayKeys(
+  status: NotionDashboardSnapshot["status"],
+): Pick<
+  HumanStatusDisplayInput,
+  "titleKey" | "descriptionKey" | "nextActionKey"
+> {
+  if (status === "disabled") {
+    return {
+      titleKey: "statusDisplay.notion.disabled.title",
+      descriptionKey: "statusDisplay.notion.disabled.description",
+      nextActionKey: "statusDisplay.notion.disabled.nextAction",
+    };
+  }
+  if (status === "not_configured") {
+    return {
+      titleKey: "statusDisplay.notion.notConfigured.title",
+      descriptionKey: "statusDisplay.notion.notConfigured.description",
+      nextActionKey: "statusDisplay.notion.notConfigured.nextAction",
+    };
+  }
+  if (status === "blocked") {
+    return {
+      titleKey: "statusDisplay.notion.registryPartial.title",
+      descriptionKey: "statusDisplay.notion.registryPartial.description",
+      nextActionKey: "statusDisplay.notion.registryPartial.nextAction",
+    };
+  }
+  return {
+    titleKey: "statusDisplay.notion.ready.title",
+    descriptionKey: "statusDisplay.notion.ready.description",
+  };
+}
+
+function notionUploadDisplayKeys(
+  status: string,
+): Pick<
+  HumanStatusDisplayInput,
+  "titleKey" | "descriptionKey" | "nextActionKey"
+> {
+  if (status === "done") {
+    return {
+      titleKey: "statusDisplay.notion.done.title",
+      descriptionKey: "statusDisplay.notion.done.description",
+    };
+  }
+  if (status === "retry_wait") {
+    return {
+      titleKey: "statusDisplay.notion.retryWait.title",
+      descriptionKey: "statusDisplay.notion.retryWait.description",
+      nextActionKey: "statusDisplay.notion.retryWait.nextAction",
+    };
+  }
+  if (status === "not_claimed") {
+    return {
+      titleKey: "statusDisplay.notion.notClaimed.title",
+      descriptionKey: "statusDisplay.notion.notClaimed.description",
+    };
+  }
+  if (status === "blocked") {
+    return {
+      titleKey: "statusDisplay.notion.blocked.title",
+      descriptionKey: "statusDisplay.notion.blocked.description",
+      nextActionKey: "statusDisplay.notion.blocked.nextAction",
+    };
+  }
+  if (status === "not_configured" || status === "disabled") {
+    return notionDashboardDisplayKeys(status);
+  }
+  return {
+    titleKey: "statusDisplay.notion.failed.title",
+    descriptionKey: "statusDisplay.notion.failed.description",
+    nextActionKey: "statusDisplay.notion.failed.nextAction",
+  };
 }

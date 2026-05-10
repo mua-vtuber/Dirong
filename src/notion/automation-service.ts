@@ -1,4 +1,10 @@
 import { redactSensitiveText } from "../errors.js";
+import {
+  buildHumanStatusDisplay,
+  formatHumanStatusDisplayForText,
+  type HumanStatusDisplay,
+  type HumanStatusDisplayInput,
+} from "../messages/human-status.js";
 import { PollingLoop } from "../runtime/polling-loop.js";
 import type { NotionClient } from "./client.js";
 import { NotionApiError } from "./client.js";
@@ -46,6 +52,7 @@ export type NotionAutomationSnapshot = {
   message: string;
   userAction: string | null;
   technicalDetail: string | null;
+  display?: HumanStatusDisplay;
   lastRunStatus: NotionUploadStatus | null;
   inFlightDraftIds: string[];
   repairedExpiredLeases: number;
@@ -275,8 +282,13 @@ export class NotionAutomationService {
 export function formatNotionAutomationForStatus(
   snapshot: NotionAutomationSnapshot,
 ): string {
+  const display = snapshot.display ?? buildNotionAutomationDisplay(snapshot);
   const lines = [
-    `Notion 자동 업로드: ${snapshot.message}`,
+    formatHumanStatusDisplayForText(display, {
+      title: "Notion 자동 업로드",
+      description: "설명",
+      nextAction: "Notion 조치",
+    }),
     `Notion mode: ${snapshot.uploadMode}`,
   ];
   if (snapshot.draftId) {
@@ -287,9 +299,6 @@ export function formatNotionAutomationForStatus(
   }
   if (snapshot.repairedExpiredLeases > 0) {
     lines.push(`Notion lease 복구: ${snapshot.repairedExpiredLeases}개`);
-  }
-  if (snapshot.userAction) {
-    lines.push(`Notion 조치: ${snapshot.userAction}`);
   }
   return lines.join("\n");
 }
@@ -563,12 +572,17 @@ function initialUserAction(options: NotionAutomationServiceOptions): string | nu
 function makeSnapshot(
   snapshot: NotionAutomationSnapshot,
 ): NotionAutomationSnapshot {
+  const technicalDetail =
+    snapshot.technicalDetail === null
+      ? null
+      : redactSensitiveText(snapshot.technicalDetail);
   return cloneSnapshot({
     ...snapshot,
-    technicalDetail:
-      snapshot.technicalDetail === null
-        ? null
-        : redactSensitiveText(snapshot.technicalDetail),
+    technicalDetail,
+    display: buildNotionAutomationDisplay({
+      ...snapshot,
+      technicalDetail,
+    }),
   });
 }
 
@@ -577,7 +591,108 @@ function cloneSnapshot(
 ): NotionAutomationSnapshot {
   return {
     ...snapshot,
+    display: snapshot.display
+      ? {
+          ...snapshot.display,
+          details: snapshot.display.details.map((detail) => ({ ...detail })),
+        }
+      : undefined,
     inFlightDraftIds: [...snapshot.inFlightDraftIds],
+  };
+}
+
+function buildNotionAutomationDisplay(
+  snapshot: NotionAutomationSnapshot,
+): HumanStatusDisplay {
+  return buildHumanStatusDisplay(undefined, {
+    ...notionAutomationDisplayKeys(snapshot.status),
+    status: snapshot.status,
+    message: snapshot.message,
+    userAction: snapshot.userAction,
+    technicalDetail: snapshot.technicalDetail,
+    details: [
+      { label: "uploadMode", value: snapshot.uploadMode },
+      { label: "sessionId", value: snapshot.sessionId },
+      { label: "draftId", value: snapshot.draftId },
+      { label: "targetId", value: snapshot.targetId },
+      { label: "writeId", value: snapshot.writeId },
+      { label: "pageUrl", value: snapshot.pageUrl },
+      { label: "lastRunStatus", value: snapshot.lastRunStatus },
+      { label: "inFlightDraftIds", value: snapshot.inFlightDraftIds },
+      { label: "repairedExpiredLeases", value: snapshot.repairedExpiredLeases },
+    ],
+  });
+}
+
+function notionAutomationDisplayKeys(
+  status: NotionAutomationStatus,
+): Pick<
+  HumanStatusDisplayInput,
+  "titleKey" | "descriptionKey" | "nextActionKey"
+> {
+  if (status === "disabled") {
+    return {
+      titleKey: "statusDisplay.notion.disabled.title",
+      descriptionKey: "statusDisplay.notion.disabled.description",
+      nextActionKey: "statusDisplay.notion.disabled.nextAction",
+    };
+  }
+  if (status === "manual") {
+    return {
+      titleKey: "statusDisplay.notion.manual.title",
+      descriptionKey: "statusDisplay.notion.manual.description",
+      nextActionKey: "statusDisplay.notion.manual.nextAction",
+    };
+  }
+  if (status === "not_configured") {
+    return {
+      titleKey: "statusDisplay.notion.notConfigured.title",
+      descriptionKey: "statusDisplay.notion.notConfigured.description",
+      nextActionKey: "statusDisplay.notion.notConfigured.nextAction",
+    };
+  }
+  if (status === "running") {
+    return {
+      titleKey: "statusDisplay.notion.running.title",
+      descriptionKey: "statusDisplay.notion.running.description",
+    };
+  }
+  if (status === "done") {
+    return {
+      titleKey: "statusDisplay.notion.done.title",
+      descriptionKey: "statusDisplay.notion.done.description",
+    };
+  }
+  if (status === "retry_wait") {
+    return {
+      titleKey: "statusDisplay.notion.retryWait.title",
+      descriptionKey: "statusDisplay.notion.retryWait.description",
+      nextActionKey: "statusDisplay.notion.retryWait.nextAction",
+    };
+  }
+  if (status === "blocked") {
+    return {
+      titleKey: "statusDisplay.notion.blocked.title",
+      descriptionKey: "statusDisplay.notion.blocked.description",
+      nextActionKey: "statusDisplay.notion.blocked.nextAction",
+    };
+  }
+  if (status === "failed") {
+    return {
+      titleKey: "statusDisplay.notion.failed.title",
+      descriptionKey: "statusDisplay.notion.failed.description",
+      nextActionKey: "statusDisplay.notion.failed.nextAction",
+    };
+  }
+  if (status === "not_claimed") {
+    return {
+      titleKey: "statusDisplay.notion.notClaimed.title",
+      descriptionKey: "statusDisplay.notion.notClaimed.description",
+    };
+  }
+  return {
+    titleKey: "statusDisplay.notion.idle.title",
+    descriptionKey: "statusDisplay.notion.idle.description",
   };
 }
 

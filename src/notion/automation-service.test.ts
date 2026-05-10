@@ -119,6 +119,11 @@ test("NotionAutomationService blocks partial managed registry before legacy fall
     const snapshot = await service.runOnce();
 
     assert.equal(snapshot.status, "blocked");
+    assert.equal(snapshot.display?.title, "Notion 업로드가 멈췄어요");
+    assert.match(
+      snapshot.display?.details.find((detail) => detail.label === "technicalDetail")?.value ?? "",
+      /databaseCount/,
+    );
     assert.match(snapshot.userAction ?? "", /legacy target/);
     assert.equal(countNotionWrites(fixture.database), 0);
     assert.deepEqual(client.calls, []);

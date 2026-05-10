@@ -53,7 +53,7 @@ export function redactSensitiveText(value: string): string {
   }
 
   redacted = redacted.replace(
-    /Bot\s+[A-Za-z0-9._-]+/gi,
+    /\bBot\s+[A-Za-z0-9._-]{20,}\b/gi,
     "Bot [REDACTED]",
   );
   redacted = redacted.replace(

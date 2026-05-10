@@ -44,6 +44,16 @@
     }
     .label { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
     .value { font-size: 15px; overflow-wrap: anywhere; }
+    .display-title { font-size: 15px; font-weight: 700; overflow-wrap: anywhere; }
+    .display-desc, .display-next { margin-top: 5px; line-height: 1.4; }
+    .display-next { color: var(--ink); }
+    .display-details-table pre {
+      border: 0;
+      border-radius: 0;
+      padding: 0;
+      background: transparent;
+      max-height: 180px;
+    }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -278,6 +288,37 @@
     const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"
     }[ch]));
+    function renderHumanDisplay(source, options = {}) {
+      const display = source?.display;
+      const status = source?.status ?? options.status ?? '';
+      if (!display) {
+        const message = options.message ?? source?.message ?? status ?? '-';
+        const action = options.userAction ?? source?.userAction ?? null;
+        const technical = source?.technicalDetail
+          ? '<details><summary class="muted">자세히 보기</summary><pre>' + escapeHtml(source.technicalDetail) + '</pre></details>'
+          : '';
+        return '<div class="display-title ' + runtimeValueClass(status) + '">' + escapeHtml(message) + '</div>' +
+          (action ? '<div class="display-next">' + escapeHtml(action) + '</div>' : '') + technical;
+      }
+      return '<div class="display-title ' + runtimeValueClass(status) + '">' + escapeHtml(display.title) + '</div>' +
+        '<div class="display-desc muted">' + escapeHtml(display.description) + '</div>' +
+        (display.nextAction ? '<div class="display-next">' + escapeHtml(display.nextAction) + '</div>' : '') +
+        renderHumanDisplayDetails(display.details);
+    }
+    function renderHumanDisplayDetails(details) {
+      if (!Array.isArray(details) || details.length === 0) {
+        return '';
+      }
+      const rows = details.map((detail) =>
+        '<tr><td>' + escapeHtml(detail.label) + '</td><td><pre>' +
+        escapeHtml(detail.value) + '</pre></td></tr>'
+      ).join('');
+      return '<details><summary class="muted">자세히 보기</summary>' +
+        '<table class="display-details-table"><tbody>' + rows + '</tbody></table></details>';
+    }
+    function displayTitle(source, fallback = '-') {
+      return source?.display?.title ?? source?.message ?? fallback;
+    }
     const sectionCache = new Map();
     const setupLocalState = {
       stepIndex: Number(window.localStorage.getItem('dirong.setup.stepIndex') ?? 0),
@@ -549,13 +590,9 @@
       const result = setupLocalState.lastResult;
       if (!result) return '';
       const failed = result.ok === false || ['failed', 'blocked', 'not_configured'].includes(String(result.status));
-      const technical = result.technicalDetail
-        ? '<details><summary class="muted">기술 세부정보</summary><pre>' + escapeHtml(result.technicalDetail) + '</pre></details>'
-        : '';
       return '<div class="setup-result">' +
-        '<div class="value ' + (failed ? 'error' : 'status') + '">' + escapeHtml(result.message ?? result.status ?? '') + '</div>' +
-        (result.userAction ? '<div class="muted">' + escapeHtml(result.userAction) + '</div>' : '') +
-        technical + '</div>';
+        '<div class="' + (failed ? 'error' : 'status') + '">' +
+        renderHumanDisplay(result) + '</div></div>';
     }
     function renderCreatedNotionDatabases() {
       const databases = setupLocalState.lastResult?.notion?.databases;
@@ -580,9 +617,8 @@
       ];
       return '<div class="setup-status-grid">' + features.map(([label, feature]) =>
         '<div class="setup-status-card"><div class="label">' + escapeHtml(label) + ' · ' +
-        escapeHtml(feature?.status ?? '-') + '</div><div class="value ' + runtimeValueClass(feature?.status) + '">' +
-        escapeHtml(feature?.message ?? '-') + '</div>' +
-        (feature?.userAction ? '<div class="muted">' + escapeHtml(feature.userAction) + '</div>' : '') +
+        escapeHtml(feature?.status ?? '-') + '</div>' +
+        renderHumanDisplay(feature) +
         '</div>'
       ).join('') + '</div>';
     }
@@ -788,11 +824,11 @@
         metric('Open Chunks', runtime.openChunks ?? 0),
         metric('Session Status', session?.status ?? '-'),
         metric('DB', rel(state.dbPath)),
-        metric('STT Auto', state.sttAutomation?.message ?? '-'),
-        metric('AI Status', state.aiReadiness?.message ?? '-'),
+        metric('STT Auto', displayTitle(state.sttAutomation)),
+        metric('AI Status', displayTitle(state.aiReadiness)),
         metric('AI Cleanup', state.aiCleanupAutomation?.message ?? '-'),
         metric('Notion', renderNotionMetric(state)),
-        metric('Alone Finalize', state.aloneFinalize?.message ?? '-'),
+        metric('Alone Finalize', displayTitle(state.aloneFinalize)),
         metric('AI Provider', state.aiReadiness ? state.aiReadiness.provider + ' / ' + state.aiReadiness.model : '-'),
         metric('Queue', queueSummary(state.queueStats ?? [])),
         metric('Repair Open', (state.recentRepairItems ?? []).filter((row) => row.status === 'open').length)
@@ -947,17 +983,10 @@
       if (!readiness) {
         return '<div class="muted">AI readiness snapshot이 아직 없습니다.</div>';
       }
-      const action = readiness.userAction
-        ? '<div class="value">' + escapeHtml(readiness.userAction) + '</div>'
-        : '';
-      const technical = readiness.technicalDetail
-        ? '<details><summary class="muted">기술 세부정보</summary><pre>' + escapeHtml(readiness.technicalDetail) + '</pre></details>'
-        : '';
       return '<div class="metric" style="margin-bottom:10px">' +
         '<div class="label">' + escapeHtml(readiness.provider) + ' / ' + escapeHtml(readiness.model) +
         ' · ' + escapeHtml(readiness.status) + ' · ' + escapeHtml(readiness.checkedAt ?? 'not checked') +
-        '</div><div class="value ' + runtimeValueClass(readiness.status) + '">' + escapeHtml(readiness.message) + '</div>' +
-        action + technical + '</div>';
+        '</div>' + renderHumanDisplay(readiness) + '</div>';
     }
     function renderSttAutomation(automation) {
       if (!automation) {
@@ -971,17 +1000,10 @@
           ' / failed ' + escapeHtml(automation.lastRun.failed) +
           ' / more ' + escapeHtml(automation.lastRun.remainingQueuedHint > 0 ? 'yes' : 'no') + '</div>'
         : '';
-      const action = automation.userAction
-        ? '<div class="value">' + escapeHtml(automation.userAction) + '</div>'
-        : '';
-      const technical = automation.technicalDetail
-        ? '<details><summary class="muted">STT 자동화 세부정보</summary><pre>' + escapeHtml(automation.technicalDetail) + '</pre></details>'
-        : '';
       return '<div class="metric" style="margin-bottom:10px">' +
         '<div class="label">' + escapeHtml(automation.provider) + ' / ' + escapeHtml(automation.model) +
         ' · ' + escapeHtml(automation.status) + ' · ' + escapeHtml(automation.checkedAt ?? 'not checked') +
-        '</div><div class="value ' + runtimeValueClass(automation.status) + '">' + escapeHtml(automation.message) + '</div>' +
-        run + action + technical + '</div>';
+        '</div>' + renderHumanDisplay(automation) + run + '</div>';
     }
     function renderAiCleanupAutomation(automation) {
       if (!automation) {
@@ -1029,24 +1051,25 @@
       const error = latest?.last_error
         ? '<details><summary class="muted">last error</summary><pre>' + escapeHtml(latest.last_error) + '</pre></details>'
         : '';
-      const action = notion.userAction
-        ? '<div class="value">' + escapeHtml(notion.userAction) + '</div>'
-        : '';
       const automation = state.notionAutomation
-        ? '<div class="muted">automation: ' + escapeHtml(state.notionAutomation.status) +
-          ' · ' + escapeHtml(state.notionAutomation.message) + '</div>'
+        ? '<div style="margin-top:10px"><div class="label">automation · ' + escapeHtml(state.notionAutomation.status) + '</div>' +
+          renderHumanDisplay(state.notionAutomation) + '</div>'
+        : '';
+      const latestDetails = latest
+        ? '<details><summary class="muted">최근 Notion write 자세히 보기</summary><pre>' + escapeHtml(JSON.stringify({
+            target: notion.targetUrl ?? null,
+            writeId: latest.id ?? null,
+            draftId: latest.draft_id ?? state.latestMeetingNotesDraft?.id ?? null,
+            contentHash: latest.content_hash ?? null,
+            status: latest.status ?? null
+          }, null, 2)) + '</pre></details>'
         : '';
       const buttons = renderNotionButtons(state);
       const managedRegistry = renderManagedRegistryDetails(notion.managedRegistry);
       return '<div class="metric">' +
         '<div class="label">notion · ' + escapeHtml(notion.status) + ' · ' + escapeHtml(notion.uploadMode) + '</div>' +
-        '<div class="value ' + runtimeValueClass(latest?.status ?? notion.status) + '">' +
-          escapeHtml(latest?.status ?? notion.message) + '</div>' +
-        '<div class="muted">target: ' + escapeHtml(notion.targetUrl ?? '-') +
-        '<br>write: ' + escapeHtml(latest?.id ?? '-') +
-        '<br>draft: ' + escapeHtml(latest?.draft_id ?? state.latestMeetingNotesDraft?.id ?? '-') +
-        '<br>hash: ' + escapeHtml(shortHash(latest?.content_hash)) + '</div>' +
-        managedRegistry + page + automation + action + buttons + error + '</div>';
+        renderHumanDisplay(notion, { status: latest?.status ?? notion.status }) +
+        managedRegistry + page + automation + latestDetails + buttons + error + '</div>';
     }
     function renderManagedRegistryDetails(registry, options = {}) {
       if (!registry) {
@@ -1082,7 +1105,7 @@
         const auto = state.notionAutomation?.status ? ' / auto ' + state.notionAutomation.status : '';
         return latest.status + (latest.notion_page_url ? ' / page ready' : '') + auto;
       }
-      return state.notionAutomation?.message ?? state.notion?.message ?? '-';
+      return displayTitle(state.notionAutomation, displayTitle(state.notion));
     }
     function renderNotionButtons(state) {
       const draftId = state.latestMeetingNotesDraft?.id ?? '';
@@ -1412,20 +1435,14 @@
       const countdown = aloneFinalize.status === 'countdown' && aloneFinalize.remainingMs !== null
         ? '<div class="muted">자동 종료까지 ' + escapeHtml(Math.ceil(aloneFinalize.remainingMs / 1000)) + '초</div>'
         : '';
-      const action = aloneFinalize.userAction
-        ? '<div class="value">' + escapeHtml(aloneFinalize.userAction) + '</div>'
-        : '';
       const warnings = aloneFinalize.warnings?.length
         ? '<div class="warn">' + aloneFinalize.warnings.map(escapeHtml).join(', ') + '</div>'
-        : '';
-      const technical = aloneFinalize.technicalDetail
-        ? '<details><summary class="muted">혼자 남음 세부정보</summary><pre>' + escapeHtml(aloneFinalize.technicalDetail) + '</pre></details>'
         : '';
       return '<div class="metric" style="margin-bottom:10px">' +
         '<div class="label">alone finalize · ' + escapeHtml(aloneFinalize.status) +
         ' · ' + escapeHtml(aloneFinalize.checkedAt ?? 'not checked') +
-        '</div><div class="value ' + runtimeValueClass(aloneFinalize.status) + '">' + escapeHtml(aloneFinalize.message) + '</div>' +
-        countdown + action + warnings + technical + '</div>';
+        '</div>' + renderHumanDisplay(aloneFinalize) +
+        countdown + warnings + '</div>';
     }
     function renderAudioControls(c) {
       if (!(c.raw_byte_size > 0) || c.status === 'writing') {

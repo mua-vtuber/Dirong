@@ -292,10 +292,17 @@ test("DashboardServer setup status API returns redacted configuration state", as
   try {
     const response = await fetch(`${fixture.baseUrl}/api/setup/status`);
     const text = await response.text();
-    const body = JSON.parse(text) as { status: string };
+    const body = JSON.parse(text) as {
+      status: string;
+      features: { discord: { display?: { title: string } } };
+    };
 
     assert.equal(response.status, 200);
     assert.equal(body.status, "not_configured");
+    assert.equal(
+      body.features.discord.display?.title,
+      "Discord 봇 연결이 아직 끝나지 않았어요",
+    );
     assert.doesNotMatch(text, /discord-secret-raw-value/);
     assert.match(text, /\[REDACTED\]/);
   } finally {
@@ -942,6 +949,12 @@ function makeSetupStatusSource(): DashboardSetupStatusSource {
           message: "Discord 설정이 아직 없습니다.",
           userActionKey: "setup.discord.status.notConfigured.action",
           userAction: "Discord 설정을 완료해 주세요.",
+          display: {
+            title: "Discord 봇 연결이 아직 끝나지 않았어요",
+            description: "디롱이가 사용할 봇 정보나 서버 선택이 빠져 있어서 Discord 기능을 잠시 멈췄습니다.",
+            nextAction: "Discord 설정에서 application ID, bot token, 사용할 서버 선택을 완료해 주세요.",
+            details: [],
+          },
           missing: ["discord.applicationId"],
           applicationIdConfigured: false,
           guildAllowlistCount: 0,

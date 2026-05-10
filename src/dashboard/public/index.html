@@ -302,10 +302,7 @@
       --font-mono: "IBM Plex Mono", Consolas, ui-monospace, monospace;
     }
     body {
-      background:
-        linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px),
-        linear-gradient(180deg, var(--bg-alt), var(--bg));
-      background-size: 28px 28px, auto;
+      background: var(--bg);
       color: var(--ink);
       font-family: var(--font-body);
       font-size: 14px;
@@ -519,6 +516,9 @@
       gap: 10px;
       margin-bottom: 12px;
     }
+    #lockedCards:not(:empty) {
+      margin-bottom: 12px;
+    }
     .flow-card,
     .content-band,
     .locked-card,
@@ -614,6 +614,11 @@
     .content-band {
       margin-bottom: 12px;
     }
+    #settingsPanel > .metric + .metric,
+    #notion > .metric + .metric,
+    #notionProperties > .metric + .metric {
+      margin-top: 10px;
+    }
     .section-heading {
       border-bottom: 1px solid var(--line);
       padding-bottom: 10px;
@@ -686,6 +691,9 @@
     .setup-guild {
       background: var(--panel-soft);
       border-color: var(--line);
+    }
+    .required-field-grid {
+      margin-top: 10px;
     }
     .required-field.is-missing,
     #dbPanel .required-field.is-missing {
@@ -767,6 +775,8 @@
       box-shadow: inset 4px 0 0 var(--accent);
     }
     .setup-notice {
+      margin: 10px 0 0;
+      padding: 10px 12px;
       border-left: 4px solid var(--warn);
       background: var(--progress-bg);
       color: var(--progress-ink);

@@ -28,6 +28,10 @@ import {
   runNotionUpload,
   type NotionDraftSelector,
 } from "./writer.js";
+import {
+  readManagedNotionRegistrySnapshot,
+  type ManagedNotionRegistrySnapshot,
+} from "./managed-registry.js";
 import { NotionRegistryStore } from "./registry-store.js";
 import { NotionWriteStore } from "./write-store.js";
 import { SqlRunner } from "../storage/sql-runner.js";
@@ -46,11 +50,12 @@ export type NotionCustomPropertiesDashboardSnapshot = {
 export type NotionDashboardSnapshot = {
   enabled: boolean;
   configured: boolean;
-  status: "disabled" | "not_configured" | "ready";
+  status: "disabled" | "not_configured" | "ready" | "blocked";
   uploadMode: string;
   targetUrl: string | null;
   message: string;
   userAction: string | null;
+  managedRegistry?: ManagedNotionRegistrySnapshot;
   settings: ReturnType<typeof snapshotNotionRuntimeSettings>;
   customProperties: NotionCustomPropertiesDashboardSnapshot;
 };
@@ -114,6 +119,7 @@ export class NotionDashboardService {
 
   getSnapshot(): NotionDashboardSnapshot {
     const settings = this.input.settings;
+    const managedRegistry = readManagedNotionRegistrySnapshot(this.registryStore);
     const configured = Boolean(
       settings.apiKey &&
         (settings.targetUrl ||
@@ -129,6 +135,22 @@ export class NotionDashboardService {
         targetUrl: settings.targetUrl,
         message: "Notion upload is disabled.",
         userAction: "NOTION_EXPORT_ENABLED=true로 켤 수 있습니다.",
+        managedRegistry,
+        settings: snapshotNotionRuntimeSettings(settings),
+        customProperties,
+      };
+    }
+    if (managedRegistry.status === "partial") {
+      return {
+        enabled: true,
+        configured: false,
+        status: "blocked",
+        uploadMode: settings.uploadMode,
+        targetUrl: settings.targetUrl,
+        message: "Notion managed DB registry가 일부만 저장되어 업로드를 막았습니다.",
+        userAction:
+          "기존 DB/필드를 자동 수정하지 않습니다. Notion 설정/복구 화면에서 registry 상태를 확인해 주세요.",
+        managedRegistry,
         settings: snapshotNotionRuntimeSettings(settings),
         customProperties,
       };
@@ -142,7 +164,8 @@ export class NotionDashboardService {
         targetUrl: settings.targetUrl,
         message: "Notion upload settings are incomplete.",
         userAction:
-          "NOTION_API_KEY를 설정하고 managed DB를 생성하거나 NOTION_TARGET_URL을 설정해 주세요.",
+          "Notion token과 parent page URL을 저장한 뒤 managed DB 세트를 생성해 주세요.",
+        managedRegistry,
         settings: snapshotNotionRuntimeSettings(settings),
         customProperties,
       };
@@ -155,6 +178,7 @@ export class NotionDashboardService {
       targetUrl: settings.targetUrl,
       message: "Notion upload is configured.",
       userAction: null,
+      managedRegistry,
       settings: snapshotNotionRuntimeSettings(settings),
       customProperties,
     };

@@ -16,6 +16,7 @@ import {
   type NotionUploadResult,
   type NotionUploadStatus,
 } from "./writer.js";
+import { readManagedNotionRegistrySnapshot } from "./managed-registry.js";
 import type { NotionWriteStore } from "./write-store.js";
 
 export type NotionAutomationStatus =
@@ -332,6 +333,24 @@ async function resolveAutomationTargetId(
       technicalDetail: string | null;
     }
 > {
+  const registrySnapshot = readManagedNotionRegistrySnapshot(registryStore);
+  if (registrySnapshot.status === "partial") {
+    return {
+      ok: false,
+      status: "blocked",
+      message: "Managed Notion registry is incomplete.",
+      userAction:
+        "일부 registry 값이 있어 legacy target으로 전환하지 않았습니다. 기존 DB/필드는 자동 수정하지 않으니 Notion 설정/복구 화면에서 registry 상태를 확인해 주세요.",
+      technicalDetail: JSON.stringify({
+        databaseCount: registrySnapshot.databaseCount,
+        expectedDatabaseCount: registrySnapshot.expectedDatabaseCount,
+        propertyMappingCount: registrySnapshot.propertyMappingCount,
+        expectedPropertyMappingCount:
+          registrySnapshot.expectedPropertyMappingCount,
+      }),
+    };
+  }
+
   const managedMeeting = hasCompleteManagedNotionUploadRegistry(registryStore)
     ? registryStore?.getManagedDatabase("meeting")
     : null;

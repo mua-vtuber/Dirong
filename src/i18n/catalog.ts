@@ -199,7 +199,12 @@ export const ko = {
         registryMissing: {
           message: "Notion 연결 값은 있지만 managed DB registry가 아직 없습니다.",
           action:
-            "후속 Phase에서 managed DB 생성을 완료해야 Notion 업로드를 사용할 수 있습니다.",
+            "위자드의 managed DB 생성 단계에서 회의록, 작업자, 액션 아이템 DB 세트를 생성해 주세요.",
+        },
+        registryPartial: {
+          message: "Notion managed DB registry가 일부만 저장되어 업로드를 막았습니다.",
+          action:
+            "기존 DB나 필드는 자동 수정하지 않습니다. Notion 설정/복구 화면에서 registry 상태를 확인해 주세요.",
         },
         ready: {
           message: "Notion managed DB registry가 준비되어 있습니다.",
@@ -550,7 +555,13 @@ export const en = {
           message:
             "Notion connection values exist, but the managed DB registry is missing.",
           action:
-            "Managed DB creation must be completed in a later phase before Notion upload can be used.",
+            "Create the Meeting, Member, and Action Item DB set in the managed DB step of the wizard.",
+        },
+        registryPartial: {
+          message:
+            "The Notion managed DB registry is only partially saved, so upload is blocked.",
+          action:
+            "Dirong will not automatically modify existing DBs or properties. Check the registry state in the Notion settings or repair screen.",
         },
         ready: {
           message: "Notion managed DB registry is ready.",

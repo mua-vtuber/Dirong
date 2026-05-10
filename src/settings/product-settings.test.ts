@@ -6,11 +6,15 @@ import test from "node:test";
 import { getDirongUserDataPaths } from "./dirong-user-data.js";
 import { LocalSecretStore, DEFAULT_SECRET_REFS } from "./local-secret-store.js";
 import { LocalSettingsStore } from "./local-settings-store.js";
+import { NOTION_MANAGED_SCHEMA_VERSION } from "../notion/managed-schema.js";
+import { NotionRegistryStore } from "../notion/registry-store.js";
 import {
   buildProductSetupStatus,
   createProductSetupStatusSource,
   loadProductRuntimeSettings,
 } from "./product-settings.js";
+import { SqlRunner } from "../storage/sql-runner.js";
+import { DirongDatabase } from "../storage/sqlite.js";
 
 test("loadProductRuntimeSettings ignores process env fallback for product Discord config", () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-product-"));
@@ -129,6 +133,61 @@ test("ProductSetupStatusSource saves app locale through local settings", () => {
     assert.equal(status.notionSchemaLocale, "en");
     assert.equal(new LocalSettingsStore(paths.settingsFile).read().app.locale, "en");
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("buildProductSetupStatus reports partial Notion registry as blocked", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-product-"));
+  const database = new DirongDatabase(path.join(dir, "dirong.sqlite"), 1000);
+  try {
+    const paths = getDirongUserDataPaths(dir);
+    const settingsStore = new LocalSettingsStore(paths.settingsFile);
+    const secretStore = new LocalSecretStore(paths.secretsFile);
+    const registryStore = new NotionRegistryStore(new SqlRunner(database));
+    settingsStore.write({
+      schemaVersion: 1,
+      app: { locale: "ko" },
+      discord: {},
+      stt: {},
+      ai: {},
+      notion: {
+        tokenSecretRef: DEFAULT_SECRET_REFS.notionToken,
+        parentPageUrl:
+          "https://www.notion.so/workspace/Dirong-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+      recording: { aloneFinalizeEnabled: true, aloneFinalizeGraceMs: 90000 },
+      retention: { deleteAudioAfterNotionUpload: true, textDraftRetentionDays: 30 },
+    });
+    secretStore.set(DEFAULT_SECRET_REFS.notionToken, "notion-secret-raw-value");
+    registryStore.upsertManagedDatabase({
+      role: "meeting",
+      locale: "ko",
+      databaseId: "meeting-db-id",
+      dataSourceId: "meeting-ds-id",
+      url: "https://notion.so/meeting",
+      name: "회의록",
+      createdByDirong: true,
+      schemaVersion: NOTION_MANAGED_SCHEMA_VERSION,
+      nowIso: "2026-05-10T00:00:00.000Z",
+    });
+
+    const status = buildProductSetupStatus({
+      paths,
+      settings: settingsStore.read(),
+      secretStore,
+      registryStore,
+    });
+
+    assert.equal(status.features.notion.status, "blocked");
+    assert.equal(status.features.notion.managedRegistryReady, false);
+    assert.equal(status.features.notion.managedRegistryStatus, "partial");
+    assert.equal(
+      status.features.notion.messageKey,
+      "setup.notion.status.registryPartial.message",
+    );
+  } finally {
+    database.close();
     rmSync(dir, { recursive: true, force: true });
   }
 });

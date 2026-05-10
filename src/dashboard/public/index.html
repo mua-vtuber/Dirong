@@ -509,7 +509,9 @@
         '<p class="setup-copy">사용자는 database id, data source id, property id를 입력하지 않습니다. Dirong이 생성 결과를 registry에 저장합니다.</p>' +
         notice +
         '<div class="setup-actions"><button type="button"' + (unsupported ? ' disabled' : '') + ' onclick="setupCreateManagedDatabases()">managed DB 생성</button>' +
-        setupNextButton(setup, 'notionManaged') + '</div>' + renderCreatedNotionDatabases();
+        setupNextButton(setup, 'notionManaged') + '</div>' +
+        renderManagedRegistryDetails(setup.features?.notion?.managedRegistry, { compact: true }) +
+        renderCreatedNotionDatabases();
     }
     function renderSetupRecording() {
       return '<h3>녹음 자동 종료를 확인합니다</h3>' +
@@ -1035,6 +1037,7 @@
           ' · ' + escapeHtml(state.notionAutomation.message) + '</div>'
         : '';
       const buttons = renderNotionButtons(state);
+      const managedRegistry = renderManagedRegistryDetails(notion.managedRegistry);
       return '<div class="metric">' +
         '<div class="label">notion · ' + escapeHtml(notion.status) + ' · ' + escapeHtml(notion.uploadMode) + '</div>' +
         '<div class="value ' + runtimeValueClass(latest?.status ?? notion.status) + '">' +
@@ -1043,7 +1046,35 @@
         '<br>write: ' + escapeHtml(latest?.id ?? '-') +
         '<br>draft: ' + escapeHtml(latest?.draft_id ?? state.latestMeetingNotesDraft?.id ?? '-') +
         '<br>hash: ' + escapeHtml(shortHash(latest?.content_hash)) + '</div>' +
-        page + automation + action + buttons + error + '</div>';
+        managedRegistry + page + automation + action + buttons + error + '</div>';
+    }
+    function renderManagedRegistryDetails(registry, options = {}) {
+      if (!registry) {
+        return '';
+      }
+      const databases = Array.isArray(registry.databases) ? registry.databases : [];
+      if (registry.status === 'missing' && options.compact) {
+        return '';
+      }
+      const rows = databases.map((database) =>
+        '<tr><td>' + escapeHtml(database.expectedName ?? database.role) + '</td>' +
+        '<td>' + escapeHtml(database.ready ? 'ready' : database.hasDatabase ? 'partial' : 'missing') + '</td>' +
+        '<td>' + escapeHtml((database.mappingCount ?? 0) + ' / ' + (database.expectedMappingCount ?? 0)) + '</td>' +
+        '<td>' + (database.url ? '<a href="' + escapeHtml(database.url) + '" target="_blank" rel="noreferrer">열기</a>' : '-') + '</td></tr>'
+      ).join('');
+      const workspace = registry.workspace?.parentPageUrl
+        ? '<div class="muted">parent page: <a href="' + escapeHtml(registry.workspace.parentPageUrl) + '" target="_blank" rel="noreferrer">열기</a></div>'
+        : '';
+      const actionItems = registry.status === 'ready'
+        ? '<div class="muted">' + escapeHtml(registry.actionItemUpload?.message ?? '액션 아이템 DB 생성됨, 액션 아이템 업로드는 후속입니다.') + '</div>'
+        : '';
+      return '<div style="margin-top:10px">' +
+        '<div class="label">managed registry · ' + escapeHtml(registry.status) +
+        ' · DB ' + escapeHtml((registry.databaseCount ?? 0) + '/' + (registry.expectedDatabaseCount ?? 3)) +
+        ' · mappings ' + escapeHtml((registry.propertyMappingCount ?? 0) + '/' + (registry.expectedPropertyMappingCount ?? 0)) + '</div>' +
+        workspace +
+        (rows ? '<table><thead><tr><th>DB</th><th>상태</th><th>mapping</th><th>Notion</th></tr></thead><tbody>' + rows + '</tbody></table>' : '') +
+        actionItems + '</div>';
     }
     function renderNotionMetric(state) {
       const latest = state.latestNotionWrite;

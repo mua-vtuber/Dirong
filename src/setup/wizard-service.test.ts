@@ -8,6 +8,12 @@ import {
   NOTION_MANAGED_SCHEMA_VERSION,
   type ManagedNotionSchemaCreationResult,
 } from "../notion/managed-schema.js";
+import { KOREAN_NOTION_SCHEMA_PRESET } from "../notion/schema-presets.js";
+import type {
+  NotionDatabaseRole,
+  NotionPropertySemanticKey,
+  NotionSchemaPresetPropertyType,
+} from "../notion/schema-presets.js";
 import { NotionRegistryStore } from "../notion/registry-store.js";
 import {
   DEFAULT_SECRET_REFS,
@@ -155,11 +161,7 @@ test("SetupWizardService verifies a Notion parent page and creates managed DBs t
           managedDatabase("member", "작업자", "member-db-id", "member-ds-id"),
           managedDatabase("task", "액션 아이템", "task-db-id", "task-ds-id"),
         ],
-        propertyMappings: [
-          propertyMapping("meeting", "meeting.title", "회의록"),
-          propertyMapping("member", "member.discordName", "디스코드 닉네임"),
-          propertyMapping("task", "task.title", "작업"),
-        ],
+        propertyMappings: allKoreanPropertyMappings(),
         nowIso: "2026-05-10T00:00:00.000Z",
       });
       return {
@@ -190,9 +192,9 @@ test("SetupWizardService verifies a Notion parent page and creates managed DBs t
           },
         },
         propertyMappings: {
-          meeting: [propertyMapping("meeting", "meeting.title", "회의록")],
-          member: [propertyMapping("member", "member.discordName", "디스코드 닉네임")],
-          task: [propertyMapping("task", "task.title", "작업")],
+          meeting: allKoreanPropertyMappings("meeting"),
+          member: allKoreanPropertyMappings("member"),
+          task: allKoreanPropertyMappings("task"),
         },
       } satisfies ManagedNotionSchemaCreationResult;
     },
@@ -219,6 +221,37 @@ test("SetupWizardService verifies a Notion parent page and creates managed DBs t
   }
 });
 
+test("SetupWizardService blocks managed DB creation when registry is partial", async () => {
+  const fixture = createFixture();
+  try {
+    fixture.service.saveNotionToken({ token: "notion-secret-raw-value" });
+    fixture.service.saveNotionParentPageUrl({ parentPageUrl });
+    fixture.registryStore.upsertManagedDatabase({
+      role: "meeting",
+      locale: "ko",
+      databaseId: "meeting-db-id",
+      dataSourceId: "meeting-ds-id",
+      url: "https://notion.so/meeting",
+      name: "회의록",
+      createdByDirong: true,
+      schemaVersion: NOTION_MANAGED_SCHEMA_VERSION,
+      nowIso: "2026-05-10T00:00:00.000Z",
+    });
+
+    const result = await fixture.service.createManagedDatabases();
+
+    assert.equal(result.ok, false);
+    assert.equal(result.status, "blocked");
+    assert.equal(
+      result.messageKey,
+      "setup.notion.managedDatabases.error.partialRegistry.message",
+    );
+    assert.equal(result.setup.features.notion.managedRegistryReady, false);
+  } finally {
+    fixture.close();
+  }
+});
+
 function createFixture(options: {
   discordGateway?: DiscordSetupGateway;
   claudeTester?: ClaudeSetupTester;
@@ -228,6 +261,7 @@ function createFixture(options: {
   service: SetupWizardService;
   settings: LocalSettingsStore;
   secrets: LocalSecretStore;
+  registryStore: NotionRegistryStore;
   close: () => void;
 } {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-setup-wizard-"));
@@ -250,6 +284,7 @@ function createFixture(options: {
     }),
     settings: settingsStore,
     secrets: secretStore,
+    registryStore,
     close: () => {
       database.close();
       rmSync(dir, { recursive: true, force: true });
@@ -309,40 +344,35 @@ function managedDatabase(
   };
 }
 
-function propertyMapping(
-  databaseRole: "meeting",
-  semanticKey: "meeting.title",
-  propertyName: string,
-): ReturnType<typeof mappingBase>;
-function propertyMapping(
-  databaseRole: "member",
-  semanticKey: "member.discordName",
-  propertyName: string,
-): ReturnType<typeof mappingBase>;
-function propertyMapping(
-  databaseRole: "task",
-  semanticKey: "task.title",
-  propertyName: string,
-): ReturnType<typeof mappingBase>;
-function propertyMapping(
-  databaseRole: "meeting" | "member" | "task",
-  semanticKey: "meeting.title" | "member.discordName" | "task.title",
-  propertyName: string,
-): ReturnType<typeof mappingBase> {
-  return mappingBase(databaseRole, semanticKey, propertyName);
+function allKoreanPropertyMappings(): ReturnType<typeof mappingBase>[];
+function allKoreanPropertyMappings(
+  databaseRole: NotionDatabaseRole,
+): ReturnType<typeof mappingBase>[];
+function allKoreanPropertyMappings(
+  databaseRole?: NotionDatabaseRole,
+): ReturnType<typeof mappingBase>[] {
+  const roles = databaseRole
+    ? [databaseRole]
+    : (["meeting", "member", "task"] as const);
+  return roles.flatMap((role) =>
+    KOREAN_NOTION_SCHEMA_PRESET.databases[role].properties.map((property) =>
+      mappingBase(role, property.key, property.name, property.type),
+    ),
+  );
 }
 
 function mappingBase(
-  databaseRole: "meeting" | "member" | "task",
-  semanticKey: "meeting.title" | "member.discordName" | "task.title",
+  databaseRole: NotionDatabaseRole,
+  semanticKey: NotionPropertySemanticKey,
   propertyName: string,
+  propertyType: NotionSchemaPresetPropertyType,
 ) {
   return {
     databaseRole,
     semanticKey,
     propertyName,
     propertyId: `${semanticKey}-id`,
-    propertyType: "title" as const,
+    propertyType,
     locked: true,
     sourceKind: "system" as const,
     createdAt: "2026-05-10T00:00:00.000Z",

@@ -42,6 +42,10 @@ import {
   type NotionManagedDatabase,
   type NotionPropertyMapping,
 } from "./registry-store.js";
+import {
+  hasReadyManagedNotionRegistry,
+  readManagedNotionRegistrySnapshot,
+} from "./managed-registry.js";
 import { NotionWriteStore, type NotionWriteRow } from "./write-store.js";
 
 export type NotionDraftSelector =
@@ -361,6 +365,34 @@ async function resolveUploadTarget(input: {
   | { ok: true; target: ResolvedTarget }
   | { ok: false; result: NotionUploadResult }
 > {
+  const registrySnapshot = readManagedNotionRegistrySnapshot(input.registryStore);
+  if (registrySnapshot.status === "partial") {
+    return {
+      ok: false,
+      result: {
+        ...input.baseResult,
+        status: "blocked",
+        message: "Managed Notion registry is incomplete.",
+        userAction:
+          "일부 registry 값이 있어 legacy target으로 전환하지 않았습니다. 기존 DB/필드는 자동 수정하지 않으니 Notion 설정/복구 화면에서 registry 상태를 확인해 주세요.",
+        technicalDetail: JSON.stringify({
+          databaseCount: registrySnapshot.databaseCount,
+          expectedDatabaseCount: registrySnapshot.expectedDatabaseCount,
+          propertyMappingCount: registrySnapshot.propertyMappingCount,
+          expectedPropertyMappingCount:
+            registrySnapshot.expectedPropertyMappingCount,
+          databases: registrySnapshot.databases.map((database) => ({
+            role: database.role,
+            hasDatabase: database.hasDatabase,
+            mappingCount: database.mappingCount,
+            expectedMappingCount: database.expectedMappingCount,
+            missingSemanticKeys: database.missingSemanticKeys,
+          })),
+        }),
+      },
+    };
+  }
+
   const managedCandidate = loadManagedUploadRegistryCandidate(input.registryStore);
   if (managedCandidate) {
     return await resolveManagedUploadTarget({
@@ -562,7 +594,7 @@ function loadManagedUploadRegistryCandidate(
 export function hasCompleteManagedNotionUploadRegistry(
   registryStore: NotionRegistryStore | null,
 ): boolean {
-  return loadManagedUploadRegistryCandidate(registryStore) !== null;
+  return hasReadyManagedNotionRegistry(registryStore);
 }
 
 function hasRequiredMappings(

@@ -6,6 +6,11 @@ import {
   DEFAULT_NOTION_PROPERTY_NAMES,
   type NotionRuntimeSettings,
 } from "../notion/settings.js";
+import {
+  readManagedNotionRegistrySnapshot,
+  type ManagedNotionRegistrySnapshot,
+  type ManagedNotionRegistryStatus,
+} from "../notion/managed-registry.js";
 import type { NotionRegistryStore } from "../notion/registry-store.js";
 import type { AppSettings, SttSettings } from "./app-settings.js";
 import {
@@ -76,6 +81,8 @@ export type ProductSetupStatusSnapshot = {
     notion: ProductSetupFeatureSnapshot & {
       parentPageConfigured: boolean;
       managedRegistryReady: boolean;
+      managedRegistryStatus?: ManagedNotionRegistryStatus;
+      managedRegistry?: ManagedNotionRegistrySnapshot;
     };
     dataRetention: ProductSetupFeatureSnapshot & {
       deleteAudioAfterNotionUpload: boolean;
@@ -519,6 +526,7 @@ function buildNotionStatus(
   registryStore: NotionRegistryStore | undefined,
 ): ProductSetupStatusSnapshot["features"]["notion"] {
   const parentPageConfigured = Boolean(settings.notion.parentPageUrl);
+  const managedRegistry = readManagedNotionRegistrySnapshot(registryStore);
   const missing = [
     notionSecret.configured ? null : "notion.token",
     parentPageConfigured ? null : "notion.parentPageUrl",
@@ -532,14 +540,25 @@ function buildNotionStatus(
       missing,
       parentPageConfigured,
       managedRegistryReady: false,
+      managedRegistryStatus: managedRegistry.status,
+      managedRegistry,
     });
   }
 
-  const managedRegistryReady = Boolean(
-    registryStore &&
-      registryStore.listManagedDatabases().length === 3 &&
-      registryStore.listPropertyMappings().length > 0,
-  );
+  const managedRegistryReady = managedRegistry.status === "ready";
+
+  if (managedRegistry.status === "partial") {
+    return withLocalizedText(locale, {
+      status: "blocked",
+      messageKey: "setup.notion.status.registryPartial.message",
+      userActionKey: "setup.notion.status.registryPartial.action",
+      missing: ["notion.managedRegistry.partial"],
+      parentPageConfigured,
+      managedRegistryReady: false,
+      managedRegistryStatus: managedRegistry.status,
+      managedRegistry,
+    });
+  }
 
   if (!managedRegistryReady) {
     return withLocalizedText(locale, {
@@ -549,6 +568,8 @@ function buildNotionStatus(
       missing: ["notion.managedRegistry"],
       parentPageConfigured,
       managedRegistryReady: false,
+      managedRegistryStatus: managedRegistry.status,
+      managedRegistry,
     });
   }
 
@@ -559,6 +580,8 @@ function buildNotionStatus(
     missing: [],
     parentPageConfigured,
     managedRegistryReady: true,
+    managedRegistryStatus: managedRegistry.status,
+    managedRegistry,
   });
 }
 

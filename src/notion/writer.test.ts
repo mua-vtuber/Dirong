@@ -21,6 +21,7 @@ const relationTargetId = "11111111-2222-3333-4444-555555555555";
 const relationTargetPageId = "22222222-3333-4444-5555-666666666666";
 const managedMeetingDataSourceId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 const managedMemberDataSourceId = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff";
+const managedTaskDataSourceId = "cccccccc-dddd-eeee-ffff-000000000000";
 
 test("runNotionUpload dry-run validates schema and renders without DB or page writes", async () => {
   const fixture = createFixture();
@@ -209,7 +210,7 @@ test("runNotionUpload uses managed meeting registry and writes matched member re
   }
 });
 
-test("runNotionUpload falls back to legacy target when managed registry is incomplete", async () => {
+test("runNotionUpload blocks instead of falling back when managed registry is incomplete", async () => {
   const fixture = createFixture();
   fixture.registryStore.upsertManagedDatabase({
     role: "meeting",
@@ -238,11 +239,9 @@ test("runNotionUpload falls back to legacy target when managed registry is incom
       registryStore: fixture.registryStore,
     });
 
-    assert.equal(result.status, "done");
-    assert.equal(result.targetId, targetId);
-    assert.deepEqual(client.createPageBodies[0]?.parent, {
-      data_source_id: targetId,
-    });
+    assert.equal(result.status, "blocked");
+    assert.match(result.userAction ?? "", /legacy target/);
+    assert.equal(client.createPageBodies.length, 0);
   } finally {
     fixture.close();
   }
@@ -955,6 +954,13 @@ function seedManagedRegistry(
     meetingPropertyNameOverrides?: Partial<Record<string, string>>;
   } = {},
 ): void {
+  store.saveWorkspaceSettings({
+    locale: "ko",
+    parentPageUrl:
+      "https://www.notion.so/workspace/Dirong-99999999999999999999999999999999",
+    parentPageId: "99999999-9999-9999-9999-999999999999",
+    nowIso,
+  });
   store.upsertManagedDatabase({
     role: "meeting",
     locale: "ko",
@@ -977,6 +983,17 @@ function seedManagedRegistry(
     schemaVersion: "notion-managed-db-v1",
     nowIso,
   });
+  store.upsertManagedDatabase({
+    role: "task",
+    locale: "ko",
+    databaseId: "managed-task-db",
+    dataSourceId: managedTaskDataSourceId,
+    url: "https://notion.so/managed-task",
+    name: "액션 아이템",
+    createdByDirong: true,
+    schemaVersion: "notion-managed-db-v1",
+    nowIso,
+  });
 
   for (const property of KOREAN_NOTION_SCHEMA_PRESET.databases.meeting.properties) {
     store.upsertPropertyMapping({
@@ -994,6 +1011,18 @@ function seedManagedRegistry(
   for (const property of KOREAN_NOTION_SCHEMA_PRESET.databases.member.properties) {
     store.upsertPropertyMapping({
       databaseRole: "member",
+      semanticKey: property.key,
+      propertyName: property.name,
+      propertyId: null,
+      propertyType: property.type,
+      locked: property.locked,
+      sourceKind: "system",
+      nowIso,
+    });
+  }
+  for (const property of KOREAN_NOTION_SCHEMA_PRESET.databases.task.properties) {
+    store.upsertPropertyMapping({
+      databaseRole: "task",
       semanticKey: property.key,
       propertyName: property.name,
       propertyId: null,

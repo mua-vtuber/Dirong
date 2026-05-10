@@ -6,6 +6,8 @@ import test from "node:test";
 import type { NotionClient } from "./client.js";
 import { NotionAutomationService } from "./automation-service.js";
 import { NotionDraftInputReadModel } from "./draft-input-read-model.js";
+import { NOTION_MANAGED_SCHEMA_VERSION } from "./managed-schema.js";
+import { NotionRegistryStore } from "./registry-store.js";
 import {
   DEFAULT_NOTION_PROPERTY_NAMES,
   type NotionRuntimeSettings,
@@ -91,6 +93,35 @@ test("NotionAutomationService uploads one completed valid draft once", async () 
       client.calls.filter((call) => call.method === "createPage").length,
       1,
     );
+  } finally {
+    fixture.close();
+  }
+});
+
+test("NotionAutomationService blocks partial managed registry before legacy fallback", async () => {
+  const fixture = createFixture();
+  try {
+    const registryStore = new NotionRegistryStore(fixture.runner);
+    registryStore.upsertManagedDatabase({
+      role: "meeting",
+      locale: "ko",
+      databaseId: "managed-meeting-db",
+      dataSourceId: targetId,
+      url: "https://notion.so/managed-meeting",
+      name: "회의록",
+      createdByDirong: true,
+      schemaVersion: NOTION_MANAGED_SCHEMA_VERSION,
+      nowIso,
+    });
+    const client = new FakeNotionClient();
+    const service = createService(fixture, { client, registryStore });
+
+    const snapshot = await service.runOnce();
+
+    assert.equal(snapshot.status, "blocked");
+    assert.match(snapshot.userAction ?? "", /legacy target/);
+    assert.equal(countNotionWrites(fixture.database), 0);
+    assert.deepEqual(client.calls, []);
   } finally {
     fixture.close();
   }
@@ -270,6 +301,7 @@ function createService(
   options: {
     settings?: NotionRuntimeSettings;
     client?: NotionClient | null;
+    registryStore?: NotionRegistryStore | null;
   } = {},
 ): NotionAutomationService {
   return new NotionAutomationService({
@@ -281,6 +313,7 @@ function createService(
     batchLimit: 1,
     workerId: "notion-auto-test",
     leaseMs: 60000,
+    registryStore: options.registryStore,
   });
 }
 

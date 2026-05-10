@@ -16,6 +16,7 @@ import {
   DEFAULT_NOTION_API_VERSION,
   DEFAULT_NOTION_BASE_URL,
 } from "../notion/settings.js";
+import { readManagedNotionRegistrySnapshot } from "../notion/managed-registry.js";
 import type { NotionLocale } from "../notion/schema-presets.js";
 import { parseNotionPageUrl } from "../notion/target.js";
 import type { NotionRegistryStore } from "../notion/registry-store.js";
@@ -670,8 +671,10 @@ export class SetupWizardService {
       });
     }
 
-    const registrySnapshot = readManagedRegistrySnapshot(this.options.registryStore);
-    if (registrySnapshot.databaseCount === 3 && registrySnapshot.propertyMappingCount > 0) {
+    const registrySnapshot = readManagedNotionRegistrySnapshot(
+      this.options.registryStore,
+    );
+    if (registrySnapshot.status === "ready") {
       return this.result({
         ok: true,
         status: "ready",
@@ -681,10 +684,7 @@ export class SetupWizardService {
       });
     }
 
-    if (
-      registrySnapshot.databaseCount > 0 ||
-      registrySnapshot.propertyMappingCount > 0
-    ) {
+    if (registrySnapshot.status === "partial") {
       return this.result({
         ok: false,
         status: "blocked",
@@ -1119,16 +1119,6 @@ function buildLocalWhisperSettings(
       },
     },
     openAiApiKey: null,
-  };
-}
-
-function readManagedRegistrySnapshot(registryStore: NotionRegistryStore): {
-  databaseCount: number;
-  propertyMappingCount: number;
-} {
-  return {
-    databaseCount: registryStore.listManagedDatabases().length,
-    propertyMappingCount: registryStore.listPropertyMappings().length,
   };
 }
 

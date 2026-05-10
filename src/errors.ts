@@ -1,4 +1,5 @@
 const SENSITIVE_KEY_PATTERN = /token|authorization|api[_-]?key|secret|password/i;
+const registeredSensitiveValues = new Set<string>();
 
 export class MissingRequiredConfigError extends Error {
   constructor(public readonly missingKeys: string[]) {
@@ -24,6 +25,14 @@ export type SafeErrorInfo = {
   status?: unknown;
 };
 
+export function registerSensitiveValue(value: string | null | undefined): void {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed.length < 8) {
+    return;
+  }
+  registeredSensitiveValues.add(trimmed);
+}
+
 export function redactSensitiveText(value: string): string {
   let redacted = value;
   const token = process.env.DISCORD_BOT_TOKEN;
@@ -39,6 +48,9 @@ export function redactSensitiveText(value: string): string {
   if (notionApiKey && notionApiKey.length > 0) {
     redacted = redacted.split(notionApiKey).join("[REDACTED_NOTION_API_KEY]");
   }
+  for (const secret of registeredSensitiveValues) {
+    redacted = redacted.split(secret).join("[REDACTED_SECRET]");
+  }
 
   redacted = redacted.replace(
     /Bot\s+[A-Za-z0-9._-]+/gi,
@@ -51,6 +63,10 @@ export function redactSensitiveText(value: string): string {
   redacted = redacted.replace(
     /\bntn_[A-Za-z0-9_-]{10,}\b/g,
     "[REDACTED_NOTION_API_KEY]",
+  );
+  redacted = redacted.replace(
+    /\bsk-ant-[A-Za-z0-9_-]{20,}\b/g,
+    "[REDACTED_ANTHROPIC_API_KEY]",
   );
   redacted = redacted.replace(
     /([A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{20,})/g,

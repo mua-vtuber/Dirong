@@ -10,14 +10,16 @@ import {
   type GuildMember,
 } from "discord.js";
 import {
-  loadPhase1Config,
   snapshotPhase1Config,
 } from "../config.js";
-import { loadAppSettingsFromEnv } from "../settings/env-settings-loader.js";
 import {
-  readBooleanEnv,
-  readPositiveNumberEnv,
-} from "../settings/env-readers.js";
+  canStartAiAutomation,
+  canStartDiscordRuntime,
+  canStartNotionAutomation,
+  canStartSttAutomation,
+  createProductSetupStatusSource,
+  loadProductRuntimeSettings,
+} from "../settings/product-settings.js";
 import { ClaudeStreamJsonCliCleanupProvider } from "../ai/cleanup/claude-persistent-cli-provider.js";
 import {
   AiCleanupAutomationService,
@@ -68,14 +70,9 @@ import { createPhase3SttProvider } from "../stt/provider-factory.js";
 import type { SttProvider } from "../stt/provider.js";
 import { backupDatabaseSnapshot } from "./sqlite-backup.js";
 
-const config = (() => {
-  try {
-    return loadPhase1Config({ requireDiscordConfig: true });
-  } catch (error) {
-    printCliError(error);
-    process.exit(1);
-  }
-})();
+const productRuntime = loadProductRuntimeSettings();
+const config = productRuntime.config;
+const appSettings = productRuntime.appSettings;
 
 const database = new DirongDatabase(config.dbPath, config.dbBusyTimeoutMs);
 const store = new SessionStore(database, {
@@ -83,17 +80,6 @@ const store = new SessionStore(database, {
   normalizeStoredPaths: true,
 });
 const repairSummary = await runStartupRepair(store, config);
-const appSettings = loadAppSettingsFromEnv({
-  onInvalidBoolean: warnInvalidBooleanEnv,
-  onInvalidPositiveInteger: (key, fallback) => {
-    warnInvalidNumberEnv(key, fallback);
-    return "fallback";
-  },
-  onInvalidOptionalPositiveInteger: (key) => {
-    warnInvalidNumberEnv(key, config.sttLeaseMs);
-    return "null";
-  },
-});
 const sttProviderSelection = createPhase3SttProvider(appSettings.stt);
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
@@ -107,6 +93,10 @@ const sttAutomation = createSttAutomationService(
 );
 const notionSqlRunner = new SqlRunner(database);
 const notionPropertyRuleStore = new NotionCustomPropertyRuleStore(notionSqlRunner);
+const setupStatus = createProductSetupStatusSource({
+  paths: productRuntime.paths,
+  registryStore: new NotionRegistryStore(notionSqlRunner),
+});
 const aiCleanupProvider = createAiCleanupProvider();
 const aiLifecycle = createAiLifecycleService(aiCleanupProvider);
 const aiCleanupAutomation = createAiCleanupAutomationService(
@@ -126,20 +116,43 @@ const dashboard = new DashboardServer(config, store, producer, {
   aloneFinalize,
   notion: notionDashboard,
   notionAutomation,
+  setupStatus,
   sttAutomation,
 });
 const dashboardUrl = await startDashboardOrExit();
+const initialSetupStatus = setupStatus.getSnapshot();
 let shutdownPromise: Promise<void> | null = null;
 
 console.log("디롱이 Recording + STT dashboard 시작:", dashboardUrl);
+console.log("설정 상태 API:", `${dashboardUrl}api/setup/status`);
 console.log("startup repair:", JSON.stringify(repairSummary, null, 2));
-startSttAutomation();
-startAiPrepareInBackground();
-startAiCleanupAutomation();
-startNotionAutomation();
-startAloneFinalizeService();
 if (config.openDashboard) {
   openDashboardUrl(dashboardUrl);
+}
+
+if (canStartSttAutomation(initialSetupStatus)) {
+  startSttAutomation();
+} else {
+  console.log(`STT 자동 실행 대기 안 함: ${initialSetupStatus.features.stt.message}`);
+}
+if (canStartAiAutomation(initialSetupStatus)) {
+  startAiPrepareInBackground();
+  startAiCleanupAutomation();
+} else {
+  console.log(`AI cleanup 자동 실행 대기 안 함: ${initialSetupStatus.features.ai.message}`);
+}
+if (canStartNotionAutomation(initialSetupStatus)) {
+  startNotionAutomation();
+} else {
+  console.log(`Notion 자동 업로드 대기 안 함: ${initialSetupStatus.features.notion.message}`);
+}
+if (canStartDiscordRuntime(initialSetupStatus)) {
+  startAloneFinalizeService();
+} else {
+  console.log(`Discord 봇 로그인 대기 안 함: ${initialSetupStatus.features.discord.message}`);
+  console.log(initialSetupStatus.features.discord.userAction);
+  console.log("대시보드는 계속 열려 있습니다. 설정이 완료되면 앱을 다시 시작해 주세요.");
+  startConsoleCommands();
 }
 
 client.once(Events.ClientReady, async (readyClient) => {
@@ -192,12 +205,14 @@ process.on("uncaughtException", (error) => {
   void shutdown("uncaughtException").finally(() => process.exit(1));
 });
 
-try {
-  await client.login(config.discordBotToken);
-} catch (error) {
-  printCliError(error);
-  await shutdown("login_failed");
-  process.exit(1);
+if (canStartDiscordRuntime(initialSetupStatus)) {
+  try {
+    await client.login(config.discordBotToken);
+  } catch (error) {
+    printCliError(error);
+    await shutdown("login_failed");
+    process.exit(1);
+  }
 }
 
 async function startDashboardOrExit(): Promise<string> {
@@ -250,7 +265,7 @@ async function handleDirongCommand(
 
   if (!config.guildIds.includes(interaction.guildId)) {
     await interaction.reply({
-      content: "이 Dirong 앱은 .env의 DISCORD_GUILD_IDS 또는 DISCORD_GUILD_ID에 설정된 서버에서만 사용할 수 있습니다.",
+      content: "이 Dirong 앱은 대시보드 설정에서 선택된 Discord 서버에서만 사용할 수 있습니다.",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -445,16 +460,16 @@ function createSttAutomationService(
   timeoutMs: number,
 ): SttAutomationService {
   return new SttAutomationService(store, {
-    enabled: readBooleanEnvWithWarning("PHASE3_STT_AUTO_ENABLED", true),
+    enabled: true,
     provider,
-    pollIntervalMs: readPositiveEnvNumber("PHASE3_STT_AUTO_POLL_MS", 5000),
-    batchLimit: readPositiveEnvNumber("PHASE3_STT_AUTO_BATCH_LIMIT", 1),
+    pollIntervalMs: 5000,
+    batchLimit: 1,
     runner: {
       workerId: `phase3-stt-auto-${provider.providerName}-${process.pid}`,
-      leaseMs: readPositiveEnvNumber("PHASE3_STT_LEASE_MS", config.sttLeaseMs),
+      leaseMs: config.sttLeaseMs,
       language,
       timeoutMs,
-      contextSegments: readPositiveEnvNumber("PHASE3_STT_CONTEXT_SEGMENTS", 2),
+      contextSegments: 2,
     },
   });
 }
@@ -568,7 +583,7 @@ function startNotionAutomation(): void {
 
 function startAloneFinalizeService(): void {
   if (!config.aloneFinalizeEnabled) {
-    console.log("혼자 남음 자동 종료가 꺼져 있습니다. DIRONG_ALONE_FINALIZE_ENABLED=true로 켤 수 있습니다.");
+    console.log("혼자 남음 자동 종료가 꺼져 있습니다. 대시보드 설정에서 켤 수 있습니다.");
     return;
   }
   aloneFinalize.start();
@@ -653,32 +668,6 @@ async function countNonBotVoiceMembers(
       technicalDetail: JSON.stringify(safeErrorInfo(error)),
     };
   }
-}
-
-function readPositiveEnvNumber(key: string, fallback: number): number {
-  try {
-    return readPositiveNumberEnv(process.env, key, fallback, {
-      integer: true,
-      invalidMessage: `${key} 값은 1 이상의 정수여야 합니다.`,
-    });
-  } catch {
-    warnInvalidNumberEnv(key, fallback);
-    return fallback;
-  }
-}
-
-function readBooleanEnvWithWarning(key: string, fallback: boolean): boolean {
-  return readBooleanEnv(process.env, key, fallback, {
-    onInvalid: () => warnInvalidBooleanEnv(key, fallback),
-  });
-}
-
-function warnInvalidBooleanEnv(key: string, fallback: boolean): void {
-  console.warn(`${key} 값이 올바르지 않아 기본값 ${fallback ? "true" : "false"}를 사용합니다.`);
-}
-
-function warnInvalidNumberEnv(key: string, fallback: number): void {
-  console.warn(`${key} 값이 올바르지 않아 기본값 ${fallback}를 사용합니다.`);
 }
 
 function displayNameForMember(member: GuildMember): string {

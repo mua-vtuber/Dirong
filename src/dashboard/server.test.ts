@@ -10,6 +10,7 @@ import type { SessionStore } from "../storage/session-store.js";
 import type {
   DashboardNotionAutomationSource,
   DashboardNotionSource,
+  DashboardSetupStatusSource,
 } from "./server.js";
 import {
   appendAiReadinessToDashboardState,
@@ -243,6 +244,20 @@ test("appendDashboardRuntimeSnapshots includes redacted Notion snapshot", () => 
   assert.doesNotMatch(serialized, /ntn_test_secret/);
 });
 
+test("appendDashboardRuntimeSnapshots includes setup status without raw secrets", () => {
+  const state = {
+    generatedAt: "2026-05-10T00:00:00.000Z",
+  };
+
+  const withSetup = appendDashboardRuntimeSnapshots(state, {
+    setupStatus: makeSetupStatusSource(),
+  });
+  const serialized = JSON.stringify(withSetup);
+
+  assert.match(serialized, /not_configured/);
+  assert.doesNotMatch(serialized, /discord-secret-raw-value/);
+});
+
 test("DashboardServer root serves the dashboard HTML without caching", async () => {
   const fixture = await startDashboardFixture();
   try {
@@ -259,6 +274,24 @@ test("DashboardServer root serves the dashboard HTML without caching", async () 
     assert.match(html, /Members 규칙은 삭제할 수 없습니다/);
     assert.match(html, /escapeHtml/);
     assert.match(html, /fetch\('\/api\/state'/);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("DashboardServer setup status API returns redacted configuration state", async () => {
+  const fixture = await startDashboardFixture({
+    setupStatus: makeSetupStatusSource(),
+  });
+  try {
+    const response = await fetch(`${fixture.baseUrl}/api/setup/status`);
+    const text = await response.text();
+    const body = JSON.parse(text) as { status: string };
+
+    assert.equal(response.status, 200);
+    assert.equal(body.status, "not_configured");
+    assert.doesNotMatch(text, /discord-secret-raw-value/);
+    assert.match(text, /\[REDACTED\]/);
   } finally {
     await fixture.close();
   }
@@ -309,7 +342,7 @@ test("DashboardServer reports occupied dashboard ports without a raw stack", asy
         const typed = error as Error & { code?: string };
         assert.equal(typed.code, "DASHBOARD_PORT_IN_USE");
         assert.match(typed.message, /이미 사용 중/);
-        assert.match(typed.message, /PHASE1_DASHBOARD_PORT=3096/);
+        assert.match(typed.message, /dashboard 설정/);
         return true;
       },
     );
@@ -566,6 +599,7 @@ type AudioFixture = {
 type DashboardFixtureOptions = {
   audio?: AudioFixture;
   notion?: DashboardNotionSource;
+  setupStatus?: DashboardSetupStatusSource;
 };
 
 async function startDashboardFixture(
@@ -575,7 +609,10 @@ async function startDashboardFixture(
     makeDashboardConfig(),
     makeStore(options.audio),
     makeProducer(),
-    options.notion ? { notion: options.notion } : {},
+    {
+      ...(options.notion ? { notion: options.notion } : {}),
+      ...(options.setupStatus ? { setupStatus: options.setupStatus } : {}),
+    },
   );
   await dashboard.start();
 
@@ -753,6 +790,85 @@ function makeNotionSource(
         },
       };
     },
+  };
+}
+
+function makeSetupStatusSource(): DashboardSetupStatusSource {
+  return {
+    getSnapshot: () => ({
+      generatedAt: "2026-05-10T00:00:00.000Z",
+      status: "not_configured",
+      userDataDir: "C:\\Users\\Taniar\\AppData\\Local\\Dirong",
+      settingsPath: "C:\\Users\\Taniar\\AppData\\Local\\Dirong\\settings\\settings.json",
+      secretsPath: "C:\\Users\\Taniar\\AppData\\Local\\Dirong\\secrets\\secrets.json",
+      databasePath: "C:\\Users\\Taniar\\AppData\\Local\\Dirong\\sessions\\dirong.sqlite",
+      secrets: {
+        discordBot: {
+          configured: true,
+          displayValue: "[REDACTED]",
+        },
+        openAi: {
+          configured: false,
+          displayValue: "[MISSING]",
+        },
+        claude: {
+          configured: false,
+          displayValue: "[MISSING]",
+        },
+        notion: {
+          configured: false,
+          displayValue: "[MISSING]",
+        },
+      },
+      features: {
+        discord: {
+          status: "not_configured",
+          message: "Discord 설정이 아직 없습니다.",
+          userAction: "Discord 설정을 완료해 주세요.",
+          missing: ["discord.applicationId"],
+          applicationIdConfigured: false,
+          guildAllowlistCount: 0,
+        },
+        recording: {
+          status: "blocked",
+          message: "녹음 시작은 아직 막혀 있습니다.",
+          userAction: "Discord와 STT 설정을 완료해 주세요.",
+          missing: ["discord", "stt"],
+        },
+        stt: {
+          status: "not_configured",
+          message: "STT 설정이 아직 없습니다.",
+          userAction: "STT provider를 선택해 주세요.",
+          missing: ["stt.provider"],
+          provider: null,
+          model: null,
+        },
+        ai: {
+          status: "not_configured",
+          message: "AI 설정이 아직 없습니다.",
+          userAction: "Claude provider를 선택해 주세요.",
+          missing: ["ai.provider"],
+          provider: null,
+          mode: null,
+        },
+        notion: {
+          status: "not_configured",
+          message: "Notion 설정이 아직 없습니다.",
+          userAction: "Notion token과 parent page URL을 저장해 주세요.",
+          missing: ["notion.token"],
+          parentPageConfigured: false,
+          managedRegistryReady: false,
+        },
+        dataRetention: {
+          status: "ready",
+          message: "기본 보관 정책이 적용되어 있습니다.",
+          userAction: null,
+          missing: [],
+          deleteAudioAfterNotionUpload: true,
+          textDraftRetentionDays: 30,
+        },
+      },
+    }),
   };
 }
 

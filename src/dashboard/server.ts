@@ -1,7 +1,7 @@
 import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import path from "node:path";
-import { DirongError } from "../errors.js";
+import { DirongError, redactForJson } from "../errors.js";
 import type { AiCleanupAutomationSnapshot } from "../ai/cleanup/automation-service.js";
 import type { AiProviderRuntimeReadinessSnapshot } from "../ai/cleanup/provider-lifecycle.js";
 import type { Phase1Config } from "../config.js";
@@ -18,6 +18,7 @@ import type {
 import type { NotionCustomPropertyRuleInput } from "../notion/property-rules.js";
 import type { NotionSchemaApplyOptions } from "../notion/schema-manager.js";
 import type { NotionAutomationSnapshot } from "../notion/automation-service.js";
+import type { ProductSetupStatusSnapshot } from "../settings/product-settings.js";
 
 export type DashboardAiReadinessSource = {
   getSnapshot(): AiProviderRuntimeReadinessSnapshot;
@@ -54,12 +55,17 @@ export type DashboardNotionAutomationSource = {
   getSnapshot(): NotionAutomationSnapshot;
 };
 
+export type DashboardSetupStatusSource = {
+  getSnapshot(): ProductSetupStatusSnapshot;
+};
+
 export type DashboardRuntimeSources = {
   aiReadiness?: DashboardAiReadinessSource;
   aiCleanupAutomation?: DashboardAiCleanupAutomationSource;
   aloneFinalize?: DashboardAloneFinalizeSource;
   notion?: DashboardNotionSource;
   notionAutomation?: DashboardNotionAutomationSource;
+  setupStatus?: DashboardSetupStatusSource;
   sttAutomation?: DashboardSttAutomationSource;
 };
 
@@ -193,6 +199,18 @@ export class DashboardServer {
       return;
     }
 
+    if (url.pathname === "/api/setup/status") {
+      if (!this.runtimeSources.setupStatus) {
+        sendJson(response, {
+          status: "not_configured",
+          message: "Product setup status source is not configured.",
+        });
+        return;
+      }
+      sendJson(response, this.runtimeSources.setupStatus.getSnapshot());
+      return;
+    }
+
     const audioMatch = /^\/audio\/([^/]+)\/(raw|stt)$/.exec(url.pathname);
     if (audioMatch) {
       const chunkId = decodeURIComponent(audioMatch[1] ?? "");
@@ -293,13 +311,13 @@ export class DashboardServer {
         "Cache-Control": "no-store",
         "X-Content-Type-Options": "nosniff",
       });
-      response.end(`${JSON.stringify({
+      response.end(`${JSON.stringify(redactForJson({
         ok: false,
         status: "failed",
         message,
         userAction: "요청을 다시 시도해 주세요.",
         pageUrl: null,
-      })}\n`);
+      }))}\n`);
     }
   }
 
@@ -351,14 +369,14 @@ export class DashboardServer {
         "Cache-Control": "no-store",
         "X-Content-Type-Options": "nosniff",
       });
-      response.end(`${JSON.stringify({
+      response.end(`${JSON.stringify(redactForJson({
         ok: false,
         status: "failed",
         message,
         userAction: "요청을 다시 시도해 주세요.",
         warnings: [],
         customProperties: null,
-      })}\n`);
+      }))}\n`);
     }
   }
 
@@ -412,7 +430,7 @@ export class DashboardServer {
         "Cache-Control": "no-store",
         "X-Content-Type-Options": "nosniff",
       });
-      response.end(`${JSON.stringify({
+      response.end(`${JSON.stringify(redactForJson({
         ok: false,
         status: "failed",
         message,
@@ -420,7 +438,7 @@ export class DashboardServer {
         warnings: [],
         diff: null,
         operations: null,
-      })}\n`);
+      }))}\n`);
     }
   }
 }
@@ -447,6 +465,7 @@ export function appendDashboardRuntimeSnapshots(
     !sources.aloneFinalize &&
     !sources.notion &&
     !sources.notionAutomation &&
+    !sources.setupStatus &&
     !sources.sttAutomation
   ) {
     return state;
@@ -468,6 +487,9 @@ export function appendDashboardRuntimeSnapshots(
       : {}),
     ...(sources.notionAutomation
       ? { notionAutomation: sources.notionAutomation.getSnapshot() }
+      : {}),
+    ...(sources.setupStatus
+      ? { setup: sources.setupStatus.getSnapshot() }
       : {}),
     ...(sources.sttAutomation
       ? { sttAutomation: sources.sttAutomation.getSnapshot() }
@@ -495,7 +517,7 @@ function sendJson(response: ServerResponse, value: unknown): void {
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",
   });
-  response.end(`${JSON.stringify(value)}\n`);
+  response.end(`${JSON.stringify(redactForJson(value))}\n`);
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
@@ -626,7 +648,7 @@ function normalizeListenError(
       [
         `디롱이 dashboard 포트를 이미 사용 중입니다: ${host}:${port}`,
         "이미 실행 중인 Dirong 앱이 있으면 그 콘솔에서 exit를 입력해 종료해 주세요.",
-        "다른 포트를 쓰려면 .env에 PHASE1_DASHBOARD_PORT=3096처럼 설정한 뒤 다시 시작해 주세요.",
+        "다른 포트를 쓰려면 dashboard 설정에서 포트를 바꾼 뒤 다시 시작해 주세요.",
       ].join("\n"),
     );
   }

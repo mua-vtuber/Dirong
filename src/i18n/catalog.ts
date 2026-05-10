@@ -625,6 +625,10 @@ export const ko = {
         members: "작업자",
         actionItems: "액션 아이템",
         customFields: "사용자 필드",
+        customDb: "+ DB 추가",
+      },
+      status: {
+        title: "DB 상태",
       },
       registry: {
         title: "Notion DB 연결 상태",
@@ -640,6 +644,7 @@ export const ko = {
         repairAction: "누락된 필수 필드 복구",
         repairComingSoon: "필수 필드 복구 동작은 후속 단계에서 연결됩니다. 지금은 Notion 상태 다시 확인에서 누락 항목을 확인해 주세요.",
         missingSummary: "필수 필드 {count}개가 없습니다.",
+        locked: "잠금",
         normal: "정상",
         missing: "누락",
         labels: {
@@ -676,8 +681,27 @@ export const ko = {
           },
         },
       },
+      customDb: {
+        title: "사용자 추가 DB",
+        label: "기본 DB 외 추가 테이블",
+        body: "사용자가 기본 3개 DB 외에 관리할 추가 Notion DB를 보여줄 자리입니다.",
+        notice: "MVP에서는 추가 DB 생성 기능이 아직 준비 중입니다. 회의록, 작업자, 액션 아이템의 사용자 필드는 각 DB 탭 안에서 관리해 주세요.",
+      },
       customFields: {
         title: "사용자 필드",
+        scopedTitle: "{database} 사용자 필드",
+        scopeHelp: "이 섹션의 필드는 {database}에만 적용됩니다. 다른 DB에 같은 필드가 필요하면 해당 DB 탭에서 따로 관리합니다.",
+        targetLabel: "대상 DB",
+        target: {
+          meeting: "회의록 DB",
+          member: "작업자 DB",
+          task: "액션 아이템 DB",
+        },
+        meetingScopeNotice: "현재 필드 추가/수정 동작은 회의록 DB 대상 설정으로 저장됩니다.",
+        roleComingSoon: {
+          title: "이 DB의 사용자 필드 관리는 준비 중입니다.",
+          body: "필수 필드와 DB 상태는 확인할 수 있지만, 이 DB에 새 사용자 필드를 저장하는 기능은 후속 단계에서 연결됩니다.",
+        },
         unmanagedNotice: "Notion에 등록되지 않은 필드는 삭제하지 않습니다. 필요하면 Notion에서 직접 정리해 주세요.",
         unavailable: {
           label: "사용자 필드",
@@ -762,6 +786,15 @@ export const ko = {
         title: "최근 확인 필요",
         empty: "지금 확인이 필요한 이벤트가 없습니다.",
       },
+      empty: {
+        all: "표시할 로그가 없습니다.",
+        needsAttention: "지금 확인이 필요한 로그가 없습니다.",
+        recording: "녹음/오디오 관련 로그가 없습니다.",
+        stt: "텍스트 변환 관련 로그가 없습니다.",
+        ai: "AI 회의록 처리 관련 로그가 없습니다.",
+        notion: "Notion 업로드나 DB 관련 로그가 없습니다.",
+        system: "시스템 로그가 없습니다.",
+      },
       timeline: {
         title: "이벤트 타임라인",
         nextAction: "다음 행동",
@@ -841,6 +874,8 @@ export const ko = {
       repairItem: "확인이 필요한 항목",
       sttJob: "텍스트 변환 작업",
       aiJob: "AI 회의록 작업",
+      notionWrite: "Notion 업로드 기록",
+      notionAutomation: "Notion 자동 업로드 상태",
     },
   },
   settings: {
@@ -1553,6 +1588,10 @@ export const en = {
         members: "Members",
         actionItems: "Action Items",
         customFields: "Custom Fields",
+        customDb: "+ Add DB",
+      },
+      status: {
+        title: "DB Status",
       },
       registry: {
         title: "Notion DB Connection",
@@ -1568,6 +1607,7 @@ export const en = {
         repairAction: "Repair missing required fields",
         repairComingSoon: "Required-field repair will be connected in a later step. For now, use Check Notion status again to review missing fields.",
         missingSummary: "{count} required fields are missing.",
+        locked: "Locked",
         normal: "OK",
         missing: "Missing",
         labels: {
@@ -1604,8 +1644,27 @@ export const en = {
           },
         },
       },
+      customDb: {
+        title: "User-added DBs",
+        label: "Extra tables beyond the default DBs",
+        body: "This area will show additional Notion DBs the user manages beyond the three default DBs.",
+        notice: "Extra DB creation is not available in the MVP yet. Manage Meeting, Member, and Action Item custom fields inside each DB tab.",
+      },
       customFields: {
         title: "Custom Fields",
+        scopedTitle: "{database} Custom Fields",
+        scopeHelp: "Fields in this section apply only to {database}. If another DB needs the same field, manage it from that DB tab.",
+        targetLabel: "Target DB",
+        target: {
+          meeting: "Meeting DB",
+          member: "Member DB",
+          task: "Action Item DB",
+        },
+        meetingScopeNotice: "Current add/edit actions are saved as Meeting DB field settings.",
+        roleComingSoon: {
+          title: "Custom field management for this DB is coming soon.",
+          body: "You can check required fields and DB status now, but saving new custom fields for this DB will be connected in a later step.",
+        },
         unmanagedNotice: "Dirong does not delete unmanaged Notion fields. Remove them directly in Notion if needed.",
         unavailable: {
           label: "Custom Fields",
@@ -1690,6 +1749,15 @@ export const en = {
         title: "Recent Needs Attention",
         empty: "No event currently needs attention.",
       },
+      empty: {
+        all: "No logs to show.",
+        needsAttention: "No log currently needs attention.",
+        recording: "No recording or audio logs to show.",
+        stt: "No transcription logs to show.",
+        ai: "No AI meeting-note logs to show.",
+        notion: "No Notion upload or DB logs to show.",
+        system: "No system logs to show.",
+      },
       timeline: {
         title: "Event Timeline",
         nextAction: "Next Action",
@@ -1769,6 +1837,8 @@ export const en = {
       repairItem: "Item needs attention",
       sttJob: "Transcription job",
       aiJob: "AI notes job",
+      notionWrite: "Notion upload record",
+      notionAutomation: "Notion auto-upload status",
     },
   },
   settings: {

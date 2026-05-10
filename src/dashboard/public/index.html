@@ -1385,25 +1385,25 @@
 
       <section id="logsView" class="app-view" hidden>
         <div class="tab-row" id="logFilters"></div>
-        <section class="content-band">
+        <section class="content-band" id="needsAttentionSection">
           <div class="section-heading">
             <h2 id="needsAttentionTitle">Needs Attention</h2>
           </div>
           <div id="repairs"></div>
         </section>
-        <section class="content-band">
+        <section class="content-band" id="timelineSection">
           <div class="section-heading">
             <h2 id="timelineTitle">Event Timeline</h2>
           </div>
           <div id="events"></div>
         </section>
-        <section class="content-band">
+        <section class="content-band" id="sttQueueSection">
           <div class="section-heading">
             <h2 id="sttQueueTitle"></h2>
           </div>
           <div id="sttJobs"></div>
         </section>
-        <section class="content-band">
+        <section class="content-band" id="aiCleanupSection">
           <div class="section-heading">
             <h2 id="aiCleanupTitle"></h2>
           </div>
@@ -1425,7 +1425,7 @@
     let i18nMessages = {};
     let i18nLocale = 'ko';
     let activeView = window.localStorage.getItem('dirong.dashboard.view') ?? 'dashboard';
-    let activeDbTab = window.localStorage.getItem('dirong.dashboard.dbTab') ?? 'meeting';
+    let activeDbTab = normalizeDbTab(window.localStorage.getItem('dirong.dashboard.dbTab') ?? 'meeting');
     let activeSettingsTab = window.localStorage.getItem('dirong.dashboard.settingsTab') ?? 'discord';
     let activeLogFilter = window.localStorage.getItem('dirong.dashboard.logFilter') ?? 'all';
     function tr(key, params = {}) {
@@ -1449,9 +1449,18 @@
       updateVisibleView();
       refresh();
     }
+    function normalizeDbTab(tab) {
+      if (tab === 'customFields') return 'meeting';
+      return ['meeting', 'members', 'actionItems', 'customDb'].includes(tab) ? tab : 'meeting';
+    }
     function setDbTab(tab) {
-      activeDbTab = tab;
-      window.localStorage.setItem('dirong.dashboard.dbTab', tab);
+      const normalized = normalizeDbTab(tab);
+      if (activeDbTab !== normalized) {
+        notionRulesDirty = false;
+        notionSchemaResult = null;
+      }
+      activeDbTab = normalized;
+      window.localStorage.setItem('dirong.dashboard.dbTab', normalized);
       refresh();
     }
     function setSettingsTab(tab) {
@@ -2031,7 +2040,7 @@
         ['meeting', 'dashboard.db.tabs.meeting'],
         ['members', 'dashboard.db.tabs.members'],
         ['actionItems', 'dashboard.db.tabs.actionItems'],
-        ['customFields', 'dashboard.db.tabs.customFields']
+        ['customDb', 'dashboard.db.tabs.customDb']
       ], activeDbTab, 'setDbTab'));
       setHtml('settingsTabs', renderTabs([
         ['discord', 'dashboard.settings.tabs.discord'],
@@ -2051,15 +2060,17 @@
         ['notion', 'dashboard.logs.filters.notion'],
         ['system', 'dashboard.logs.filters.system']
       ], activeLogFilter, 'setLogFilter'));
-      setHtml('notion', renderDbPanel(state, setupSnapshot));
+      const activeRole = activeDatabaseRole();
+      setHtml('notion', renderDbPanel(state, setupSnapshot, activeRole));
       if (!notionRulesDirty) {
-        setHtml('notionProperties', activeDbTab === 'customFields' ? renderNotionPropertyRules(state) : '');
+        setHtml('notionProperties', renderDbCustomFieldsSection(state, activeRole));
       }
       setHtml('settingsPanel', renderSettingsPanel(state, setupSnapshot));
       setHtml('events', renderEventTimeline(state));
       setHtml('repairs', renderNeedsAttention(state));
       setHtml('sttJobs', renderSttJobTable(state));
       setHtml('aiCleanup', renderAiCleanupTable(state));
+      setLogSectionVisibility();
       updateVisibleView();
     }
     function titleForView(view) {
@@ -2260,14 +2271,54 @@
         ? '<pre>' + escapeHtml(draft.markdown) + '</pre>'
         : '<div class="muted">' + i18n('dashboard.notes.empty') + '</div>';
     }
-    function renderDbPanel(state, setup) {
-      if (activeDbTab === 'customFields') {
-        return '<div class="section-heading"><h2>' + i18n('dashboard.db.customFields.title') + '</h2></div>' +
-          '<p class="muted">' + i18n('dashboard.db.customFields.unmanagedNotice') + '</p>';
+    function activeDatabaseRole() {
+      if (activeDbTab === 'members') return 'member';
+      if (activeDbTab === 'actionItems') return 'task';
+      if (activeDbTab === 'meeting') return 'meeting';
+      return null;
+    }
+    function renderDbPanel(state, setup, role) {
+      if (!role) {
+        return renderCustomDatabasePlaceholder();
       }
-      const role = activeDbTab === 'members' ? 'member' : activeDbTab === 'actionItems' ? 'task' : 'meeting';
       const registry = state.notion?.managedRegistry ?? setup?.features?.notion?.managedRegistry ?? null;
-      return renderManagedRegistryDetails(registry) + renderRequiredFields(registry, role);
+      return renderDatabaseStatus(registry, role) + renderRequiredFields(registry, role);
+    }
+    function renderCustomDatabasePlaceholder() {
+      return '<div class="section-heading"><h2>' + i18n('dashboard.db.customDb.title') + '</h2></div>' +
+        '<div class="metric"><div class="label">' + i18n('dashboard.db.customDb.label') + '</div>' +
+        '<div class="value">' + i18n('dashboard.db.customDb.body') + '</div>' +
+        '<div class="muted">' + i18n('dashboard.db.customDb.notice') + '</div></div>';
+    }
+    function renderDatabaseStatus(registry, role) {
+      if (!registry) {
+        return '<div class="metric"><div class="label">' + i18n('dashboard.db.status.title') + '</div>' +
+          '<div class="value">' + i18n('dashboard.db.registry.missing') + '</div></div>';
+      }
+      const database = (registry.databases ?? []).find((db) => db.role === role);
+      const databaseName = database?.expectedName ?? tr('dashboard.db.customFields.target.' + role);
+      const status = database
+        ? statusLabel(database.ready ? 'ready' : database.hasDatabase ? 'partial' : 'missing')
+        : statusLabel('missing');
+      const parent = registry.workspace?.parentPageUrl
+        ? '<div class="muted">' + i18n('dashboard.db.registry.parentPage') + ': <a href="' +
+          escapeHtml(registry.workspace.parentPageUrl) + '" target="_blank" rel="noreferrer">' +
+          i18n('dashboard.common.openNotion') + '</a></div>'
+        : '';
+      const notionLink = database?.url
+        ? '<div class="value"><a href="' + escapeHtml(database.url) + '" target="_blank" rel="noreferrer">' +
+          i18n('dashboard.common.openNotion') + '</a></div>'
+        : '';
+      return '<div class="metric"><div class="label">' + i18n('dashboard.db.status.title') +
+        ' · ' + escapeHtml(databaseName) + '</div>' +
+        '<div class="value ' + runtimeValueClass(database?.ready ? 'ready' : 'partial') + '">' +
+        escapeHtml(status) + '</div>' +
+        '<div class="muted">' + i18n('dashboard.db.registry.summary', {
+          databaseCount: registry.databaseCount ?? 0,
+          expectedDatabaseCount: registry.expectedDatabaseCount ?? 3,
+          mappingCount: database?.mappingCount ?? 0,
+          expectedMappingCount: database?.expectedMappingCount ?? 0
+        }) + '</div>' + parent + notionLink + '</div>';
     }
     function renderRequiredFields(registry, role) {
       const database = (registry?.databases ?? []).find((db) => db.role === role);
@@ -2284,13 +2335,30 @@
           const isMissing = missing.has(key);
           return '<div class="required-field' + (isMissing ? ' is-missing' : '') + '">' +
             '<div class="value">' + escapeHtml(propertyLabel(key)) + '</div><div class="muted">' +
+            i18n('dashboard.db.requiredFields.locked') + ' · ' +
             (isMissing ? i18n('dashboard.db.requiredFields.missing') : i18n('dashboard.db.requiredFields.normal')) +
             '</div></div>';
         }).join('') + '</div>' +
         (missing.size > 0 ? '<div class="setup-notice">' +
           '<strong>' + i18n('dashboard.db.requiredFields.missingSummary', { count: missing.size }) + '</strong><br>' +
-          i18n('dashboard.db.requiredFields.repairComingSoon') + '</div>' : '') +
+          i18n('dashboard.db.requiredFields.repairComingSoon') +
+          '<div class="toolbar"><button type="button" disabled>' +
+          i18n('dashboard.db.requiredFields.repairAction') + '</button></div></div>' : '') +
         '</div>';
+    }
+    function renderDbCustomFieldsSection(state, role) {
+      if (!role) return '';
+      const target = tr('dashboard.db.customFields.target.' + role);
+      const intro = '<div style="margin-top:12px"><div class="section-heading"><h2>' +
+        i18n('dashboard.db.customFields.scopedTitle', { database: target }) + '</h2></div>' +
+        '<p class="muted">' + i18n('dashboard.db.customFields.scopeHelp', { database: target }) + '</p>';
+      if (role !== 'meeting') {
+        return intro + '<div class="metric"><div class="label">' +
+          i18n('dashboard.db.customFields.targetLabel') + ' · ' + escapeHtml(target) + '</div>' +
+          '<div class="value">' + i18n('dashboard.db.customFields.roleComingSoon.title') + '</div>' +
+          '<div class="muted">' + i18n('dashboard.db.customFields.roleComingSoon.body') + '</div></div></div>';
+      }
+      return intro + renderNotionPropertyRules(state, role) + '</div>';
     }
     function renderSettingsPanel(state, setup) {
       const featureMap = {
@@ -2356,93 +2424,46 @@
       }
     }
     function renderNeedsAttention(state) {
-      const repairs = (state.recentRepairItems ?? []).filter((row) => row.status === 'open');
-      if (repairs.length === 0) {
-        return '<div class="muted">' + i18n('dashboard.logs.needsAttention.empty') + '</div>';
-      }
+      const rows = filterLogItems(buildLogItems(state).filter((item) => item.needsAttention));
+      if (rows.length === 0) return logEmptyState();
       return table([
         tr('dashboard.table.updated'),
         tr('dashboard.table.area'),
         tr('dashboard.table.summary'),
         tr('dashboard.table.nextAction'),
         tr('dashboard.table.details')
-      ],
-        repairs.map((r) => '<tr><td>' + escapeHtml(r.updated_at) + '</td><td>' +
-          i18n('dashboard.logs.filters.' + logAreaId(r.item_type)) + '</td><td>' +
-          i18n('dashboard.logSummary.repairItem') + '</td><td>' +
-          i18n('dashboard.quick.refreshStatus') + '</td><td>' +
-          rawDetails({
-            type: r.item_type,
-            status: r.status,
-            severity: r.severity,
-            path: r.path,
-            chunkId: r.chunk_id,
-            sttJobId: r.stt_job_id
-          }) + '</td></tr>'));
+      ], rows.map(renderLogItemRow));
     }
     function renderEventTimeline(state) {
-      const events = filterLogRows(state.recentConnectionEvents ?? []);
+      const events = filterLogItems(buildLogItems(state));
+      if (events.length === 0) return logEmptyState();
       return table([
         tr('dashboard.table.time'),
         tr('dashboard.table.area'),
         tr('dashboard.table.summary'),
         tr('dashboard.table.nextAction'),
         tr('dashboard.logs.details.toggle')
-      ],
-        events.map((e) => '<tr><td>' + escapeHtml(e.created_at) + '</td><td>' +
-          i18n('dashboard.logs.filters.' + logAreaId(e.event_type)) + '</td><td>' + logSummary(e) +
-          '</td><td>' + escapeHtml(nextActionForEvent(e)) + '</td><td><details><summary>' +
-          i18n('dashboard.logs.details.toggle') + '</summary><pre>' +
-          escapeHtml(JSON.stringify({
-            type: e.event_type,
-            level: e.level,
-            sessionId: e.session_id,
-            startedAtMs: e.started_at_ms,
-            endedAtMs: e.ended_at_ms,
-            details: safeJson(e.details_json)
-          }, null, 2)) + '</pre></details></td></tr>'));
+      ], events.map(renderLogItemRow));
     }
     function renderSttJobTable(state) {
+      const rows = filterLogItems(buildSttJobLogItems(state));
+      if (rows.length === 0) return logEmptyState();
       return table([
         tr('dashboard.table.job'),
         tr('dashboard.table.status'),
         tr('dashboard.table.nextAction'),
         tr('dashboard.table.details')
-      ],
-        (state.recentSttJobs ?? []).map((j) => '<tr><td>' + i18n('dashboard.logSummary.sttJob') +
-          '</td><td>' + escapeHtml(statusLabel(j.status)) + '</td><td>' +
-          escapeHtml(jobNextAction(j.status)) + '</td><td>' +
-          rawDetails({
-            id: j.id,
-            chunkId: j.chunk_id,
-            attempts: j.attempts,
-            maxAttempts: j.max_attempts,
-            inputAudioPath: j.input_audio_path,
-            lastError: j.last_error
-          }) + '</td></tr>'));
+      ], rows.map(renderLogJobRow));
     }
     function renderAiCleanupTable(state) {
+      const rows = filterLogItems(buildAiCleanupLogItems(state));
+      if (rows.length === 0) return logEmptyState();
       return table([
         tr('dashboard.table.job'),
         tr('dashboard.table.status'),
         tr('dashboard.table.nextAction'),
         tr('dashboard.table.details')
-      ],
-        (state.recentAiCleanupJobs ?? []).map((j) => '<tr><td>' + i18n('dashboard.logSummary.aiJob') +
-          '</td><td>' + escapeHtml(statusLabel(j.status)) + '</td><td>' +
-          escapeHtml(jobNextAction(j.status)) + '</td><td>' +
-          rawDetails({
-            id: j.id,
-            provider: j.provider,
-            model: j.model,
-            attempts: j.attempts,
-            maxAttempts: j.max_attempts,
-            failureKind: j.failure_kind,
-            lastError: j.last_error,
-            promptPath: j.prompt_path,
-            rawOutputPath: j.raw_output_path,
-            stderrPath: j.stderr_path
-          }) + '</td></tr>'));
+      ], rows.map(renderLogJobRow));
     }
     function renderTabs(items, active, handlerName) {
       return items.map(([id, key]) => '<button type="button" class="tab-button' +
@@ -2492,33 +2513,214 @@
       if (tone === 'tone-danger') return 'card-state-danger';
       return 'card-state-muted';
     }
-    function filterLogRows(rows) {
-      if (activeLogFilter === 'all') return rows;
-      if (activeLogFilter === 'needsAttention') {
-        return rows.filter((row) => ['error', 'warn', 'warning'].includes(String(row.level)));
+    function buildLogItems(state) {
+      return [
+        ...buildRepairLogItems(state),
+        ...buildConnectionLogItems(state),
+        ...buildSttJobLogItems(state),
+        ...buildAiCleanupLogItems(state),
+        ...buildNotionLogItems(state)
+      ].sort((a, b) => String(b.sortTime ?? '').localeCompare(String(a.sortTime ?? '')));
+    }
+    function buildRepairLogItems(state) {
+      return (state.recentRepairItems ?? []).map((r) => ({
+        time: r.updated_at,
+        sortTime: r.updated_at,
+        area: logAreaId(r.item_type),
+        kind: 'repair',
+        summary: tr('dashboard.logSummary.repairItem'),
+        status: r.status,
+        needsAttention: r.status === 'open' || logSeverityNeedsAttention(r.severity),
+        nextAction: tr('dashboard.quick.refreshStatus'),
+        details: {
+          type: r.item_type,
+          status: r.status,
+          severity: r.severity,
+          path: r.path,
+          chunkId: r.chunk_id,
+          sttJobId: r.stt_job_id
+        }
+      }));
+    }
+    function buildConnectionLogItems(state) {
+      return (state.recentConnectionEvents ?? []).map((e) => ({
+        time: e.created_at,
+        sortTime: e.created_at,
+        area: logAreaId(e.event_type),
+        kind: 'event',
+        summary: logSummary(e),
+        status: e.level,
+        needsAttention: logSeverityNeedsAttention(e.level),
+        nextAction: nextActionForEvent(e),
+        details: {
+          type: e.event_type,
+          level: e.level,
+          sessionId: e.session_id,
+          startedAtMs: e.started_at_ms,
+          endedAtMs: e.ended_at_ms,
+          details: safeJson(e.details_json)
+        }
+      }));
+    }
+    function buildSttJobLogItems(state) {
+      return (state.recentSttJobs ?? []).map((j) => ({
+        time: j.updated_at ?? j.created_at ?? '-',
+        sortTime: j.updated_at ?? j.created_at ?? '',
+        area: 'stt',
+        kind: 'sttJob',
+        summary: tr('dashboard.logSummary.sttJob'),
+        status: j.status,
+        needsAttention: logStatusNeedsAttention(j.status),
+        nextAction: jobNextAction(j.status),
+        details: {
+          id: j.id,
+          chunkId: j.chunk_id,
+          attempts: j.attempts,
+          maxAttempts: j.max_attempts,
+          inputAudioPath: j.input_audio_path,
+          lastError: j.last_error
+        }
+      }));
+    }
+    function buildAiCleanupLogItems(state) {
+      return (state.recentAiCleanupJobs ?? []).map((j) => ({
+        time: j.updated_at ?? j.created_at ?? '-',
+        sortTime: j.updated_at ?? j.created_at ?? '',
+        area: 'ai',
+        kind: 'aiJob',
+        summary: tr('dashboard.logSummary.aiJob'),
+        status: j.status,
+        needsAttention: logStatusNeedsAttention(j.status),
+        nextAction: jobNextAction(j.status),
+        details: {
+          id: j.id,
+          provider: j.provider,
+          model: j.model,
+          attempts: j.attempts,
+          maxAttempts: j.max_attempts,
+          failureKind: j.failure_kind,
+          lastError: j.last_error,
+          promptPath: j.prompt_path,
+          rawOutputPath: j.raw_output_path,
+          stderrPath: j.stderr_path
+        }
+      }));
+    }
+    function buildNotionLogItems(state) {
+      const items = [];
+      const write = state.latestNotionWrite;
+      if (write) {
+        items.push({
+          time: write.updated_at ?? write.created_at ?? '-',
+          sortTime: write.updated_at ?? write.created_at ?? '',
+          area: 'notion',
+          kind: 'notionWrite',
+          summary: tr('dashboard.logSummary.notionWrite'),
+          status: write.status,
+          needsAttention: logStatusNeedsAttention(write.status),
+          nextAction: notionWriteNextAction(write.status),
+          details: {
+            id: write.id,
+            draftId: write.draft_id,
+            targetType: write.target_type,
+            targetUrl: write.target_url,
+            notionPageUrl: write.notion_page_url,
+            contentHash: write.content_hash,
+            status: write.status,
+            statusMessage: write.status_message,
+            lastError: write.last_error
+          }
+        });
       }
-      return rows.filter((row) => logAreaId(row.event_type) === activeLogFilter);
+      const automation = state.notionAutomation;
+      if (automation) {
+        items.push({
+          time: automation.checkedAt ?? '-',
+          sortTime: automation.checkedAt ?? '',
+          area: 'notion',
+          kind: 'notionAutomation',
+          summary: tr('dashboard.logSummary.notionAutomation'),
+          status: automation.status,
+          needsAttention: logStatusNeedsAttention(automation.status),
+          nextAction: automation.userAction ?? notionWriteNextAction(automation.status),
+          details: {
+            status: automation.status,
+            sessionId: automation.sessionId,
+            draftId: automation.draftId,
+            writeId: automation.writeId,
+            pageUrl: automation.pageUrl,
+            lastRunStatus: automation.lastRunStatus,
+            repairedExpiredLeases: automation.repairedExpiredLeases,
+            technicalDetail: automation.technicalDetail
+          }
+        });
+      }
+      return items;
+    }
+    function filterLogItems(items) {
+      if (activeLogFilter === 'all') return items;
+      if (activeLogFilter === 'needsAttention') {
+        return items.filter((item) => item.needsAttention);
+      }
+      return items.filter((item) => item.area === activeLogFilter);
+    }
+    function renderLogItemRow(item) {
+      return '<tr><td>' + escapeHtml(item.time ?? '-') + '</td><td>' +
+        i18n('dashboard.logs.filters.' + item.area) + '</td><td>' +
+        escapeHtml(item.summary) + '</td><td>' + escapeHtml(item.nextAction ?? tr('dashboard.common.none')) +
+        '</td><td>' + rawDetails(item.details) + '</td></tr>';
+    }
+    function renderLogJobRow(item) {
+      return '<tr><td>' + escapeHtml(item.summary) + '</td><td>' +
+        escapeHtml(statusLabel(item.status)) + '</td><td>' +
+        escapeHtml(item.nextAction ?? tr('dashboard.common.none')) + '</td><td>' +
+        rawDetails(item.details) + '</td></tr>';
+    }
+    function logEmptyState() {
+      const key = 'dashboard.logs.empty.' + activeLogFilter;
+      const message = tr(key);
+      return '<div class="log-empty muted">' + escapeHtml(message === key ? tr('dashboard.logs.empty.all') : message) + '</div>';
+    }
+    function setLogSectionVisibility() {
+      const stt = document.getElementById('sttQueueSection');
+      const ai = document.getElementById('aiCleanupSection');
+      if (stt) stt.hidden = !shouldShowLogAreaSection('stt');
+      if (ai) ai.hidden = !shouldShowLogAreaSection('ai');
+    }
+    function shouldShowLogAreaSection(area) {
+      return activeLogFilter === 'all' || activeLogFilter === 'needsAttention' || activeLogFilter === area;
     }
     function logAreaId(type) {
       const text = String(type ?? '').toLowerCase();
-      if (text.includes('stt')) return 'stt';
-      if (text.includes('ai')) return 'ai';
-      if (text.includes('notion')) return 'notion';
-      if (text.includes('chunk') || text.includes('voice') || text.includes('record')) return 'recording';
+      if (['notion', 'database', 'registry', 'property', 'upload'].some((token) => text.includes(token))) return 'notion';
+      if (['stt', 'transcript', 'transcription', 'whisper', 'speech'].some((token) => text.includes(token))) return 'stt';
+      if (['ai', 'claude', 'draft', 'meeting_notes', 'cleanup'].some((token) => text.includes(token))) return 'ai';
+      if (['chunk', 'voice', 'record', 'audio', 'join', 'stop', 'alone', 'connection'].some((token) => text.includes(token))) return 'recording';
       return 'system';
     }
+    function logSeverityNeedsAttention(level) {
+      return ['error', 'warn', 'warning'].includes(String(level ?? '').toLowerCase());
+    }
+    function logStatusNeedsAttention(status) {
+      return ['failed', 'blocked', 'failed_missing_file', 'repair_required', 'needs_repair'].includes(String(status ?? '').toLowerCase());
+    }
     function nextActionForEvent(event) {
-      return ['error', 'warn', 'warning'].includes(String(event.level))
+      return logSeverityNeedsAttention(event.level)
         ? tr('dashboard.quick.refreshStatus')
         : tr('dashboard.common.none');
     }
     function logSummary(event) {
-      return ['error', 'warn', 'warning'].includes(String(event.level))
-        ? i18n('dashboard.logSummary.attentionEvent')
-        : i18n('dashboard.logSummary.normalEvent');
+      return logSeverityNeedsAttention(event.level)
+        ? tr('dashboard.logSummary.attentionEvent')
+        : tr('dashboard.logSummary.normalEvent');
     }
     function jobNextAction(status) {
-      return ['failed', 'blocked', 'failed_missing_file'].includes(String(status))
+      return logStatusNeedsAttention(status)
+        ? tr('dashboard.quick.refreshStatus')
+        : tr('dashboard.common.none');
+    }
+    function notionWriteNextAction(status) {
+      return logStatusNeedsAttention(status)
         ? tr('dashboard.quick.refreshStatus')
         : tr('dashboard.common.none');
     }
@@ -2761,16 +2963,17 @@
         '<span class="muted" id="notionActionStatus"></span>' +
         '</div>';
     }
-    function renderNotionPropertyRules(state) {
+    function renderNotionPropertyRules(state, role = 'meeting') {
       const notion = state.notion;
       const custom = notion?.customProperties;
+      const target = tr('dashboard.db.customFields.target.' + role);
       if (!custom) {
         return '<div class="metric"><div class="label">' + i18n('dashboard.db.customFields.unavailable.label') + '</div>' +
           '<div class="value">' + i18n('dashboard.db.customFields.unavailable.body') + '</div></div>';
       }
       const disabled = notion.status !== 'ready';
       const rows = (custom.rules ?? []).map((rule) => renderNotionPropertyRuleRow(rule, custom));
-      const ruleTable = '<table id="notionPropertyRulesTable"><thead><tr>' +
+      const ruleTable = '<table id="notionPropertyRulesTable" data-target-db-role="' + escapeHtml(role) + '"><thead><tr>' +
         [
           'dashboard.db.customFields.columns.enabled',
           'dashboard.db.customFields.columns.property',
@@ -2789,9 +2992,14 @@
         ? '<div class="value">' + escapeHtml(custom.userAction) + '</div>'
         : '';
       return '<div class="metric">' +
+        '<input type="hidden" id="notionPropertyTargetRole" value="' + escapeHtml(role) + '">' +
+        '<div class="label">' + i18n('dashboard.db.customFields.targetLabel') + ' · ' +
+        escapeHtml(target) + '</div>' +
         '<div class="label">' + i18n('dashboard.db.customFields.title') + ' · ' +
         i18n('dashboard.db.customFields.enabledCount', { count: custom.enabledCount ?? 0 }) + '</div>' +
         '<div class="value">' + escapeHtml(custom.message) + '</div>' +
+        '<div class="muted">' + i18n('dashboard.db.customFields.meetingScopeNotice') + '<br>' +
+        i18n('dashboard.db.customFields.unmanagedNotice') + '</div>' +
         action +
         '<div class="toolbar">' +
         '<button type="button"' + (disabled ? ' disabled' : '') + ' onclick="syncNotionProperties()">' +
@@ -3017,6 +3225,7 @@
     async function saveNotionPropertyRules(options = {}) {
       const statusEl = document.getElementById('notionPropertyStatus');
       if (statusEl) statusEl.textContent = tr('dashboard.db.customFields.status.saving');
+      const targetDatabaseRole = document.getElementById('notionPropertyTargetRole')?.value ?? 'meeting';
       const rules = Array.from(document.querySelectorAll('[data-notion-rule-row]')).map((row) => ({
         originalPropertyName: row.getAttribute('data-original-property-name') || null,
         propertyName: row.querySelector('[data-field="propertyName"]')?.value ?? '',
@@ -3037,7 +3246,7 @@
         const res = await fetch('/api/notion/properties', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rules })
+          body: JSON.stringify({ targetDatabaseRole, rules })
         });
         const result = await res.json();
         notionRulesDirty = false;

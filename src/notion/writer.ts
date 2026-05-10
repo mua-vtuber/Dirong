@@ -12,6 +12,8 @@ import {
   buildNotionPagePropertyValues,
   richText,
   renderNotionPageProperties,
+  sanitizeParticipantNames,
+  type NotionParticipantsPropertyType,
   type NotionStatusPropertyType,
 } from "./page-properties.js";
 import type { NotionCustomPropertyRule } from "./property-rules.js";
@@ -21,7 +23,11 @@ import type {
   NotionResolvedPropertyIds,
 } from "./schema.js";
 import type { NotionRuntimeSettings } from "./settings.js";
-import { parseNotionTargetUrl } from "./target.js";
+import {
+  normalizeNotionId,
+  parseNotionPageUrl,
+  parseNotionTargetUrl,
+} from "./target.js";
 import { NotionWriteStore, type NotionWriteRow } from "./write-store.js";
 
 export type NotionDraftSelector =
@@ -230,6 +236,9 @@ function renderUploadPlan(input: {
   const statusPropertyType = readStatusPropertyType(
     input.propertyIds.status.type,
   );
+  const participantsPropertyType = readParticipantsPropertyType(
+    input.propertyIds.participants.type,
+  );
 
   return {
     contentHash,
@@ -241,6 +250,7 @@ function renderUploadPlan(input: {
       contentHash,
       status: "draft",
       statusPropertyType,
+      participantsPropertyType,
       localStatus: "Notion upload in progress",
     }).properties,
     doneProperties: renderNotionPageProperties({
@@ -249,6 +259,7 @@ function renderUploadPlan(input: {
       contentHash,
       status: "done",
       statusPropertyType,
+      participantsPropertyType,
       localStatus: "Notion upload complete",
     }).properties,
   };
@@ -256,6 +267,10 @@ function renderUploadPlan(input: {
 
 function readStatusPropertyType(type: string): NotionStatusPropertyType {
   return type === "status" ? "status" : "select";
+}
+
+function readParticipantsPropertyType(type: string): NotionParticipantsPropertyType {
+  return type === "rollup" ? "rollup" : "multi_select";
 }
 
 async function executeWrite(input: {
@@ -486,10 +501,22 @@ async function renderNotionCustomPageProperties(input: {
 
   for (const rule of enabledRules) {
     const values = readCustomPropertyValues(input.draftInput, rule);
-    if (values.length === 0) {
+
+    if (rule.propertyType === "relation") {
+      const relation = await renderRelationProperty({
+        client: input.client,
+        rule,
+        values,
+      });
+      if (relation.length > 0) {
+        properties[rule.propertyName] = { relation };
+      }
       continue;
     }
 
+    if (values.length === 0) {
+      continue;
+    }
     if (rule.propertyType === "rich_text") {
       properties[rule.propertyName] = {
         rich_text: richText(values.join("\n").slice(0, rule.maxLength)),
@@ -519,16 +546,6 @@ async function renderNotionCustomPageProperties(input: {
       }
       continue;
     }
-    if (rule.propertyType === "relation") {
-      const relation = await renderRelationProperty({
-        client: input.client,
-        rule,
-        values,
-      });
-      if (relation.length > 0) {
-        properties[rule.propertyName] = { relation };
-      }
-    }
   }
 
   return properties;
@@ -538,6 +555,14 @@ function readCustomPropertyValues(
   draftInput: NotionDraftInput,
   rule: NotionCustomPropertyRule,
 ): string[] {
+  if (rule.valueSource === "participants") {
+    return sanitizeParticipantNames(
+      draftInput.speakers
+        .filter((speaker) => speaker.is_bot === 0)
+        .map((speaker) => speaker.display_name_snapshot),
+    ).map((value) => value.slice(0, rule.maxLength));
+  }
+
   const notionProperties = draftInput.draftContent.notionProperties;
   const entry = notionProperties?.[rule.propertyName];
   const rawValues = isRecord(entry) && Array.isArray(entry.values)
@@ -572,7 +597,14 @@ async function renderRelationProperty(input: {
   rule: NotionCustomPropertyRule;
   values: readonly string[];
 }): Promise<Array<{ id: string }>> {
+  const fixedPageId = readRelationTargetPageId(input.rule);
+  if (fixedPageId) {
+    return [{ id: fixedPageId }];
+  }
   if (!input.client) {
+    return [];
+  }
+  if (input.values.length === 0) {
     return [];
   }
   const target = await resolveRelationTarget(input.client, input.rule);
@@ -600,6 +632,20 @@ async function renderRelationProperty(input: {
     }
   }
   return relation;
+}
+
+function readRelationTargetPageId(rule: NotionCustomPropertyRule): string | null {
+  const storedId = rule.relationTargetPageId
+    ? normalizeNotionId(rule.relationTargetPageId)
+    : null;
+  if (storedId) {
+    return storedId;
+  }
+  if (!rule.relationTargetPageUrl) {
+    return null;
+  }
+  const parsed = parseNotionPageUrl(rule.relationTargetPageUrl);
+  return parsed.kind === "page_id" ? parsed.id : null;
 }
 
 async function resolveRelationTarget(

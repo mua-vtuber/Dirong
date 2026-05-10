@@ -3,6 +3,10 @@ export type ParsedNotionTarget =
   | { kind: "database_id"; id: string; url: string | null }
   | { kind: "invalid"; reason: string };
 
+export type ParsedNotionPage =
+  | { kind: "page_id"; id: string; url: string | null }
+  | { kind: "invalid"; reason: string };
+
 const UUID_32_PATTERN = /^[0-9a-f]{32}$/i;
 const UUID_DASHED_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -55,6 +59,34 @@ export function parseNotionTargetUrl(input: string): ParsedNotionTarget {
   }
 
   return { kind: "invalid", reason: "page_like_url_not_supported" };
+}
+
+export function parseNotionPageUrl(input: string): ParsedNotionPage {
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return { kind: "invalid", reason: "empty" };
+  }
+
+  const bareId = normalizeNotionId(trimmed);
+  if (bareId) {
+    return { kind: "page_id", id: bareId, url: null };
+  }
+
+  const url = parseUrl(trimmed);
+  if (!url) {
+    return { kind: "invalid", reason: "not_a_notion_id_or_url" };
+  }
+
+  if (readDataSourceIdFromUrl(url) || looksLikeDatabaseUrl(url)) {
+    return { kind: "invalid", reason: "database_like_url_not_supported" };
+  }
+
+  const pageId = readLastNotionIdFromPath(url);
+  if (!pageId) {
+    return { kind: "invalid", reason: "missing_page_id" };
+  }
+
+  return { kind: "page_id", id: pageId, url: url.href };
 }
 
 function parseUrl(value: string): URL | null {

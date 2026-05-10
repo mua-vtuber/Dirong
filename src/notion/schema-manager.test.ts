@@ -103,6 +103,23 @@ test("buildNotionSchemaUpdatePlan preserves existing select options when adding 
   });
 });
 
+test("buildNotionSchemaDiff accepts Participants rollup properties", () => {
+  const diff = buildNotionSchemaDiff({
+    properties: {
+      ...completeProperties(),
+      Participants: { id: "participants-id", type: "rollup" },
+    },
+    propertyNames: DEFAULT_NOTION_PROPERTY_NAMES,
+    customRules: [],
+  });
+
+  assert.equal(diff.isCompatible, true);
+  assert.equal(
+    diff.wrongType.some((item) => item.propertyName === "Participants"),
+    false,
+  );
+});
+
 test("buildNotionSchemaUpdatePlan requires explicit confirmation before deleting extras", () => {
   const diff = buildNotionSchemaDiff({
     properties: {
@@ -169,6 +186,8 @@ test("buildNotionSchemaUpdatePlan creates relation properties with target data s
         ...customRule("프로젝트", "relation"),
         relationDataSourceId: "668d797c-76fa-4934-9b05-ad288df2d136",
         relationTargetUrl: "https://www.notion.so/projects",
+        relationTargetPageUrl: null,
+        relationTargetPageId: null,
         relationAutoCreate: true,
       },
     ],
@@ -222,11 +241,14 @@ function customRule(
     propertyName,
     propertyId: null,
     propertyType,
+    valueSource: "ai",
     enabled: true,
     promptDescription: "회의 내용에서 값을 채웁니다.",
     maxLength: 1000,
     relationTargetUrl: null,
     relationDataSourceId: null,
+    relationTargetPageUrl: null,
+    relationTargetPageId: null,
     relationMatchPropertyName: "Name",
     relationAutoCreate: false,
     lastSeenAt: null,

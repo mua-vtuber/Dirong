@@ -14,6 +14,7 @@ import {
   SUPPORTED_NOTION_CUSTOM_PROPERTY_TYPES,
   type NotionCustomPropertyRule,
   type NotionCustomPropertyRuleInput,
+  withDefaultNotionMemberRelationRule,
 } from "./property-rules.js";
 import {
   buildNotionSchemaDiff,
@@ -21,7 +22,7 @@ import {
   type NotionSchemaApplyOptions,
   type NotionSchemaDiff,
 } from "./schema-manager.js";
-import { parseNotionTargetUrl } from "./target.js";
+import { parseNotionPageUrl, parseNotionTargetUrl } from "./target.js";
 import { runNotionUpload, type NotionDraftSelector } from "./writer.js";
 import { NotionWriteStore } from "./write-store.js";
 import { SqlRunner } from "../storage/sql-runner.js";
@@ -371,9 +372,10 @@ export class NotionDashboardService {
   }
 
   private getCustomPropertiesSnapshot(): NotionCustomPropertiesDashboardSnapshot {
-    const rules = this.propertyRuleStore.listRules();
+    const storedRules = this.propertyRuleStore.listRules();
+    const rules = withDefaultNotionMemberRelationRule(storedRules);
     const enabledCount = rules.filter(
-      (rule) => rule.enabled && rule.promptDescription.trim().length > 0,
+      (rule) => rule.enabled && ruleHasOutput(rule),
     ).length;
     const promptPreview = buildNotionCustomPropertyPrompt(rules);
     return {
@@ -383,12 +385,12 @@ export class NotionDashboardService {
       enabledCount,
       promptPreview,
       message:
-        rules.length === 0
-          ? "Notion 속성을 아직 불러오지 않았습니다."
+        storedRules.length === 0
+          ? "기본 Members relation 규칙이 준비되어 있습니다. 대상 DB URL을 입력해 주세요."
           : `사용자 속성 ${rules.length}개 중 ${enabledCount}개가 켜져 있습니다.`,
       userAction:
-        rules.length === 0
-          ? "스키마 다시 불러오기를 눌러 Notion DB 속성을 가져와 주세요."
+        storedRules.length === 0
+          ? "Members DB를 만들고 대상 DB/data source URL을 입력한 뒤 저장해 주세요."
           : null,
     };
   }
@@ -470,27 +472,58 @@ async function resolveRelationRuleTargets(
   const warnings: string[] = [];
   const resolved: NotionCustomPropertyRule[] = [];
   for (const rule of rules) {
-    if (rule.propertyType !== "relation" || !rule.relationTargetUrl) {
+    if (rule.propertyType !== "relation") {
       resolved.push(rule);
+      continue;
+    }
+    let nextRule = rule;
+    if (rule.relationTargetPageUrl && !rule.relationTargetPageId) {
+      const parsedPage = parseNotionPageUrl(rule.relationTargetPageUrl);
+      if (parsedPage.kind === "page_id") {
+        nextRule = { ...nextRule, relationTargetPageId: parsedPage.id };
+      } else {
+        warnings.push(`${rule.propertyName}: relation 대상 page URL을 읽지 못했습니다.`);
+      }
+    }
+    if (!rule.relationTargetUrl) {
+      resolved.push(nextRule);
       continue;
     }
     const parsed = parseNotionTargetUrl(rule.relationTargetUrl);
     if (parsed.kind === "invalid") {
       warnings.push(`${rule.propertyName}: relation 대상 URL을 읽지 못했습니다.`);
-      resolved.push(rule);
+      resolved.push(nextRule);
       continue;
     }
     try {
       const target = await resolveDataSourceTarget(client, parsed);
-      resolved.push({ ...rule, relationDataSourceId: target.id });
+      resolved.push({ ...nextRule, relationDataSourceId: target.id });
     } catch (error) {
       warnings.push(
         `${rule.propertyName}: relation 대상 DB에 접근하지 못했습니다 (${error instanceof Error ? error.message : String(error)}).`,
       );
-      resolved.push(rule);
+      resolved.push(nextRule);
     }
   }
   return { rules: resolved, warnings };
+}
+
+function ruleHasOutput(rule: NotionCustomPropertyRule): boolean {
+  if (rule.valueSource === "participants") {
+    return true;
+  }
+  if (rule.promptDescription.trim().length > 0) {
+    return true;
+  }
+  if (rule.propertyType !== "relation") {
+    return false;
+  }
+  if (rule.relationTargetPageId) {
+    return true;
+  }
+  return rule.relationTargetPageUrl
+    ? parseNotionPageUrl(rule.relationTargetPageUrl).kind === "page_id"
+    : false;
 }
 
 function selectorFromAction(

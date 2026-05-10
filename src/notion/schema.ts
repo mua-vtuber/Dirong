@@ -59,7 +59,11 @@ const PROPERTY_REQUIREMENTS: readonly PropertyRequirement[] = [
   { key: "date", expected: "date", accepts: ["date"] },
   { key: "meetingTime", expected: "rich_text", accepts: ["rich_text"] },
   { key: "channel", expected: "rich_text", accepts: ["rich_text"] },
-  { key: "participants", expected: "multi_select", accepts: ["multi_select"] },
+  {
+    key: "participants",
+    expected: "multi_select or rollup",
+    accepts: ["multi_select", "rollup"],
+  },
   { key: "status", expected: "select or status", accepts: ["select", "status"] },
   { key: "sessionId", expected: "rich_text", accepts: ["rich_text"] },
   { key: "draftId", expected: "rich_text", accepts: ["rich_text"] },

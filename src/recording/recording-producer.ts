@@ -90,6 +90,7 @@ export class RecordingProducer {
     return {
       isRecording: this.active !== null,
       sessionId: this.active?.sessionId ?? null,
+      guildId: this.active?.guild.id ?? null,
       voiceChannelId: this.active?.channel.id ?? null,
       voiceChannelName: this.active?.channel.name ?? null,
       openChunks: this.active?.activeChunks.size ?? 0,

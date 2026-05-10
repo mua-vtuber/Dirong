@@ -495,7 +495,7 @@
       const disabled = notion.status !== 'ready';
       const rows = (custom.rules ?? []).map((rule) => renderNotionPropertyRuleRow(rule, custom));
       const ruleTable = '<table id="notionPropertyRulesTable"><thead><tr>' +
-        ['on', 'property', 'type', 'description', 'limit', 'seen', ''].map((h) => '<th>' + escapeHtml(h) + '</th>').join('') +
+        ['on', 'property', 'type', 'source', 'description', 'limit', 'seen', ''].map((h) => '<th>' + escapeHtml(h) + '</th>').join('') +
         '</tr></thead><tbody>' + rows.join('') + '</tbody></table>';
       const preview = custom.promptPreview
         ? '<details><summary class="muted">prompt preview</summary><pre>' + escapeHtml(custom.promptPreview) + '</pre></details>'
@@ -521,20 +521,25 @@
     function renderNotionPropertyRuleRow(rule, custom) {
       const checked = rule.enabled ? ' checked' : '';
       const original = rule.propertyName ?? '';
-      return '<tr data-notion-rule-row data-original-property-name="' + escapeHtml(original) + '">' +
+      const locked = rule.protected === true;
+      const lockedAttr = locked ? ' data-protected-rule="true"' : '';
+      const disabledAttr = locked ? ' disabled' : '';
+      return '<tr data-notion-rule-row data-original-property-name="' + escapeHtml(original) + '"' + lockedAttr + '>' +
         '<td><input type="checkbox" data-field="enabled"' + checked + ' onchange="markNotionRulesDirty()"></td>' +
         '<td><input type="text" data-field="propertyName" value="' + escapeHtml(rule.propertyName ?? '') +
-        '" oninput="markNotionRulesDirty()"></td>' +
-        '<td>' + renderPropertyTypeSelect(rule.propertyType ?? 'rich_text', custom.supportedTypes ?? []) + '</td>' +
+        '" oninput="markNotionRulesDirty()"' + disabledAttr + '></td>' +
+        '<td>' + renderPropertyTypeSelect(rule.propertyType ?? 'rich_text', custom.supportedTypes ?? [], locked) + '</td>' +
+        '<td>' + renderValueSourceSelect(rule.valueSource ?? 'ai', locked) + '</td>' +
         '<td><textarea data-field="promptDescription" oninput="markNotionRulesDirty()">' +
         escapeHtml(rule.promptDescription ?? '') + '</textarea>' +
         renderRelationFields(rule) + '</td>' +
         '<td><input type="number" min="1" max="2000" data-field="maxLength" value="' +
         escapeHtml(rule.maxLength ?? 1000) + '" oninput="markNotionRulesDirty()"></td>' +
         '<td class="muted">' + escapeHtml(rule.lastSeenAt ?? '-') + '</td>' +
-        '<td><button type="button" onclick="deleteNotionRuleRow(this)">삭제</button></td></tr>';
+        '<td><button type="button" onclick="deleteNotionRuleRow(this)"' +
+        (locked ? ' disabled title="기본 Members 규칙은 삭제할 수 없습니다."' : '') + '>삭제</button></td></tr>';
     }
-    function renderPropertyTypeSelect(currentType, supportedTypes) {
+    function renderPropertyTypeSelect(currentType, supportedTypes, disabled = false) {
       const types = supportedTypes.length ? supportedTypes : ['rich_text', 'select', 'multi_select', 'checkbox', 'date', 'relation'];
       const options = types.map((type) =>
         '<option value="' + escapeHtml(type) + '"' + (type === currentType ? ' selected' : '') + '>' +
@@ -544,15 +549,32 @@
         options.unshift('<option value="' + escapeHtml(currentType) + '" selected>' +
           escapeHtml(currentType) + '</option>');
       }
-      return '<select data-field="propertyType" onchange="onNotionPropertyTypeChange(this)">' + options.join('') + '</select>';
+      return '<select data-field="propertyType" onchange="onNotionPropertyTypeChange(this)"' +
+        (disabled ? ' disabled' : '') + '>' + options.join('') + '</select>';
+    }
+    function renderValueSourceSelect(currentSource, disabled = false) {
+      const sources = [
+        ['ai', 'AI'],
+        ['participants', '참가자']
+      ];
+      return '<select data-field="valueSource" onchange="markNotionRulesDirty()"' +
+        (disabled ? ' disabled' : '') + '>' +
+        sources.map(([value, label]) => '<option value="' + escapeHtml(value) + '"' +
+          (value === currentSource ? ' selected' : '') + '>' + escapeHtml(label) + '</option>').join('') +
+        '</select>';
     }
     function renderRelationFields(rule) {
       const visible = (rule.propertyType ?? '') === 'relation';
       return '<div class="relation-fields" data-relation-fields style="' + (visible ? '' : 'display:none') + '">' +
         '<input type="hidden" data-field="relationDataSourceId" value="' +
         escapeHtml(rule.relationDataSourceId ?? '') + '">' +
+        '<input type="hidden" data-field="relationTargetPageId" value="' +
+        escapeHtml(rule.relationTargetPageId ?? '') + '">' +
         '<label class="muted">대상 DB/data source URL' +
         '<input type="text" data-field="relationTargetUrl" value="' + escapeHtml(rule.relationTargetUrl ?? '') +
+        '" oninput="markNotionRulesDirty()"></label>' +
+        '<label class="muted">대상 page URL' +
+        '<input type="text" data-field="relationTargetPageUrl" value="' + escapeHtml(rule.relationTargetPageUrl ?? '') +
         '" oninput="markNotionRulesDirty()"></label>' +
         '<label class="muted">매칭 속성' +
         '<input type="text" data-field="relationMatchPropertyName" value="' +
@@ -567,6 +589,10 @@
       if (relationFields) {
         relationFields.style.display = select.value === 'relation' ? '' : 'none';
       }
+      const valueSource = row?.querySelector('[data-field="valueSource"]');
+      if (valueSource && select.value !== 'relation' && valueSource.value === 'participants') {
+        valueSource.value = 'ai';
+      }
       markNotionRulesDirty();
     }
     function markNotionRulesDirty() {
@@ -578,6 +604,7 @@
       const rule = {
         propertyName: '',
         propertyType: 'rich_text',
+        valueSource: 'ai',
         enabled: true,
         promptDescription: '',
         maxLength: 1000,
@@ -592,6 +619,11 @@
     function deleteNotionRuleRow(button) {
       const row = button.closest('[data-notion-rule-row]');
       if (!row) return;
+      if (row.getAttribute('data-protected-rule') === 'true') {
+        const statusEl = document.getElementById('notionPropertyStatus');
+        if (statusEl) statusEl.textContent = 'Members 규칙은 삭제할 수 없습니다.';
+        return;
+      }
       const original = row.getAttribute('data-original-property-name') ?? '';
       if (original) {
         row.setAttribute('data-deleted', 'true');
@@ -657,11 +689,14 @@
         originalPropertyName: row.getAttribute('data-original-property-name') || null,
         propertyName: row.querySelector('[data-field="propertyName"]')?.value ?? '',
         propertyType: row.querySelector('[data-field="propertyType"]')?.value ?? 'rich_text',
+        valueSource: row.querySelector('[data-field="valueSource"]')?.value ?? 'ai',
         enabled: row.querySelector('[data-field="enabled"]')?.checked === true,
         promptDescription: row.querySelector('[data-field="promptDescription"]')?.value ?? '',
         maxLength: Number(row.querySelector('[data-field="maxLength"]')?.value ?? 1000),
         relationTargetUrl: row.querySelector('[data-field="relationTargetUrl"]')?.value ?? '',
         relationDataSourceId: row.querySelector('[data-field="relationDataSourceId"]')?.value ?? '',
+        relationTargetPageUrl: row.querySelector('[data-field="relationTargetPageUrl"]')?.value ?? '',
+        relationTargetPageId: row.querySelector('[data-field="relationTargetPageId"]')?.value ?? '',
         relationMatchPropertyName: row.querySelector('[data-field="relationMatchPropertyName"]')?.value ?? 'Name',
         relationAutoCreate: row.querySelector('[data-field="relationAutoCreate"]')?.checked === true,
         deleted: row.getAttribute('data-deleted') === 'true'

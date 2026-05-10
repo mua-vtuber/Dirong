@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { normalizeNotionId, parseNotionTargetUrl } from "./target.js";
+import {
+  normalizeNotionId,
+  parseNotionPageUrl,
+  parseNotionTargetUrl,
+} from "./target.js";
 
 const dashedId = "01234567-89ab-cdef-0123-456789abcdef";
 const compactId = "0123456789abcdef0123456789abcdef";
@@ -62,6 +66,31 @@ test("parseNotionTargetUrl rejects invalid and page-like targets", () => {
     {
       kind: "invalid",
       reason: "page_like_url_not_supported",
+    },
+  );
+});
+
+test("parseNotionPageUrl reads page IDs and rejects database-like targets", () => {
+  assert.deepEqual(parseNotionPageUrl(compactId), {
+    kind: "page_id",
+    id: dashedId,
+    url: null,
+  });
+  assert.deepEqual(
+    parseNotionPageUrl(`https://www.notion.so/workspace/Page-${compactId}?pvs=4`),
+    {
+      kind: "page_id",
+      id: dashedId,
+      url: `https://www.notion.so/workspace/Page-${compactId}?pvs=4`,
+    },
+  );
+  assert.deepEqual(
+    parseNotionPageUrl(
+      `https://www.notion.so/workspace/Meetings-${compactId}?v=${viewId}`,
+    ),
+    {
+      kind: "invalid",
+      reason: "database_like_url_not_supported",
     },
   );
 });

@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import process from "node:process";
 import { generateDependencyReport } from "@discordjs/voice";
 import { resolveFfmpegPath } from "./media.js";
-import { loadDotEnv } from "./config.js";
+import { loadDotEnv, readDiscordGuildIdsFromEnv } from "./config.js";
 import { redactSensitiveText } from "./errors.js";
 
 const require = createRequire(import.meta.url);
@@ -131,7 +131,7 @@ export async function runHealthCheck(): Promise<HealthReport> {
     discordConfig: {
       botToken: process.env.DISCORD_BOT_TOKEN ? "present" : "missing",
       clientId: process.env.DISCORD_CLIENT_ID ? "present" : "missing",
-      guildId: process.env.DISCORD_GUILD_ID ? "present" : "missing",
+      guildId: readDiscordGuildIdsFromEnv().length > 0 ? "present" : "missing",
       voiceChannelId: process.env.DISCORD_VOICE_CHANNEL_ID
         ? "present"
         : "missing",
@@ -155,20 +155,27 @@ function discordConfigChecks(): HealthCheck[] {
   const keys = [
     ["DISCORD_BOT_TOKEN", "Discord bot token"],
     ["DISCORD_CLIENT_ID", "Discord client ID"],
-    ["DISCORD_GUILD_ID", "Discord guild ID"],
+    ["DISCORD_GUILD_IDS or DISCORD_GUILD_ID", "Discord guild IDs"],
     ["DISCORD_VOICE_CHANNEL_ID", "Discord voice channel ID"],
   ] as const;
 
   return keys.map(([key, name]) => ({
     name,
-    status: process.env[key] ? "ok" : "not_configured",
-    message: process.env[key]
+    status: isDiscordConfigKeyPresent(key) ? "ok" : "not_configured",
+    message: isDiscordConfigKeyPresent(key)
       ? `${key} 설정됨(값은 출력하지 않음)`
       : `${key}가 아직 설정되지 않았습니다.`,
-    action: process.env[key]
+    action: isDiscordConfigKeyPresent(key)
       ? undefined
       : ".env.example을 .env로 복사한 뒤 값을 채워 주세요.",
   }));
+}
+
+function isDiscordConfigKeyPresent(key: string): boolean {
+  if (key === "DISCORD_GUILD_IDS or DISCORD_GUILD_ID") {
+    return readDiscordGuildIdsFromEnv().length > 0;
+  }
+  return Boolean(process.env[key]);
 }
 
 function detectFirstPackage(packageNames: string[]): string | null {

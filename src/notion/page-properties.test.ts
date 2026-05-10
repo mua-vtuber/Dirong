@@ -53,6 +53,18 @@ test("renderNotionPageProperties matches Notion status property payloads", () =>
   });
 });
 
+test("renderNotionPageProperties skips Participants when it is a rollup", () => {
+  const input = makeNotionDraftInput();
+  const rendered = renderNotionPageProperties({
+    draftInput: input,
+    propertyNames: DEFAULT_NOTION_PROPERTY_NAMES,
+    contentHash: "abc123",
+    participantsPropertyType: "rollup",
+  });
+
+  assert.equal("Participants" in rendered.properties, false);
+});
+
 test("buildNotionPagePropertyValues applies fallbacks and participant sanitization", () => {
   const input = makeNotionDraftInput({
     title: "   ",

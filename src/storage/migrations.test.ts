@@ -29,6 +29,8 @@ test("DirongDatabase upgrades legacy transcript_segments speech_status", () => {
         "002_notion_writes",
         "003_notion_custom_property_rules",
         "004_notion_relation_property_rules",
+        "005_notion_relation_target_pages",
+        "006_notion_custom_property_value_source",
       ]);
       assert.equal(tableExists(database.db, "notion_writes"), true);
       assert.equal(tableExists(database.db, "notion_blocks"), true);
@@ -60,6 +62,8 @@ test("DirongDatabase backs up existing DB before pending migrations", () => {
         "002_notion_writes",
         "003_notion_custom_property_rules",
         "004_notion_relation_property_rules",
+        "005_notion_relation_target_pages",
+        "006_notion_custom_property_value_source",
       ]);
     } finally {
       migrated.close();
@@ -111,6 +115,8 @@ test("applySchemaMigrations is idempotent", () => {
         "002_notion_writes",
         "003_notion_custom_property_rules",
         "004_notion_relation_property_rules",
+        "005_notion_relation_target_pages",
+        "006_notion_custom_property_value_source",
       ]);
     } finally {
       database.close();
@@ -136,6 +142,8 @@ test("DirongDatabase records migrations on a fresh baseline schema", () => {
         "002_notion_writes",
         "003_notion_custom_property_rules",
         "004_notion_relation_property_rules",
+        "005_notion_relation_target_pages",
+        "006_notion_custom_property_value_source",
       ]);
       assert.ok(getColumnNames(database.db, "notion_writes").includes("draft_id"));
       assert.ok(getColumnNames(database.db, "notion_blocks").includes("block_index"));
@@ -147,6 +155,16 @@ test("DirongDatabase records migrations on a fresh baseline schema", () => {
       assert.ok(
         getColumnNames(database.db, "notion_custom_property_rules").includes(
           "relation_target_url",
+        ),
+      );
+      assert.ok(
+        getColumnNames(database.db, "notion_custom_property_rules").includes(
+          "relation_target_page_url",
+        ),
+      );
+      assert.ok(
+        getColumnNames(database.db, "notion_custom_property_rules").includes(
+          "value_source",
         ),
       );
     } finally {
@@ -170,6 +188,8 @@ test("DirongDatabase adds Phase 5 Notion tables to pre-Phase-5 databases", () =>
         "002_notion_writes",
         "003_notion_custom_property_rules",
         "004_notion_relation_property_rules",
+        "005_notion_relation_target_pages",
+        "006_notion_custom_property_value_source",
       ]);
     } finally {
       database.close();

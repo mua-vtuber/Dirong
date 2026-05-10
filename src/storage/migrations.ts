@@ -22,6 +22,14 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     id: "004_notion_relation_property_rules",
     apply: migrateNotionRelationPropertyRules,
   },
+  {
+    id: "005_notion_relation_target_pages",
+    apply: migrateNotionRelationTargetPages,
+  },
+  {
+    id: "006_notion_custom_property_value_source",
+    apply: migrateNotionCustomPropertyValueSource,
+  },
 ];
 
 export function listPendingSchemaMigrationIds(db: DatabaseSync): string[] {
@@ -160,11 +168,14 @@ CREATE TABLE IF NOT EXISTS notion_custom_property_rules (
   property_name TEXT PRIMARY KEY,
   property_id TEXT,
   property_type TEXT NOT NULL,
+  value_source TEXT NOT NULL DEFAULT 'ai',
   enabled INTEGER NOT NULL DEFAULT 0,
   prompt_description TEXT NOT NULL DEFAULT '',
   max_length INTEGER NOT NULL DEFAULT 1000,
   relation_target_url TEXT,
   relation_data_source_id TEXT,
+  relation_target_page_url TEXT,
+  relation_target_page_id TEXT,
   relation_match_property_name TEXT NOT NULL DEFAULT 'Name',
   relation_auto_create INTEGER NOT NULL DEFAULT 0,
   last_seen_at TEXT,
@@ -202,4 +213,44 @@ function migrateNotionRelationPropertyRules(db: DatabaseSync): void {
       "ALTER TABLE notion_custom_property_rules ADD COLUMN relation_auto_create INTEGER NOT NULL DEFAULT 0;",
     );
   }
+}
+
+function migrateNotionRelationTargetPages(db: DatabaseSync): void {
+  const columns = new Set(
+    (
+      db.prepare("PRAGMA table_info(notion_custom_property_rules);").all() as Array<{
+        name: string;
+      }>
+    ).map((column) => column.name),
+  );
+
+  if (!columns.has("relation_target_page_url")) {
+    db.exec("ALTER TABLE notion_custom_property_rules ADD COLUMN relation_target_page_url TEXT;");
+  }
+  if (!columns.has("relation_target_page_id")) {
+    db.exec("ALTER TABLE notion_custom_property_rules ADD COLUMN relation_target_page_id TEXT;");
+  }
+}
+
+function migrateNotionCustomPropertyValueSource(db: DatabaseSync): void {
+  const columns = new Set(
+    (
+      db.prepare("PRAGMA table_info(notion_custom_property_rules);").all() as Array<{
+        name: string;
+      }>
+    ).map((column) => column.name),
+  );
+
+  if (!columns.has("value_source")) {
+    db.exec(
+      "ALTER TABLE notion_custom_property_rules ADD COLUMN value_source TEXT NOT NULL DEFAULT 'ai';",
+    );
+  }
+
+  db.exec(
+    `UPDATE notion_custom_property_rules
+     SET value_source = 'ai'
+     WHERE value_source IS NULL
+        OR value_source NOT IN ('ai', 'participants');`,
+  );
 }

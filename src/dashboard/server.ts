@@ -1,6 +1,7 @@
 import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import path from "node:path";
+import { DirongError } from "../errors.js";
 import type { AiCleanupAutomationSnapshot } from "../ai/cleanup/automation-service.js";
 import type { AiProviderRuntimeReadinessSnapshot } from "../ai/cleanup/provider-lifecycle.js";
 import type { Phase1Config } from "../config.js";
@@ -78,25 +79,41 @@ export class DashboardServer {
       return this.url;
     }
 
-    this.server = createServer((request, response) => {
+    const server = createServer((request, response) => {
       void this.route(request, response);
     });
+    this.server = server;
 
-    await new Promise<void>((resolve, reject) => {
-      const onError = (error: Error): void => {
-        this.server?.off("listening", onListening);
-        reject(error);
-      };
-      const onListening = (): void => {
-        this.server?.off("error", onError);
-        resolve();
-      };
-      this.server?.once("error", onError);
-      this.server?.once("listening", onListening);
-      this.server?.listen(this.config.dashboardPort, this.config.dashboardHost);
-    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const onError = (error: Error): void => {
+          server.off("listening", onListening);
+          reject(error);
+        };
+        const onListening = (): void => {
+          server.off("error", onError);
+          resolve();
+        };
+        server.once("error", onError);
+        server.once("listening", onListening);
+        server.listen(this.config.dashboardPort, this.config.dashboardHost);
+      });
+    } catch (error) {
+      this.server = null;
+      this.url = null;
+      throw normalizeListenError(
+        error,
+        this.config.dashboardHost,
+        this.config.dashboardPort,
+      );
+    }
 
-    this.url = `http://${this.config.dashboardHost}:${this.config.dashboardPort}/`;
+    const address = server.address();
+    const port =
+      address && typeof address === "object"
+        ? address.port
+        : this.config.dashboardPort;
+    this.url = `http://${this.config.dashboardHost}:${port}/`;
     return this.url;
   }
 
@@ -527,6 +544,8 @@ function readCustomPropertyRuleInputs(
       propertyName: entry.propertyName,
       propertyType:
         typeof entry.propertyType === "string" ? entry.propertyType : null,
+      valueSource:
+        typeof entry.valueSource === "string" ? entry.valueSource : null,
       enabled: entry.enabled === true,
       promptDescription:
         typeof entry.promptDescription === "string"
@@ -543,6 +562,14 @@ function readCustomPropertyRuleInputs(
       relationDataSourceId:
         typeof entry.relationDataSourceId === "string"
           ? entry.relationDataSourceId
+          : null,
+      relationTargetPageUrl:
+        typeof entry.relationTargetPageUrl === "string"
+          ? entry.relationTargetPageUrl
+          : null,
+      relationTargetPageId:
+        typeof entry.relationTargetPageId === "string"
+          ? entry.relationTargetPageId
           : null,
       relationMatchPropertyName:
         typeof entry.relationMatchPropertyName === "string"
@@ -582,4 +609,26 @@ function contentTypeForAudio(format: string, filePath: string): string {
     return "audio/webm";
   }
   return "audio/ogg";
+}
+
+function normalizeListenError(
+  error: unknown,
+  host: string,
+  port: number,
+): unknown {
+  if (
+    error instanceof Error &&
+    "code" in error &&
+    (error as NodeJS.ErrnoException).code === "EADDRINUSE"
+  ) {
+    return new DirongError(
+      "DASHBOARD_PORT_IN_USE",
+      [
+        `디롱이 dashboard 포트를 이미 사용 중입니다: ${host}:${port}`,
+        "이미 실행 중인 Dirong 앱이 있으면 그 콘솔에서 exit를 입력해 종료해 주세요.",
+        "다른 포트를 쓰려면 .env에 PHASE1_DASHBOARD_PORT=3096처럼 설정한 뒤 다시 시작해 주세요.",
+      ].join("\n"),
+    );
+  }
+  return error;
 }

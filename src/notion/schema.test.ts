@@ -42,6 +42,24 @@ test("validateNotionDataSourceSchema accepts Notion status property type", () =>
   assert.equal(validation.ok, true);
 });
 
+test("validateNotionDataSourceSchema accepts Participants as a rollup", () => {
+  const properties = completeProperties();
+  properties.Participants = {
+    id: "participants-id",
+    type: "rollup",
+  };
+
+  const validation = validateNotionDataSourceSchema(
+    properties,
+    DEFAULT_NOTION_PROPERTY_NAMES,
+  );
+
+  assert.equal(validation.ok, true);
+  if (validation.ok) {
+    assert.equal(validation.propertyIds.participants.type, "rollup");
+  }
+});
+
 test("validateNotionDataSourceSchema blocks status properties missing upload options", () => {
   const properties = completeProperties();
   properties.Status = {
@@ -86,7 +104,7 @@ test("validateNotionDataSourceSchema reports missing and wrong properties with K
     assert.deepEqual(validation.wrongType, [
       {
         property: "Participants",
-        expected: "multi_select",
+        expected: "multi_select or rollup",
         actual: "rich_text",
       },
     ]);

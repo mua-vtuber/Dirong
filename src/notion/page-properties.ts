@@ -3,6 +3,7 @@ import type { NotionPropertyNames } from "./settings.js";
 
 export type NotionPageStatus = "draft" | "done" | "retry_wait" | "failed";
 export type NotionStatusPropertyType = "select" | "status";
+export type NotionParticipantsPropertyType = "multi_select" | "rollup";
 
 export const NOTION_PAGE_STATUS_VALUES = [
   "draft",
@@ -74,6 +75,7 @@ export function renderNotionPageProperties(input: {
   contentHash: string;
   status?: NotionPageStatus;
   statusPropertyType?: NotionStatusPropertyType;
+  participantsPropertyType?: NotionParticipantsPropertyType;
   localStatus?: string;
 }): NotionPagePropertyRenderResult {
   const { values, warnings } = buildNotionPagePropertyValues({
@@ -83,42 +85,47 @@ export function renderNotionPageProperties(input: {
   });
   const names = input.propertyNames;
 
+  const properties: NotionPageProperties = {
+    [names.title]: {
+      title: [{ text: { content: values.title } }],
+    },
+    [names.date]: {
+      date: { start: values.date },
+    },
+    [names.meetingTime]: {
+      rich_text: richText(values.meetingTime),
+    },
+    [names.channel]: {
+      rich_text: richText(values.channel),
+    },
+    [names.status]: renderStatusProperty(
+      input.statusPropertyType ?? "select",
+      values.status,
+    ),
+    [names.sessionId]: {
+      rich_text: richText(values.sessionId),
+    },
+    [names.draftId]: {
+      rich_text: richText(values.draftId),
+    },
+    [names.contentHash]: {
+      rich_text: richText(input.contentHash),
+    },
+    [names.localStatus]: {
+      rich_text: richText(values.localStatus),
+    },
+  };
+
+  if ((input.participantsPropertyType ?? "multi_select") !== "rollup") {
+    properties[names.participants] = {
+      multi_select: values.participants.map((name) => ({ name })),
+    };
+  }
+
   return {
     values,
     warnings,
-    properties: {
-      [names.title]: {
-        title: [{ text: { content: values.title } }],
-      },
-      [names.date]: {
-        date: { start: values.date },
-      },
-      [names.meetingTime]: {
-        rich_text: richText(values.meetingTime),
-      },
-      [names.channel]: {
-        rich_text: richText(values.channel),
-      },
-      [names.participants]: {
-        multi_select: values.participants.map((name) => ({ name })),
-      },
-      [names.status]: renderStatusProperty(
-        input.statusPropertyType ?? "select",
-        values.status,
-      ),
-      [names.sessionId]: {
-        rich_text: richText(values.sessionId),
-      },
-      [names.draftId]: {
-        rich_text: richText(values.draftId),
-      },
-      [names.contentHash]: {
-        rich_text: richText(input.contentHash),
-      },
-      [names.localStatus]: {
-        rich_text: richText(values.localStatus),
-      },
-    },
+    properties,
   };
 }
 

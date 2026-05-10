@@ -8,10 +8,10 @@ Discord 음성 채널에 들어가 사람별 오디오 chunk를 저장하고, SQ
 
 - Windows 10 또는 11
 - Node.js 22.12.0 이상
-- 테스트용 Discord 서버
+- 테스트용 Discord 서버 하나 이상
 - 테스트용 Discord 봇 토큰
 - Discord Application ID / Client ID
-- 테스트 서버(Guild) ID
+- 테스트 서버(Guild) ID 목록
 
 봇 초대 시 권한은 최소한 다음이 필요합니다.
 
@@ -30,10 +30,12 @@ Phase 1은 고정 voice channel ID를 요구하지 않습니다. `/dirong start`
 ```text
 DISCORD_BOT_TOKEN=
 DISCORD_CLIENT_ID=
-DISCORD_GUILD_ID=
+DISCORD_GUILD_IDS=
 ```
 
 현재 RecordingProducer 앱은 고정 voice channel ID를 사용하지 않습니다.
+여러 서버에서 쓰려면 `DISCORD_GUILD_IDS=서버ID1,서버ID2`처럼 넣습니다.
+예전 단일 서버 설정인 `DISCORD_GUILD_ID`도 계속 동작합니다.
 
 토큰은 절대 공유하지 마세요. Phase 1 앱은 토큰 원문을 콘솔, SQLite,
 dashboard에 표시하지 않도록 구성되어 있습니다.

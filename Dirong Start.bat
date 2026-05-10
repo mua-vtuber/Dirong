@@ -21,7 +21,7 @@ if not exist ".env" (
   echo Required values:
   echo - DISCORD_BOT_TOKEN
   echo - DISCORD_CLIENT_ID
-  echo - DISCORD_GUILD_ID
+  echo - DISCORD_GUILD_IDS ^(or legacy DISCORD_GUILD_ID^)
   echo.
   echo Dirong does not require DISCORD_VOICE_CHANNEL_ID for normal recording.
   echo Use /dirong start while you are in a Discord voice channel.

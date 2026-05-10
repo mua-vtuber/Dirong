@@ -254,10 +254,69 @@ test("DashboardServer root serves the dashboard HTML without caching", async () 
     assert.equal(response.headers.get("cache-control"), "no-store");
     assert.match(html, /Dirong Recording \+ STT Dashboard/);
     assert.match(html, /Notion Property Rules/);
+    assert.match(html, /대상 page URL/);
+    assert.match(html, /data-protected-rule/);
+    assert.match(html, /Members 규칙은 삭제할 수 없습니다/);
     assert.match(html, /escapeHtml/);
     assert.match(html, /fetch\('\/api\/state'/);
   } finally {
     await fixture.close();
+  }
+});
+
+test("DashboardServer getUrl reports the actual bound port", async () => {
+  const dashboard = new DashboardServer(
+    makeDashboardConfig(),
+    makeStore(),
+    makeProducer(),
+  );
+  await dashboard.start();
+  const server = (dashboard as unknown as { server: Server | null }).server;
+  assert.ok(server);
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  try {
+    assert.equal(dashboard.getUrl(), `http://127.0.0.1:${address.port}/`);
+  } finally {
+    server.closeAllConnections();
+    await dashboard.stop();
+  }
+});
+
+test("DashboardServer reports occupied dashboard ports without a raw stack", async () => {
+  const first = new DashboardServer(
+    makeDashboardConfig(),
+    makeStore(),
+    makeProducer(),
+  );
+  await first.start();
+  const firstServer = (first as unknown as { server: Server | null }).server;
+  assert.ok(firstServer);
+  const address = firstServer.address();
+  assert.ok(address && typeof address === "object");
+
+  const second = new DashboardServer(
+    { ...makeDashboardConfig(), dashboardPort: address.port },
+    makeStore(),
+    makeProducer(),
+  );
+
+  try {
+    await assert.rejects(
+      () => second.start(),
+      (error) => {
+        const typed = error as Error & { code?: string };
+        assert.equal(typed.code, "DASHBOARD_PORT_IN_USE");
+        assert.match(typed.message, /이미 사용 중/);
+        assert.match(typed.message, /PHASE1_DASHBOARD_PORT=3096/);
+        return true;
+      },
+    );
+  } finally {
+    firstServer.closeAllConnections();
+    await first.stop();
+    await second.stop();
   }
 });
 
@@ -400,11 +459,14 @@ test("DashboardServer Notion property rules save through dashboard source", asyn
     originalPropertyName?: string | null;
     propertyName: string;
     propertyType?: string | null;
+    valueSource?: string | null;
     enabled: boolean;
     promptDescription: string;
     maxLength?: number | null;
     relationTargetUrl?: string | null;
     relationDataSourceId?: string | null;
+    relationTargetPageUrl?: string | null;
+    relationTargetPageId?: string | null;
     relationMatchPropertyName?: string | null;
     relationAutoCreate?: boolean | null;
     deleted?: boolean;
@@ -421,6 +483,7 @@ test("DashboardServer Notion property rules save through dashboard source", asyn
           {
             propertyName: "Discussion",
             propertyType: "rich_text",
+            valueSource: "ai",
             enabled: true,
             promptDescription: "회의 논의 사항 요약",
             maxLength: 700,
@@ -438,11 +501,14 @@ test("DashboardServer Notion property rules save through dashboard source", asyn
         originalPropertyName: null,
         propertyName: "Discussion",
         propertyType: "rich_text",
+        valueSource: "ai",
         enabled: true,
         promptDescription: "회의 논의 사항 요약",
         maxLength: 700,
         relationTargetUrl: null,
         relationDataSourceId: null,
+        relationTargetPageUrl: null,
+        relationTargetPageId: null,
         relationMatchPropertyName: null,
         relationAutoCreate: false,
         deleted: false,
@@ -537,11 +603,14 @@ function makeNotionSource(
     originalPropertyName?: string | null;
     propertyName: string;
     propertyType?: string | null;
+    valueSource?: string | null;
     enabled: boolean;
     promptDescription: string;
     maxLength?: number | null;
     relationTargetUrl?: string | null;
     relationDataSourceId?: string | null;
+    relationTargetPageUrl?: string | null;
+    relationTargetPageId?: string | null;
     relationMatchPropertyName?: string | null;
     relationAutoCreate?: boolean | null;
     deleted?: boolean;
@@ -607,11 +676,14 @@ function makeNotionSource(
             propertyName: "Discussion",
             propertyId: "discussion",
             propertyType: "rich_text",
+            valueSource: "ai",
             enabled: false,
             promptDescription: "",
             maxLength: 1000,
             relationTargetUrl: null,
             relationDataSourceId: null,
+            relationTargetPageUrl: null,
+            relationTargetPageId: null,
             relationMatchPropertyName: "Name",
             relationAutoCreate: false,
             lastSeenAt: "2026-05-07T00:00:00.000Z",
@@ -712,6 +784,7 @@ function makeDashboardConfig(): Phase1Config {
     discordBotToken: "",
     discordClientId: "",
     guildId: "",
+    guildIds: [],
     dataDir: ".",
     dbPath: "dirong.sqlite",
     dbBusyTimeoutMs: 1000,

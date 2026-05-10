@@ -16,6 +16,7 @@ import { DirongDatabase } from "../storage/sqlite.js";
 const nowIso = "2026-05-07T00:00:00.000Z";
 const targetId = "01234567-89ab-cdef-0123-456789abcdef";
 const relationTargetId = "11111111-2222-3333-4444-555555555555";
+const relationTargetPageId = "22222222-3333-4444-5555-666666666666";
 
 test("runNotionUpload dry-run validates schema and renders without DB or page writes", async () => {
   const fixture = createFixture();
@@ -127,6 +128,43 @@ test("runNotionUpload renders status payloads for Notion status properties", asy
   }
 });
 
+test("runNotionUpload does not write Participants when it is a rollup", async () => {
+  const fixture = createFixture();
+  try {
+    const client = new FakeNotionClient({
+      properties: {
+        ...completeProperties(),
+        Participants: { id: "participants-id", type: "rollup" },
+      },
+    });
+    const result = await runNotionUpload({
+      settings: notionSettings(),
+      selector: { kind: "draft", draftId: fixture.draftId },
+      dryRun: false,
+      force: false,
+      workerId: "writer-test",
+      leaseMs: 60000,
+      nowIso,
+      client,
+      readModel: new NotionDraftInputReadModel(fixture.runner),
+      writeStore: fixture.writeStore,
+    });
+    const createdProperties = client.createPageBodies[0]?.properties as Record<
+      string,
+      unknown
+    >;
+    const doneUpdate = client.calls
+      .filter((call) => call.method === "updatePage")
+      .at(-1)?.body as { properties?: Record<string, unknown> } | undefined;
+
+    assert.equal(result.status, "done");
+    assert.equal("Participants" in createdProperties, false);
+    assert.equal("Participants" in (doneUpdate?.properties ?? {}), false);
+  } finally {
+    fixture.close();
+  }
+});
+
 test("runNotionUpload resolves relation custom properties and auto-creates missing pages", async () => {
   const fixture = createFixture({
     notionProperties: {
@@ -153,11 +191,14 @@ test("runNotionUpload resolves relation custom properties and auto-creates missi
           propertyName: "프로젝트",
           propertyId: null,
           propertyType: "relation",
+          valueSource: "ai",
           enabled: true,
           promptDescription: "회의에서 언급된 프로젝트 이름",
           maxLength: 1000,
           relationTargetUrl: relationTargetId,
           relationDataSourceId: targetId,
+          relationTargetPageUrl: null,
+          relationTargetPageId: null,
           relationMatchPropertyName: "Name",
           relationAutoCreate: true,
           lastSeenAt: null,
@@ -182,6 +223,120 @@ test("runNotionUpload resolves relation custom properties and auto-creates missi
         },
       },
     });
+  } finally {
+    fixture.close();
+  }
+});
+
+test("runNotionUpload writes a fixed relation target page without AI values", async () => {
+  const fixture = createFixture();
+  try {
+    const client = new FakeNotionClient();
+    const result = await runNotionUpload({
+      settings: notionSettings(),
+      selector: { kind: "draft", draftId: fixture.draftId },
+      dryRun: false,
+      force: false,
+      workerId: "writer-test",
+      leaseMs: 60000,
+      nowIso,
+      client,
+      readModel: new NotionDraftInputReadModel(fixture.runner),
+      writeStore: fixture.writeStore,
+      customPropertyRules: [
+        {
+          propertyName: "프로젝트",
+          propertyId: null,
+          propertyType: "relation",
+          valueSource: "ai",
+          enabled: true,
+          promptDescription: "",
+          maxLength: 1000,
+          relationTargetUrl: relationTargetId,
+          relationDataSourceId: relationTargetId,
+          relationTargetPageUrl:
+            "https://www.notion.so/workspace/Project-Moonfall-22222222333344445555666666666666",
+          relationTargetPageId: null,
+          relationMatchPropertyName: "Name",
+          relationAutoCreate: false,
+          lastSeenAt: null,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        },
+      ],
+    });
+    const properties = client.createPageBodies[0]?.properties as {
+      "프로젝트"?: unknown;
+    };
+
+    assert.equal(result.status, "done");
+    assert.deepEqual(properties["프로젝트"], {
+      relation: [{ id: relationTargetPageId }],
+    });
+    assert.equal(client.relationCreateBodies.length, 0);
+    assert.equal(
+      client.calls.filter((call) => call.method === "queryDataSource").length,
+      2,
+    );
+  } finally {
+    fixture.close();
+  }
+});
+
+test("runNotionUpload maps participant source relation from session speakers", async () => {
+  const fixture = createFixture({
+    speakers: [
+      ["Taniar, Admin", 0],
+      ["taniar admin", 0],
+      ["Ari", 0],
+      ["Dirong Bot", 1],
+    ],
+    notionProperties: {
+      Members: { values: ["Ignored AI value"] },
+    },
+  });
+  try {
+    const client = new FakeNotionClient({
+      relationQueryResults: [],
+    });
+    const result = await runNotionUpload({
+      settings: notionSettings(),
+      selector: { kind: "draft", draftId: fixture.draftId },
+      dryRun: false,
+      force: false,
+      workerId: "writer-test",
+      leaseMs: 60000,
+      nowIso,
+      client,
+      readModel: new NotionDraftInputReadModel(fixture.runner),
+      writeStore: fixture.writeStore,
+      customPropertyRules: [
+        {
+          propertyName: "Members",
+          propertyId: null,
+          propertyType: "relation",
+          valueSource: "participants",
+          enabled: true,
+          promptDescription: "",
+          maxLength: 1000,
+          relationTargetUrl: relationTargetId,
+          relationDataSourceId: relationTargetId,
+          relationTargetPageUrl: null,
+          relationTargetPageId: null,
+          relationMatchPropertyName: "Name",
+          relationAutoCreate: true,
+          lastSeenAt: null,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        },
+      ],
+    });
+
+    assert.equal(result.status, "done");
+    assert.deepEqual(
+      client.relationCreateBodies.map(readCreatedRelationTitle),
+      ["Taniar Admin", "Ari"],
+    );
   } finally {
     fixture.close();
   }
@@ -676,4 +831,19 @@ function readFilterProperty(body: unknown): string | null {
     return null;
   }
   return typeof body.filter.property === "string" ? body.filter.property : null;
+}
+
+function readCreatedRelationTitle(body: unknown): string | null {
+  if (!isRecord(body) || !isRecord(body.properties)) {
+    return null;
+  }
+  const name = body.properties.Name;
+  if (!isRecord(name) || !Array.isArray(name.title)) {
+    return null;
+  }
+  const first = name.title[0];
+  if (!isRecord(first) || !isRecord(first.text)) {
+    return null;
+  }
+  return typeof first.text.content === "string" ? first.text.content : null;
 }

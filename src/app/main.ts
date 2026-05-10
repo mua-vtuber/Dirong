@@ -127,7 +127,7 @@ const dashboard = new DashboardServer(config, store, producer, {
   notionAutomation,
   sttAutomation,
 });
-const dashboardUrl = await dashboard.start();
+const dashboardUrl = await startDashboardOrExit();
 let shutdownPromise: Promise<void> | null = null;
 
 console.log("디롱이 Recording + STT dashboard 시작:", dashboardUrl);
@@ -199,20 +199,57 @@ try {
   process.exit(1);
 }
 
-async function registerCommands(): Promise<void> {
-  const guild = await client.guilds.fetch(config.guildId);
-  for (const command of phase1GuildCommandPayloads) {
-    await guild.commands.create(command);
+async function startDashboardOrExit(): Promise<string> {
+  try {
+    return await dashboard.start();
+  } catch (error) {
+    printCliError(error, { prefix: "Dashboard 시작 실패" });
+    try {
+      await dashboard.stop();
+    } catch {
+      // Best-effort cleanup before exiting the top-level startup path.
+    }
+    try {
+      store.close();
+    } catch {
+      // Best-effort cleanup before exiting the top-level startup path.
+    }
+    process.exit(1);
   }
-  console.log("Guild slash command 등록/갱신 완료: /dirong start, stop, status");
+}
+
+async function registerCommands(): Promise<void> {
+  let successCount = 0;
+  for (const guildId of config.guildIds) {
+    try {
+      const guild = await client.guilds.fetch(guildId);
+      await guild.commands.set(phase1GuildCommandPayloads);
+      successCount += 1;
+      console.log(`Guild slash command 등록/갱신 완료: ${guild.name} (${guild.id})`);
+    } catch (error) {
+      printCliError(error, { prefix: `Slash command 등록 실패 (${guildId})` });
+    }
+  }
+  if (successCount === 0) {
+    throw new Error("설정된 Discord 서버에 slash command를 등록하지 못했습니다.");
+  }
+  console.log("사용 가능 명령: /dirong start, stop, status");
 }
 
 async function handleDirongCommand(
   interaction: ChatInputCommandInteraction,
 ): Promise<void> {
-  if (!interaction.guildId || interaction.guildId !== config.guildId) {
+  if (!interaction.guildId) {
     await interaction.reply({
-      content: "이 Dirong 앱은 .env에 설정된 서버에서만 사용할 수 있습니다.",
+      content: "Dirong은 Discord 서버 안에서만 사용할 수 있습니다.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (!config.guildIds.includes(interaction.guildId)) {
+    await interaction.reply({
+      content: "이 Dirong 앱은 .env의 DISCORD_GUILD_IDS 또는 DISCORD_GUILD_ID에 설정된 서버에서만 사용할 수 있습니다.",
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -556,9 +593,18 @@ async function countNonBotVoiceMembers(
   voiceChannelId: string,
 ): Promise<AloneFinalizeMemberCountResult> {
   try {
+    const runtime = producer.getRuntimeState();
+    const guildId = runtime.guildId ?? config.guildId;
+    if (!guildId) {
+      return {
+        ok: false,
+        reason: "guild_unavailable",
+        technicalDetail: "활성 녹음 세션의 Discord 서버 ID를 확인하지 못했습니다.",
+      };
+    }
     const guild =
-      client.guilds.cache.get(config.guildId) ??
-      await client.guilds.fetch(config.guildId);
+      client.guilds.cache.get(guildId) ??
+      await client.guilds.fetch(guildId);
     const channel =
       guild.channels.cache.get(voiceChannelId) ??
       await guild.channels.fetch(voiceChannelId);

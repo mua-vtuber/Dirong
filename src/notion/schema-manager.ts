@@ -131,7 +131,7 @@ const REQUIRED_PROPERTY_REQUIREMENTS: readonly RequiredPropertyRequirement[] = [
   { key: "date", type: "date", accepts: ["date"] },
   { key: "meetingTime", type: "rich_text", accepts: ["rich_text"] },
   { key: "channel", type: "rich_text", accepts: ["rich_text"] },
-  { key: "participants", type: "multi_select", accepts: ["multi_select"] },
+  { key: "participants", type: "multi_select", accepts: ["multi_select", "rollup"] },
   {
     key: "status",
     type: "select",

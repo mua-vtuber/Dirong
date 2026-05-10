@@ -8,6 +8,7 @@ export type Phase1Config = {
   discordBotToken: string;
   discordClientId: string;
   guildId: string;
+  guildIds: string[];
   dataDir: string;
   dbPath: string;
   dbBusyTimeoutMs: number;
@@ -54,6 +55,7 @@ export function loadPhase1Config(options?: {
 
   const optional = (key: string, fallback: string): string =>
     process.env[key]?.trim() || fallback;
+  const guildIds = readDiscordGuildIdsFromEnv();
 
   const sttSafeFormat = optional("PHASE1_STT_SAFE_FORMAT", "webm");
   if (sttSafeFormat !== "webm" && sttSafeFormat !== "wav") {
@@ -75,9 +77,8 @@ export function loadPhase1Config(options?: {
     discordClientId: options?.requireDiscordConfig
       ? required("DISCORD_CLIENT_ID")
       : process.env.DISCORD_CLIENT_ID?.trim() ?? "",
-    guildId: options?.requireDiscordConfig
-      ? required("DISCORD_GUILD_ID")
-      : process.env.DISCORD_GUILD_ID?.trim() ?? "",
+    guildId: guildIds[0] ?? "",
+    guildIds,
     dataDir,
     dbPath: path.resolve(
       optional("PHASE1_DB_PATH", path.join(dataDir, "dirong.sqlite")),
@@ -112,6 +113,10 @@ export function loadPhase1Config(options?: {
     throw new Error("DIRONG_ALONE_FINALIZE_GRACE_MS는 1 이상의 숫자여야 합니다.");
   }
 
+  if (options?.requireDiscordConfig && guildIds.length === 0) {
+    missingKeys.push("DISCORD_GUILD_IDS or DISCORD_GUILD_ID");
+  }
+
   if (config.softRolloverMs > config.maxChunkMs) {
     throw new Error("PHASE1_SOFT_ROLLOVER_MS는 PHASE1_MAX_CHUNK_MS보다 작거나 같아야 합니다.");
   }
@@ -121,6 +126,15 @@ export function loadPhase1Config(options?: {
   }
 
   return config;
+}
+
+export function readDiscordGuildIdsFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  return uniqueStrings([
+    ...splitDiscordGuildIds(env.DISCORD_GUILD_IDS),
+    ...splitDiscordGuildIds(env.DISCORD_GUILD_ID),
+  ]);
 }
 
 export function snapshotPhase1Config(config: Phase1Config): Phase1ConfigSnapshot {
@@ -150,4 +164,15 @@ function readNumber(key: string, fallback: number): number {
   }
 
   return parsed;
+}
+
+function splitDiscordGuildIds(value: string | undefined): string[] {
+  return (value ?? "")
+    .split(/[,\s]+/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
 }

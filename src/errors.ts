@@ -146,7 +146,7 @@ export function toKoreanErrorMessage(error: unknown): string {
   }
 
   if (message.includes("unknown guild") || code === "10004") {
-    return "Discord 서버를 찾지 못했습니다. .env의 DISCORD_GUILD_ID가 테스트 서버 ID인지 확인하고, 디롱이 봇이 그 서버에 초대되어 있는지 확인해 주세요.";
+    return "Discord 서버를 찾지 못했습니다. .env의 DISCORD_GUILD_IDS 또는 DISCORD_GUILD_ID가 서버 ID인지 확인하고, 디롱이 봇이 그 서버에 초대되어 있는지 확인해 주세요.";
   }
 
   if (message.includes("unknown channel") || code === "10003") {

@@ -17,6 +17,23 @@ export function formatUserFacingError(error: unknown): string {
   const code = String(info.code ?? "");
   const message = info.message.toLowerCase();
 
+  if (code === "DASHBOARD_PORT_IN_USE") {
+    return info.message;
+  }
+
+  if (code === "EADDRINUSE" || message.includes("eaddrinuse")) {
+    const endpoint =
+      /(\d{1,3}(?:\.\d{1,3}){3}:\d+)/.exec(info.message)?.[1] ??
+      "설정된 dashboard 포트";
+    return [
+      `디롱이 dashboard 포트를 이미 사용 중입니다: ${endpoint}`,
+      "",
+      "확인할 것:",
+      "1. 이미 실행 중인 Dirong 콘솔이 있으면 그 창에서 exit를 입력해 종료해 주세요.",
+      "2. 다른 포트를 쓰려면 .env에 PHASE1_DASHBOARD_PORT=3096처럼 설정해 주세요.",
+    ].join("\n");
+  }
+
   if (code === "LOCAL_WHISPER_PREFLIGHT_FAILED") {
     return [
       "디롱이 local-whisper 준비에 실패했습니다.",

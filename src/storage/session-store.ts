@@ -42,6 +42,7 @@ export type RepairScanSummary = {
 export type RecordingRuntimeState = {
   isRecording: boolean;
   sessionId: string | null;
+  guildId?: string | null;
   voiceChannelId: string | null;
   voiceChannelName: string | null;
   openChunks: number;

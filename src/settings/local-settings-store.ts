@@ -9,7 +9,9 @@ import path from "node:path";
 import type { NotionUploadMode } from "../notion/settings.js";
 import type { SttProviderName } from "./app-settings.js";
 
-export type DirongLocale = "ko" | "en";
+export const DIRONG_LOCALES = ["ko", "en"] as const;
+export type DirongLocale = (typeof DIRONG_LOCALES)[number];
+export const DEFAULT_DIRONG_LOCALE: DirongLocale = "ko";
 export type AiProviderName = "claude";
 export type AiProviderMode = "cli" | "api";
 
@@ -68,7 +70,7 @@ export type DirongLocalSettings = {
 export const DEFAULT_LOCAL_SETTINGS: DirongLocalSettings = {
   schemaVersion: 1,
   app: {
-    locale: "ko",
+    locale: DEFAULT_DIRONG_LOCALE,
   },
   discord: {},
   stt: {},
@@ -218,7 +220,11 @@ function readPositiveInteger(value: unknown): number | undefined {
 }
 
 function readLocale(value: unknown): DirongLocale | undefined {
-  return value === "ko" || value === "en" ? value : undefined;
+  return isDirongLocale(value) ? value : undefined;
+}
+
+export function isDirongLocale(value: unknown): value is DirongLocale {
+  return DIRONG_LOCALES.includes(value as DirongLocale);
 }
 
 function readSttProvider(value: unknown): SttProviderName | undefined {

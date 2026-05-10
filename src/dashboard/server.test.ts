@@ -7,6 +7,7 @@ import test from "node:test";
 import type { Phase1Config } from "../config.js";
 import type { RecordingProducer } from "../recording/recording-producer.js";
 import type { SessionStore } from "../storage/session-store.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 import type {
   DashboardNotionAutomationSource,
   DashboardNotionSource,
@@ -292,6 +293,73 @@ test("DashboardServer setup status API returns redacted configuration state", as
     assert.equal(body.status, "not_configured");
     assert.doesNotMatch(text, /discord-secret-raw-value/);
     assert.match(text, /\[REDACTED\]/);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("DashboardServer language API reads and saves app locale", async () => {
+  const setupStatus = makeMutableSetupStatusSource();
+  const fixture = await startDashboardFixture({ setupStatus });
+  try {
+    const initial = await fetch(`${fixture.baseUrl}/api/settings/language`);
+    const initialBody = await initial.json() as {
+      locale: string;
+      notionSchemaLocale: string;
+      messageKey: string;
+    };
+
+    assert.equal(initial.status, 200);
+    assert.equal(initialBody.locale, "ko");
+    assert.equal(initialBody.notionSchemaLocale, "ko");
+    assert.equal(initialBody.messageKey, "settings.language.current.message");
+
+    const saved = await fetch(`${fixture.baseUrl}/api/settings/language`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ locale: "en" }),
+    });
+    const savedBody = await saved.json() as {
+      locale: string;
+      notionSchemaLocale: string;
+      messageKey: string;
+      setup: { locale: string };
+    };
+
+    assert.equal(saved.status, 200);
+    assert.equal(savedBody.locale, "en");
+    assert.equal(savedBody.notionSchemaLocale, "en");
+    assert.equal(savedBody.messageKey, "settings.language.save.done.message");
+    assert.equal(savedBody.setup.locale, "en");
+
+    const next = await fetch(`${fixture.baseUrl}/api/setup/language`);
+    const nextBody = await next.json() as { locale: string };
+    assert.equal(nextBody.locale, "en");
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("DashboardServer language API rejects unsupported locales", async () => {
+  const setupStatus = makeMutableSetupStatusSource();
+  const fixture = await startDashboardFixture({ setupStatus });
+  try {
+    const response = await fetch(`${fixture.baseUrl}/api/settings/language`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ locale: "jp" }),
+    });
+    const body = await response.json() as {
+      locale: string;
+      messageKey: string;
+      userActionKey: string;
+    };
+
+    assert.equal(response.status, 400);
+    assert.equal(body.locale, "ko");
+    assert.equal(body.messageKey, "settings.language.error.invalidLocale.message");
+    assert.equal(body.userActionKey, "settings.language.error.invalidLocale.action");
+    assert.equal(setupStatus.getLocale?.(), "ko");
   } finally {
     await fixture.close();
   }
@@ -797,6 +865,8 @@ function makeSetupStatusSource(): DashboardSetupStatusSource {
   return {
     getSnapshot: () => ({
       generatedAt: "2026-05-10T00:00:00.000Z",
+      locale: "ko",
+      notionSchemaLocale: "ko",
       status: "not_configured",
       userDataDir: "C:\\Users\\Taniar\\AppData\\Local\\Dirong",
       settingsPath: "C:\\Users\\Taniar\\AppData\\Local\\Dirong\\settings\\settings.json",
@@ -823,7 +893,9 @@ function makeSetupStatusSource(): DashboardSetupStatusSource {
       features: {
         discord: {
           status: "not_configured",
+          messageKey: "setup.discord.status.notConfigured.message",
           message: "Discord 설정이 아직 없습니다.",
+          userActionKey: "setup.discord.status.notConfigured.action",
           userAction: "Discord 설정을 완료해 주세요.",
           missing: ["discord.applicationId"],
           applicationIdConfigured: false,
@@ -831,13 +903,17 @@ function makeSetupStatusSource(): DashboardSetupStatusSource {
         },
         recording: {
           status: "blocked",
+          messageKey: "setup.recording.status.blocked.message",
           message: "녹음 시작은 아직 막혀 있습니다.",
+          userActionKey: "setup.recording.status.blocked.action",
           userAction: "Discord와 STT 설정을 완료해 주세요.",
           missing: ["discord", "stt"],
         },
         stt: {
           status: "not_configured",
+          messageKey: "setup.stt.status.notConfigured.message",
           message: "STT 설정이 아직 없습니다.",
+          userActionKey: "setup.stt.status.notConfigured.action",
           userAction: "STT provider를 선택해 주세요.",
           missing: ["stt.provider"],
           provider: null,
@@ -845,7 +921,9 @@ function makeSetupStatusSource(): DashboardSetupStatusSource {
         },
         ai: {
           status: "not_configured",
+          messageKey: "setup.ai.status.notConfigured.message",
           message: "AI 설정이 아직 없습니다.",
+          userActionKey: "setup.ai.status.notConfigured.action",
           userAction: "Claude provider를 선택해 주세요.",
           missing: ["ai.provider"],
           provider: null,
@@ -853,7 +931,9 @@ function makeSetupStatusSource(): DashboardSetupStatusSource {
         },
         notion: {
           status: "not_configured",
+          messageKey: "setup.notion.status.notConfigured.message",
           message: "Notion 설정이 아직 없습니다.",
+          userActionKey: "setup.notion.status.notConfigured.action",
           userAction: "Notion token과 parent page URL을 저장해 주세요.",
           missing: ["notion.token"],
           parentPageConfigured: false,
@@ -861,7 +941,9 @@ function makeSetupStatusSource(): DashboardSetupStatusSource {
         },
         dataRetention: {
           status: "ready",
+          messageKey: "setup.dataRetention.status.ready.message",
           message: "기본 보관 정책이 적용되어 있습니다.",
+          userActionKey: null,
           userAction: null,
           missing: [],
           deleteAudioAfterNotionUpload: true,
@@ -869,6 +951,25 @@ function makeSetupStatusSource(): DashboardSetupStatusSource {
         },
       },
     }),
+  };
+}
+
+function makeMutableSetupStatusSource(): DashboardSetupStatusSource {
+  let locale: DirongLocale = "ko";
+  const base = makeSetupStatusSource();
+  const snapshot = () => ({
+    ...base.getSnapshot(),
+    locale,
+    notionSchemaLocale: locale,
+  });
+
+  return {
+    getLocale: () => locale,
+    setLocale: (nextLocale) => {
+      locale = nextLocale;
+      return snapshot();
+    },
+    getSnapshot: snapshot,
   };
 }
 

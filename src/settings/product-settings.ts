@@ -1,4 +1,5 @@
 import type { Phase1Config } from "../config.js";
+import { t, type LocaleKey } from "../i18n/catalog.js";
 import {
   DEFAULT_NOTION_API_VERSION,
   DEFAULT_NOTION_BASE_URL,
@@ -14,6 +15,8 @@ import {
 } from "./dirong-user-data.js";
 import {
   type AiLocalSettings,
+  DEFAULT_DIRONG_LOCALE,
+  type DirongLocale,
   type DirongLocalSettings,
   LocalSettingsStore,
   type SttLocalSettings,
@@ -34,13 +37,17 @@ export type ProductFeatureStatus =
 
 export type ProductSetupFeatureSnapshot = {
   status: ProductFeatureStatus;
+  messageKey: LocaleKey;
   message: string;
+  userActionKey: LocaleKey | null;
   userAction: string | null;
   missing: string[];
 };
 
 export type ProductSetupStatusSnapshot = {
   generatedAt: string;
+  locale: DirongLocale;
+  notionSchemaLocale: DirongLocale;
   status: "not_configured" | "ready" | "blocked";
   userDataDir: string;
   settingsPath: string;
@@ -104,6 +111,21 @@ export class ProductSetupStatusSource {
       secretStore: this.secretStore,
       registryStore: this.registryStore,
     });
+  }
+
+  getLocale(): DirongLocale {
+    return this.settingsStore.read().app.locale ?? DEFAULT_DIRONG_LOCALE;
+  }
+
+  setLocale(locale: DirongLocale): ProductSetupStatusSnapshot {
+    this.settingsStore.update((settings) => ({
+      ...settings,
+      app: {
+        ...settings.app,
+        locale,
+      },
+    }));
+    return this.getSnapshot();
   }
 }
 
@@ -205,6 +227,7 @@ export function buildProductSetupStatus(input: {
   secretStore: LocalSecretStore;
   registryStore?: NotionRegistryStore;
 }): ProductSetupStatusSnapshot {
+  const locale = input.settings.app.locale ?? DEFAULT_DIRONG_LOCALE;
   const discordSecretRef =
     input.settings.discord.botTokenSecretRef ?? DEFAULT_SECRET_REFS.discordBotToken;
   const openAiSecretRef =
@@ -221,12 +244,17 @@ export function buildProductSetupStatus(input: {
     notion: input.secretStore.snapshot(notionSecretRef),
   };
 
-  const discord = buildDiscordStatus(input.settings, secrets.discordBot);
-  const stt = buildSttStatus(input.settings, secrets.openAi);
-  const ai = buildAiStatus(input.settings, secrets.claude);
-  const notion = buildNotionStatus(input.settings, secrets.notion, input.registryStore);
-  const recording = buildRecordingStatus(discord, stt);
-  const dataRetention = buildDataRetentionStatus(input.settings);
+  const discord = buildDiscordStatus(locale, input.settings, secrets.discordBot);
+  const stt = buildSttStatus(locale, input.settings, secrets.openAi);
+  const ai = buildAiStatus(locale, input.settings, secrets.claude);
+  const notion = buildNotionStatus(
+    locale,
+    input.settings,
+    secrets.notion,
+    input.registryStore,
+  );
+  const recording = buildRecordingStatus(locale, discord, stt);
+  const dataRetention = buildDataRetentionStatus(locale, input.settings);
   const featureStatuses = [
     discord.status,
     stt.status,
@@ -238,6 +266,8 @@ export function buildProductSetupStatus(input: {
 
   return {
     generatedAt: new Date().toISOString(),
+    locale,
+    notionSchemaLocale: locale,
     status: featureStatuses.every((status) => status === "ready")
       ? "ready"
       : featureStatuses.includes("not_configured")
@@ -363,6 +393,7 @@ function isAiConfigured(
 }
 
 function buildDiscordStatus(
+  locale: DirongLocale,
   settings: DirongLocalSettings,
   secret: SecretPresenceSnapshot,
 ): ProductSetupStatusSnapshot["features"]["discord"] {
@@ -373,113 +404,116 @@ function buildDiscordStatus(
   ].filter((key): key is string => key !== null);
 
   if (missing.length > 0) {
-    return {
+    return withLocalizedText(locale, {
       status: "not_configured",
-      message: "Discord 봇 연결 설정이 아직 완료되지 않았습니다.",
-      userAction: "설정에서 Discord application ID, bot token, 사용할 서버 선택을 완료해 주세요.",
+      messageKey: "setup.discord.status.notConfigured.message",
+      userActionKey: "setup.discord.status.notConfigured.action",
       missing,
       applicationIdConfigured: Boolean(settings.discord.applicationId),
       guildAllowlistCount: settings.discord.guildIds?.length ?? 0,
-    };
+    });
   }
 
-  return {
+  return withLocalizedText(locale, {
     status: "ready",
-    message: "Discord 필수 설정이 저장되어 있습니다.",
-    userAction: null,
+    messageKey: "setup.discord.status.ready.message",
+    userActionKey: null,
     missing: [],
     applicationIdConfigured: true,
     guildAllowlistCount: settings.discord.guildIds?.length ?? 0,
-  };
+  });
 }
 
 function buildSttStatus(
+  locale: DirongLocale,
   settings: DirongLocalSettings,
   openAiSecret: SecretPresenceSnapshot,
 ): ProductSetupStatusSnapshot["features"]["stt"] {
   if (!settings.stt.provider) {
-    return {
+    return withLocalizedText(locale, {
       status: "not_configured",
-      message: "STT provider와 모델 설정이 아직 저장되지 않았습니다.",
-      userAction: "설정 위자드에서 local faster-whisper 또는 OpenAI STT를 선택해 주세요.",
+      messageKey: "setup.stt.status.notConfigured.message",
+      userActionKey: "setup.stt.status.notConfigured.action",
       missing: ["stt.provider"],
       provider: null,
       model: null,
-    };
+    });
   }
 
   if (settings.stt.provider === "openai" && !openAiSecret.configured) {
-    return {
+    return withLocalizedText(locale, {
       status: "not_configured",
-      message: "OpenAI STT API key가 아직 저장되지 않았습니다.",
-      userAction: "OpenAI STT를 계속 쓰려면 API key를 다시 입력해 주세요.",
+      messageKey: "setup.stt.status.openAiApiKeyMissing.message",
+      userActionKey: "setup.stt.status.openAiApiKeyMissing.action",
       missing: ["stt.openAiApiKey"],
       provider: "openai",
       model: settings.stt.openAiModel ?? null,
-    };
+    });
   }
 
-  return {
+  return withLocalizedText(locale, {
     status: "ready",
-    message: "STT 기본 설정이 저장되어 있습니다.",
-    userAction: null,
+    messageKey: "setup.stt.status.ready.message",
+    userActionKey: null,
     missing: [],
     provider: settings.stt.provider,
     model:
       settings.stt.provider === "openai"
         ? settings.stt.openAiModel ?? "gpt-4o-mini-transcribe"
         : settings.stt.localWhisper?.model ?? "small",
-  };
+  });
 }
 
 function buildAiStatus(
+  locale: DirongLocale,
   settings: DirongLocalSettings,
   claudeSecret: SecretPresenceSnapshot,
 ): ProductSetupStatusSnapshot["features"]["ai"] {
   if (settings.ai.provider !== "claude" || !settings.ai.mode) {
-    return {
+    return withLocalizedText(locale, {
       status: "not_configured",
-      message: "AI 회의록 provider 설정이 아직 저장되지 않았습니다.",
-      userAction: "설정 위자드에서 Claude CLI 또는 Claude API 사용 방식을 선택해 주세요.",
+      messageKey: "setup.ai.status.notConfigured.message",
+      userActionKey: "setup.ai.status.notConfigured.action",
       missing: ["ai.provider", "ai.mode"],
       provider: settings.ai.provider ?? null,
       mode: settings.ai.mode ?? null,
-    };
+    });
   }
 
   if (settings.ai.mode === "api" && !claudeSecret.configured) {
-    return {
+    return withLocalizedText(locale, {
       status: "not_configured",
-      message: "Claude API key가 아직 저장되지 않았습니다.",
-      userAction: "Claude API key를 다시 입력하거나 Claude CLI 모드로 바꿔 주세요.",
+      messageKey: "setup.ai.status.claudeApiKeyMissing.message",
+      userActionKey: "setup.ai.status.claudeApiKeyMissing.action",
       missing: ["ai.claudeApiKey"],
       provider: "claude",
       mode: "api",
-    };
+    });
   }
 
   if (settings.ai.mode === "cli" && !settings.ai.claudeCommand) {
-    return {
+    return withLocalizedText(locale, {
       status: "not_configured",
-      message: "Claude CLI command가 아직 저장되지 않았습니다.",
-      userAction: "Claude CLI 모드를 쓰려면 실행 command를 저장해 주세요.",
+      messageKey: "setup.ai.status.claudeCliCommandMissing.message",
+      userActionKey: "setup.ai.status.claudeCliCommandMissing.action",
       missing: ["ai.claudeCommand"],
       provider: "claude",
       mode: "cli",
-    };
+    });
   }
 
-  return {
+  return withLocalizedText(locale, {
     status: "ready",
-    message: "AI 회의록 provider 설정이 저장되어 있습니다.",
-    userAction: null,
+    messageKey: "setup.ai.status.ready.message",
+    userActionKey: null,
     missing: [],
     provider: "claude",
     mode: settings.ai.mode,
-  };
+  });
 }
 
 function buildNotionStatus(
+  locale: DirongLocale,
   settings: DirongLocalSettings,
   notionSecret: SecretPresenceSnapshot,
   registryStore: NotionRegistryStore | undefined,
@@ -491,14 +525,14 @@ function buildNotionStatus(
   ].filter((key): key is string => key !== null);
 
   if (missing.length > 0) {
-    return {
+    return withLocalizedText(locale, {
       status: "not_configured",
-      message: "Notion 연결 설정이 아직 완료되지 않았습니다.",
-      userAction: "Notion internal connection token과 parent page URL을 저장해 주세요.",
+      messageKey: "setup.notion.status.notConfigured.message",
+      userActionKey: "setup.notion.status.notConfigured.action",
       missing,
       parentPageConfigured,
       managedRegistryReady: false,
-    };
+    });
   }
 
   const managedRegistryReady = Boolean(
@@ -508,60 +542,73 @@ function buildNotionStatus(
   );
 
   if (!managedRegistryReady) {
-    return {
+    return withLocalizedText(locale, {
       status: "blocked",
-      message: "Notion 연결 값은 있지만 managed DB registry가 아직 없습니다.",
-      userAction: "후속 Phase에서 managed DB 생성을 완료해야 Notion 업로드를 사용할 수 있습니다.",
+      messageKey: "setup.notion.status.registryMissing.message",
+      userActionKey: "setup.notion.status.registryMissing.action",
       missing: ["notion.managedRegistry"],
       parentPageConfigured,
       managedRegistryReady: false,
-    };
+    });
   }
 
-  return {
+  return withLocalizedText(locale, {
     status: "ready",
-    message: "Notion managed DB registry가 준비되어 있습니다.",
-    userAction: null,
+    messageKey: "setup.notion.status.ready.message",
+    userActionKey: null,
     missing: [],
     parentPageConfigured,
     managedRegistryReady: true,
-  };
+  });
 }
 
 function buildRecordingStatus(
+  locale: DirongLocale,
   discord: ProductSetupFeatureSnapshot,
   stt: ProductSetupFeatureSnapshot,
 ): ProductSetupFeatureSnapshot {
   if (discord.status !== "ready" || stt.status !== "ready") {
-    return {
+    return withLocalizedText(locale, {
       status: "blocked",
-      message: "녹음 시작은 Discord와 STT 설정이 끝난 뒤 사용할 수 있습니다.",
-      userAction: "Discord 봇 연결과 STT provider 설정을 먼저 완료해 주세요.",
+      messageKey: "setup.recording.status.blocked.message",
+      userActionKey: "setup.recording.status.blocked.action",
       missing: [
         ...(discord.status === "ready" ? [] : ["discord"]),
         ...(stt.status === "ready" ? [] : ["stt"]),
       ],
-    };
+    });
   }
 
-  return {
+  return withLocalizedText(locale, {
     status: "ready",
-    message: "녹음 시작에 필요한 기본 설정이 준비되어 있습니다.",
-    userAction: null,
+    messageKey: "setup.recording.status.ready.message",
+    userActionKey: null,
     missing: [],
-  };
+  });
 }
 
 function buildDataRetentionStatus(
+  locale: DirongLocale,
   settings: DirongLocalSettings,
 ): ProductSetupStatusSnapshot["features"]["dataRetention"] {
-  return {
+  return withLocalizedText(locale, {
     status: "ready",
-    message: "기본 보관 정책이 적용되어 있습니다.",
-    userAction: null,
+    messageKey: "setup.dataRetention.status.ready.message",
+    userActionKey: null,
     missing: [],
     deleteAudioAfterNotionUpload:
       settings.retention.deleteAudioAfterNotionUpload ?? true,
     textDraftRetentionDays: settings.retention.textDraftRetentionDays ?? 30,
+  });
+}
+
+function withLocalizedText<T extends { status: ProductFeatureStatus; missing: string[] }>(
+  locale: DirongLocale,
+  input: T & { messageKey: LocaleKey; userActionKey: LocaleKey | null },
+): T & ProductSetupFeatureSnapshot {
+  return {
+    ...input,
+    message: t(locale, input.messageKey),
+    userAction: input.userActionKey ? t(locale, input.userActionKey) : null,
   };
 }

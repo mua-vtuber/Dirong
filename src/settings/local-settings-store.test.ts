@@ -52,3 +52,31 @@ test("LocalSettingsStore ignores raw token-shaped fields outside the schema", ()
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("LocalSettingsStore reads and persists the app locale", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-settings-"));
+  try {
+    const store = new LocalSettingsStore(path.join(dir, "settings.json"));
+    const saved = store.update((settings) => ({
+      ...settings,
+      app: { ...settings.app, locale: "en" },
+    }));
+
+    assert.equal(saved.app.locale, "en");
+    assert.equal(store.read().app.locale, "en");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("LocalSettingsStore falls back to Korean for unsupported locale values", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-settings-"));
+  try {
+    const settingsPath = path.join(dir, "settings.json");
+    writeFileSync(settingsPath, JSON.stringify({ app: { locale: "jp" } }));
+
+    assert.equal(new LocalSettingsStore(settingsPath).read().app.locale, "ko");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

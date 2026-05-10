@@ -2,6 +2,7 @@ import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import path from "node:path";
 import { DirongError, redactForJson } from "../errors.js";
+import { t, type LocaleKey } from "../i18n/catalog.js";
 import type { AiCleanupAutomationSnapshot } from "../ai/cleanup/automation-service.js";
 import type { AiProviderRuntimeReadinessSnapshot } from "../ai/cleanup/provider-lifecycle.js";
 import type { Phase1Config } from "../config.js";
@@ -19,6 +20,11 @@ import type { NotionCustomPropertyRuleInput } from "../notion/property-rules.js"
 import type { NotionSchemaApplyOptions } from "../notion/schema-manager.js";
 import type { NotionAutomationSnapshot } from "../notion/automation-service.js";
 import type { ProductSetupStatusSnapshot } from "../settings/product-settings.js";
+import {
+  DEFAULT_DIRONG_LOCALE,
+  isDirongLocale,
+  type DirongLocale,
+} from "../settings/local-settings-store.js";
 
 export type DashboardAiReadinessSource = {
   getSnapshot(): AiProviderRuntimeReadinessSnapshot;
@@ -57,6 +63,8 @@ export type DashboardNotionAutomationSource = {
 
 export type DashboardSetupStatusSource = {
   getSnapshot(): ProductSetupStatusSnapshot;
+  getLocale?(): DirongLocale;
+  setLocale?(locale: DirongLocale): ProductSetupStatusSnapshot;
 };
 
 export type DashboardRuntimeSources = {
@@ -143,6 +151,14 @@ export class DashboardServer {
     response: ServerResponse,
   ): Promise<void> {
     const url = new URL(request.url ?? "/", this.getUrl());
+    const languageEndpoint =
+      url.pathname === "/api/settings/language" ||
+      url.pathname === "/api/setup/language";
+
+    if (request.method === "POST" && languageEndpoint) {
+      await this.handleLanguageSave(request, response);
+      return;
+    }
 
     if (request.method === "POST" && url.pathname === "/api/notion/send") {
       await this.handleNotionAction(request, response, false);
@@ -201,13 +217,19 @@ export class DashboardServer {
 
     if (url.pathname === "/api/setup/status") {
       if (!this.runtimeSources.setupStatus) {
-        sendJson(response, {
+        sendJson(response, withMessageKeys(DEFAULT_DIRONG_LOCALE, {
           status: "not_configured",
-          message: "Product setup status source is not configured.",
-        });
+          messageKey: "error.dashboard.setupStatusSourceMissing.message",
+          userActionKey: "error.dashboard.setupStatusSourceMissing.action",
+        }));
         return;
       }
       sendJson(response, this.runtimeSources.setupStatus.getSnapshot());
+      return;
+    }
+
+    if (languageEndpoint) {
+      this.handleLanguageGet(response);
       return;
     }
 
@@ -220,6 +242,100 @@ export class DashboardServer {
     }
 
     sendText(response, 404, "Not Found");
+  }
+
+  private getResponseLocale(): DirongLocale {
+    return (
+      this.runtimeSources.setupStatus?.getLocale?.() ??
+      this.runtimeSources.setupStatus?.getSnapshot().locale ??
+      DEFAULT_DIRONG_LOCALE
+    );
+  }
+
+  private handleLanguageGet(response: ServerResponse): void {
+    if (!this.runtimeSources.setupStatus) {
+      sendJson(response, withMessageKeys(DEFAULT_DIRONG_LOCALE, {
+        ok: false,
+        status: "not_configured",
+        locale: DEFAULT_DIRONG_LOCALE,
+        notionSchemaLocale: DEFAULT_DIRONG_LOCALE,
+        messageKey: "error.dashboard.settingsSourceMissing.message",
+        userActionKey: "error.dashboard.settingsSourceMissing.action",
+      }));
+      return;
+    }
+
+    const snapshot = this.runtimeSources.setupStatus.getSnapshot();
+    const locale =
+      this.runtimeSources.setupStatus.getLocale?.() ??
+      snapshot.locale ??
+      DEFAULT_DIRONG_LOCALE;
+
+    sendJson(response, withMessageKeys(locale, {
+      ok: true,
+      status: "ready",
+      locale,
+      notionSchemaLocale: locale,
+      messageKey: "settings.language.current.message",
+      userActionKey: null,
+    }));
+  }
+
+  private async handleLanguageSave(
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> {
+    if (!this.runtimeSources.setupStatus?.setLocale) {
+      sendJson(response, withMessageKeys(DEFAULT_DIRONG_LOCALE, {
+        ok: false,
+        status: "not_configured",
+        locale: DEFAULT_DIRONG_LOCALE,
+        notionSchemaLocale: DEFAULT_DIRONG_LOCALE,
+        messageKey: "error.dashboard.settingsSourceMissing.message",
+        userActionKey: "error.dashboard.settingsSourceMissing.action",
+      }));
+      return;
+    }
+
+    try {
+      const body = await readJsonBody(request);
+      const locale = readLocaleBody(body);
+      if (!locale) {
+        const responseLocale = this.getResponseLocale();
+        sendJson(response, withMessageKeys(responseLocale, {
+          ok: false,
+          status: "failed",
+          locale: responseLocale,
+          notionSchemaLocale: responseLocale,
+          messageKey: "settings.language.error.invalidLocale.message",
+          userActionKey: "settings.language.error.invalidLocale.action",
+        }), 400);
+        return;
+      }
+
+      const setup = this.runtimeSources.setupStatus.setLocale(locale);
+      sendJson(response, withMessageKeys(setup.locale, {
+        ok: true,
+        status: "done",
+        locale: setup.locale,
+        notionSchemaLocale: setup.notionSchemaLocale,
+        messageKey: "settings.language.save.done.message",
+        userActionKey: null,
+        setup,
+      }));
+    } catch (error) {
+      const responseLocale = this.getResponseLocale();
+      const detail = error instanceof Error ? error.message : String(error);
+      sendJson(response, redactForJson(withMessageKeys(responseLocale, {
+        ok: false,
+        status: "failed",
+        locale: responseLocale,
+        notionSchemaLocale: responseLocale,
+        messageKey: "error.dashboard.requestInvalid.message",
+        userActionKey: "error.dashboard.requestInvalid.action",
+        detail,
+      })), 400);
+    }
   }
 
   private serveAudio(
@@ -285,14 +401,15 @@ export class DashboardServer {
     response: ServerResponse,
     force: boolean,
   ): Promise<void> {
+    const locale = this.getResponseLocale();
     if (!this.runtimeSources.notion) {
-      sendJson(response, {
+      sendJson(response, withMessageKeys(locale, {
         ok: false,
         status: "not_configured",
-        message: "Notion dashboard action source is not configured.",
-        userAction: "Notion 설정을 확인해 주세요.",
+        messageKey: "error.dashboard.notionActionSourceMissing.message",
+        userActionKey: "error.dashboard.notionActionSourceMissing.action",
         pageUrl: null,
-      });
+      }));
       return;
     }
 
@@ -314,8 +431,11 @@ export class DashboardServer {
       response.end(`${JSON.stringify(redactForJson({
         ok: false,
         status: "failed",
-        message,
-        userAction: "요청을 다시 시도해 주세요.",
+        messageKey: "error.dashboard.requestInvalid.message",
+        message: t(locale, "error.dashboard.requestInvalid.message"),
+        userActionKey: "action.request.retry",
+        userAction: t(locale, "action.request.retry"),
+        technicalDetail: message,
         pageUrl: null,
       }))}\n`);
     }
@@ -324,15 +444,16 @@ export class DashboardServer {
   private async handleNotionPropertiesSync(
     response: ServerResponse,
   ): Promise<void> {
+    const locale = this.getResponseLocale();
     if (!this.runtimeSources.notion) {
-      sendJson(response, {
+      sendJson(response, withMessageKeys(locale, {
         ok: false,
         status: "not_configured",
-        message: "Notion dashboard action source is not configured.",
-        userAction: "Notion 설정을 확인해 주세요.",
+        messageKey: "error.dashboard.notionActionSourceMissing.message",
+        userActionKey: "error.dashboard.notionActionSourceMissing.action",
         warnings: [],
         customProperties: null,
-      });
+      }));
       return;
     }
 
@@ -344,15 +465,16 @@ export class DashboardServer {
     request: IncomingMessage,
     response: ServerResponse,
   ): Promise<void> {
+    const locale = this.getResponseLocale();
     if (!this.runtimeSources.notion) {
-      sendJson(response, {
+      sendJson(response, withMessageKeys(locale, {
         ok: false,
         status: "not_configured",
-        message: "Notion dashboard action source is not configured.",
-        userAction: "Notion 설정을 확인해 주세요.",
+        messageKey: "error.dashboard.notionActionSourceMissing.message",
+        userActionKey: "error.dashboard.notionActionSourceMissing.action",
         warnings: [],
         customProperties: null,
-      });
+      }));
       return;
     }
 
@@ -372,8 +494,11 @@ export class DashboardServer {
       response.end(`${JSON.stringify(redactForJson({
         ok: false,
         status: "failed",
-        message,
-        userAction: "요청을 다시 시도해 주세요.",
+        messageKey: "error.dashboard.requestInvalid.message",
+        message: t(locale, "error.dashboard.requestInvalid.message"),
+        userActionKey: "action.request.retry",
+        userAction: t(locale, "action.request.retry"),
+        technicalDetail: message,
         warnings: [],
         customProperties: null,
       }))}\n`);
@@ -383,16 +508,17 @@ export class DashboardServer {
   private async handleNotionSchemaInspect(
     response: ServerResponse,
   ): Promise<void> {
+    const locale = this.getResponseLocale();
     if (!this.runtimeSources.notion) {
-      sendJson(response, {
+      sendJson(response, withMessageKeys(locale, {
         ok: false,
         status: "not_configured",
-        message: "Notion dashboard action source is not configured.",
-        userAction: "Notion 설정을 확인해 주세요.",
+        messageKey: "error.dashboard.notionActionSourceMissing.message",
+        userActionKey: "error.dashboard.notionActionSourceMissing.action",
         warnings: [],
         diff: null,
         operations: null,
-      });
+      }));
       return;
     }
 
@@ -404,16 +530,17 @@ export class DashboardServer {
     request: IncomingMessage,
     response: ServerResponse,
   ): Promise<void> {
+    const locale = this.getResponseLocale();
     if (!this.runtimeSources.notion) {
-      sendJson(response, {
+      sendJson(response, withMessageKeys(locale, {
         ok: false,
         status: "not_configured",
-        message: "Notion dashboard action source is not configured.",
-        userAction: "Notion 설정을 확인해 주세요.",
+        messageKey: "error.dashboard.notionActionSourceMissing.message",
+        userActionKey: "error.dashboard.notionActionSourceMissing.action",
         warnings: [],
         diff: null,
         operations: null,
-      });
+      }));
       return;
     }
 
@@ -433,8 +560,11 @@ export class DashboardServer {
       response.end(`${JSON.stringify(redactForJson({
         ok: false,
         status: "failed",
-        message,
-        userAction: "요청을 다시 시도해 주세요.",
+        messageKey: "error.dashboard.requestInvalid.message",
+        message: t(locale, "error.dashboard.requestInvalid.message"),
+        userActionKey: "action.request.retry",
+        userAction: t(locale, "action.request.retry"),
+        technicalDetail: message,
         warnings: [],
         diff: null,
         operations: null,
@@ -511,8 +641,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function sendJson(response: ServerResponse, value: unknown): void {
-  response.writeHead(200, {
+function sendJson(
+  response: ServerResponse,
+  value: unknown,
+  statusCode = 200,
+): void {
+  response.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",
@@ -536,6 +670,13 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
     return {};
   }
   return JSON.parse(text);
+}
+
+function readLocaleBody(body: unknown): DirongLocale | null {
+  if (!isRecord(body)) {
+    return null;
+  }
+  return isDirongLocale(body.locale) ? body.locale : null;
 }
 
 function readOptionalBodyString(body: unknown, key: string): string | null {
@@ -611,6 +752,17 @@ function readNotionSchemaApplyOptions(body: unknown): NotionSchemaApplyOptions {
     updateTypes: record.updateTypes === true,
     deleteExtra: record.deleteExtra === true,
     confirmDeleteExtra: record.confirmDeleteExtra === true,
+  };
+}
+
+function withMessageKeys<T>(
+  locale: DirongLocale,
+  input: T & { messageKey: LocaleKey; userActionKey: LocaleKey | null },
+): T & { message: string; userAction: string | null } {
+  return {
+    ...input,
+    message: t(locale, input.messageKey),
+    userAction: input.userActionKey ? t(locale, input.userActionKey) : null,
   };
 }
 

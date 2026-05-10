@@ -8,6 +8,7 @@ import { LocalSecretStore, DEFAULT_SECRET_REFS } from "./local-secret-store.js";
 import { LocalSettingsStore } from "./local-settings-store.js";
 import {
   buildProductSetupStatus,
+  createProductSetupStatusSource,
   loadProductRuntimeSettings,
 } from "./product-settings.js";
 
@@ -69,6 +70,64 @@ test("buildProductSetupStatus reports ready Discord without exposing token value
     assert.equal(status.features.discord.status, "ready");
     assert.equal(status.secrets.discordBot.displayValue, "[REDACTED]");
     assert.doesNotMatch(serialized, /discord-secret-raw-value/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("buildProductSetupStatus localizes setup messages and exposes locale keys", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-product-"));
+  try {
+    const paths = getDirongUserDataPaths(dir);
+    const settingsStore = new LocalSettingsStore(paths.settingsFile);
+    const secretStore = new LocalSecretStore(paths.secretsFile);
+    settingsStore.write({
+      schemaVersion: 1,
+      app: { locale: "en" },
+      discord: {},
+      stt: {},
+      ai: {},
+      notion: {},
+      recording: { aloneFinalizeEnabled: true, aloneFinalizeGraceMs: 90000 },
+      retention: { deleteAudioAfterNotionUpload: true, textDraftRetentionDays: 30 },
+    });
+
+    const status = buildProductSetupStatus({
+      paths,
+      settings: settingsStore.read(),
+      secretStore,
+    });
+
+    assert.equal(status.locale, "en");
+    assert.equal(status.notionSchemaLocale, "en");
+    assert.equal(
+      status.features.discord.messageKey,
+      "setup.discord.status.notConfigured.message",
+    );
+    assert.equal(
+      status.features.discord.message,
+      "Discord bot connection setup is not complete yet.",
+    );
+    assert.equal(
+      status.features.discord.userActionKey,
+      "setup.discord.status.notConfigured.action",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ProductSetupStatusSource saves app locale through local settings", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-product-"));
+  try {
+    const paths = getDirongUserDataPaths(dir);
+    const source = createProductSetupStatusSource({ paths });
+
+    const status = source.setLocale("en");
+
+    assert.equal(status.locale, "en");
+    assert.equal(status.notionSchemaLocale, "en");
+    assert.equal(new LocalSettingsStore(paths.settingsFile).read().app.locale, "en");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

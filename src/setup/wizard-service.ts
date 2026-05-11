@@ -17,10 +17,6 @@ import {
   type NotionClient,
 } from "../notion/client.js";
 import { createManagedNotionSchema } from "../notion/managed-schema.js";
-import {
-  DEFAULT_NOTION_API_VERSION,
-  DEFAULT_NOTION_BASE_URL,
-} from "../notion/settings.js";
 import { readManagedNotionRegistrySnapshot } from "../notion/managed-registry.js";
 import type { NotionLocale } from "../notion/schema-presets.js";
 import { parseNotionPageUrl } from "../notion/target.js";
@@ -41,6 +37,7 @@ import {
   CREATABLE_NOTION_SCHEMA_LOCALES,
   DEFAULT_AI_CLEANUP_SETTINGS,
   DEFAULT_MEETING_NOTES_LANGUAGE,
+  DEFAULT_NOTION_SETTINGS,
   DEFAULT_STT_SETTINGS,
 } from "../settings/defaults.js";
 import {
@@ -1091,8 +1088,9 @@ function requireClientUser(user: ClientUser | null): ClientUser {
 function createDefaultNotionClient(apiKey: string): NotionClient {
   return createNotionClient({
     apiKey,
-    apiVersion: DEFAULT_NOTION_API_VERSION,
-    baseUrl: DEFAULT_NOTION_BASE_URL,
+    apiVersion: DEFAULT_NOTION_SETTINGS.apiVersion,
+    baseUrl: DEFAULT_NOTION_SETTINGS.baseUrl,
+    requestTimeoutMs: DEFAULT_NOTION_SETTINGS.requestTimeoutMs,
   });
 }
 

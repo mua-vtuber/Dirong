@@ -11,6 +11,7 @@ test("loadNotionSettingsFromEnv defaults to disabled bootstrap settings", () => 
   assert.equal(settings.apiKey, null);
   assert.equal(settings.apiVersion, "2026-03-11");
   assert.equal(settings.baseUrl, "https://api.notion.com");
+  assert.equal(settings.requestTimeoutMs, 30000);
   assert.equal(settings.targetUrl, null);
   assert.equal(settings.targetType, "data_source");
   assert.equal(settings.uploadMode, "manual");
@@ -35,6 +36,7 @@ test("loadNotionSettingsFromEnv reads enabled settings and property names", () =
     NOTION_AUTO_POLL_MS: "1000",
     NOTION_LEASE_MS: "2000",
     NOTION_MAX_ATTEMPTS: "4",
+    NOTION_REQUEST_TIMEOUT_MS: "1234",
   } as NodeJS.ProcessEnv, {
     allowTestNotionBaseUrl: true,
   });
@@ -47,6 +49,7 @@ test("loadNotionSettingsFromEnv reads enabled settings and property names", () =
   assert.equal(settings.autoPollMs, 1000);
   assert.equal(settings.leaseMs, 2000);
   assert.equal(settings.maxAttempts, 4);
+  assert.equal(settings.requestTimeoutMs, 1234);
 });
 
 test("loadNotionSettingsFromEnv accepts missing token and target when disabled", () => {

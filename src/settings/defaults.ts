@@ -6,6 +6,7 @@ import {
   DEFAULT_NOTION_API_VERSION,
   DEFAULT_NOTION_BASE_URL,
   DEFAULT_NOTION_PROPERTY_NAMES,
+  DEFAULT_NOTION_REQUEST_TIMEOUT_MS,
   type NotionRuntimeSettings,
 } from "../notion/settings.js";
 import {
@@ -86,6 +87,7 @@ export const DEFAULT_NOTION_SETTINGS = {
   apiKey: null,
   apiVersion: DEFAULT_NOTION_API_VERSION,
   baseUrl: DEFAULT_NOTION_BASE_URL,
+  requestTimeoutMs: DEFAULT_NOTION_REQUEST_TIMEOUT_MS,
   targetUrl: null,
   targetType: "data_source",
   uploadMode: "manual",

@@ -70,6 +70,7 @@ test("product defaults snapshot matches the current effective defaults", () => {
     apiKey: null,
     apiVersion: "2026-03-11",
     baseUrl: "https://api.notion.com",
+    requestTimeoutMs: 30000,
     targetUrl: null,
     targetType: "data_source",
     uploadMode: "manual",

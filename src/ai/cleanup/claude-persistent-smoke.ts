@@ -12,6 +12,8 @@ export const DEFAULT_CLAUDE_PERSISTENT_SMOKE_ARGS = [
 ] as const;
 
 export const DEFAULT_CLAUDE_PERSISTENT_SMOKE_TIMEOUT_MS = 120_000;
+export const DEFAULT_CLAUDE_STREAM_JSON_MAX_BUFFER_BYTES = 1024 * 1024;
+export const DEFAULT_CLAUDE_STREAM_JSON_MAX_DIAGNOSTIC_LINES = 200;
 
 export type ClaudePersistentSmokeChildProcess = {
   readonly pid?: number;
@@ -54,6 +56,8 @@ export type ClaudePersistentSmokeSessionOptions = {
   platform?: NodeJS.Platform;
   spawnProcess?: ClaudePersistentSmokeSpawn;
   now?: () => number;
+  maxStreamBufferBytes?: number;
+  maxDiagnosticLines?: number;
 };
 
 export type ClaudePersistentSmokeResolvedOptions = {
@@ -132,7 +136,8 @@ type WaitForLineResult =
   | { kind: "line"; line: string }
   | { kind: "timeout" }
   | { kind: "exit" }
-  | { kind: "error"; error: Error };
+  | { kind: "error"; error: Error }
+  | { kind: "output_exceeded"; error: string };
 
 export class ClaudePersistentSmokeSession {
   readonly requestedCommand: string;
@@ -144,6 +149,8 @@ export class ClaudePersistentSmokeSession {
 
   private readonly spawnProcess: ClaudePersistentSmokeSpawn;
   private readonly now: () => number;
+  private readonly maxStreamBufferBytes: number;
+  private readonly maxDiagnosticLines: number;
   private child: ClaudePersistentSmokeChildProcess | null = null;
   private stdoutBuffer = "";
   private stderrBuffer = "";
@@ -156,6 +163,9 @@ export class ClaudePersistentSmokeSession {
   private exitCode: number | null = null;
   private exitSignal: NodeJS.Signals | null = null;
   private sessionId: string | null = null;
+  private activeMaxOutputBytes: number | null = null;
+  private activeOutputBytes = 0;
+  private activeOutputExceededError: string | null = null;
 
   constructor(options: ClaudePersistentSmokeSessionOptions = {}) {
     const resolved = resolveClaudePersistentSmokeOptions(options);
@@ -167,6 +177,16 @@ export class ClaudePersistentSmokeSession {
     this.timeoutMs = resolved.timeoutMs;
     this.spawnProcess = options.spawnProcess ?? defaultSpawnProcess;
     this.now = options.now ?? Date.now;
+    this.maxStreamBufferBytes = readPositiveIntegerOption(
+      options.maxStreamBufferBytes,
+      DEFAULT_CLAUDE_STREAM_JSON_MAX_BUFFER_BYTES,
+      "maxStreamBufferBytes",
+    );
+    this.maxDiagnosticLines = readPositiveIntegerOption(
+      options.maxDiagnosticLines,
+      DEFAULT_CLAUDE_STREAM_JSON_MAX_DIAGNOSTIC_LINES,
+      "maxDiagnosticLines",
+    );
   }
 
   get pid(): number | null {
@@ -194,6 +214,7 @@ export class ClaudePersistentSmokeSession {
     this.processError = null;
     this.exitCode = null;
     this.exitSignal = null;
+    this.activeOutputExceededError = null;
 
     const child = this.spawnProcess(this.spawnedCommand, this.spawnedArgs, {
       stdio: ["pipe", "pipe", "pipe"],
@@ -244,6 +265,7 @@ export class ClaudePersistentSmokeSession {
     if (!prompt.trim()) {
       throw new Error("Claude persistent smoke prompt must not be empty.");
     }
+    this.beginRequestOutputLimit(options.maxOutputBytes);
 
     this.start();
 
@@ -273,8 +295,8 @@ export class ClaudePersistentSmokeSession {
 
     const makeDiagnostics = (): ClaudeStreamJsonDiagnostics => ({
       stdoutLineCount: stdoutLines.length,
-      stdoutBytes: outputBytes,
-      stderrLineCount: this.stderrLines.length - stderrStartIndex,
+      stdoutBytes: Math.max(outputBytes, this.activeOutputBytes),
+      stderrLineCount: Math.max(0, this.stderrLines.length - stderrStartIndex),
       eventTypeCounts: { ...eventTypeCounts },
       lastEventType,
       firstStdoutAfterMs,
@@ -304,7 +326,7 @@ export class ClaudePersistentSmokeSession {
     if (writeError) {
       error = writeError.message;
       emitProgress("failed", error);
-      return this.buildTurnResult({
+      const result = this.buildTurnResult({
         prompt,
         payload,
         wroteBytes: Buffer.byteLength(payloadWithNewline),
@@ -320,6 +342,8 @@ export class ClaudePersistentSmokeSession {
         error,
         diagnostics: makeDiagnostics(),
       });
+      this.clearRequestOutputLimit();
+      return result;
     }
     emitProgress("waiting_for_first_stream_event");
 
@@ -345,8 +369,14 @@ export class ClaudePersistentSmokeSession {
         emitProgress("failed", error);
         break;
       }
+      if (next.kind === "output_exceeded") {
+        outputExceeded = true;
+        error = `${next.error}; ${formatClaudeStreamJsonDiagnostics(makeDiagnostics())}`;
+        emitProgress("failed", error);
+        break;
+      }
 
-      stdoutLines.push(next.line);
+      pushRingLine(stdoutLines, next.line, this.maxDiagnosticLines);
       outputBytes += Buffer.byteLength(`${next.line}\n`, "utf8");
       const observedAtMs = this.now() - startedAt;
       firstStdoutAfterMs ??= observedAtMs;
@@ -387,7 +417,7 @@ export class ClaudePersistentSmokeSession {
       }
     }
 
-    return this.buildTurnResult({
+    const result = this.buildTurnResult({
       prompt,
       payload,
       wroteBytes: Buffer.byteLength(payloadWithNewline),
@@ -403,6 +433,8 @@ export class ClaudePersistentSmokeSession {
       error,
       diagnostics: makeDiagnostics(),
     });
+    this.clearRequestOutputLimit();
+    return result;
   }
 
   isAlive(): boolean {
@@ -463,7 +495,7 @@ export class ClaudePersistentSmokeSession {
       assistantText: input.assistantText,
       sessionId: this.sessionId,
       stdoutLines: input.stdoutLines,
-      stderrLines: this.stderrLines.slice(input.stderrStartIndex),
+      stderrLines: this.stderrLinesSince(input.stderrStartIndex),
       timedOut: input.timedOut,
       outputExceeded: input.outputExceeded,
       durationMs: this.now() - input.startedAt,
@@ -476,13 +508,20 @@ export class ClaudePersistentSmokeSession {
   }
 
   private pushStdout(chunk: string): void {
+    if (this.rejectOversizedStdoutChunk(chunk)) {
+      return;
+    }
     this.stdoutBuffer += chunk;
     const lines = this.stdoutBuffer.split("\n");
     this.stdoutBuffer = lines.pop() ?? "";
     for (const line of lines) {
       const trimmed = line.trim();
       if (trimmed) {
-        this.stdoutLines.push(trimmed);
+        pushRingLine(
+          this.stdoutLines,
+          this.truncateDiagnosticLine(trimmed),
+          this.maxDiagnosticLines,
+        );
       }
     }
     this.notifyStdoutWaiters();
@@ -491,20 +530,31 @@ export class ClaudePersistentSmokeSession {
   private flushStdout(): void {
     const trimmed = this.stdoutBuffer.trim();
     if (trimmed) {
-      this.stdoutLines.push(trimmed);
+      pushRingLine(
+        this.stdoutLines,
+        this.truncateDiagnosticLine(trimmed),
+        this.maxDiagnosticLines,
+      );
       this.stdoutBuffer = "";
       this.notifyStdoutWaiters();
     }
   }
 
   private pushStderr(chunk: string): void {
+    if (this.rejectOversizedStderrChunk(chunk)) {
+      return;
+    }
     this.stderrBuffer += chunk;
     const lines = this.stderrBuffer.split("\n");
     this.stderrBuffer = lines.pop() ?? "";
     for (const line of lines) {
       const trimmed = line.trim();
       if (trimmed) {
-        this.stderrLines.push(trimmed);
+        pushRingLine(
+          this.stderrLines,
+          this.truncateDiagnosticLine(trimmed),
+          this.maxDiagnosticLines,
+        );
       }
     }
   }
@@ -512,12 +562,22 @@ export class ClaudePersistentSmokeSession {
   private flushStderr(): void {
     const trimmed = this.stderrBuffer.trim();
     if (trimmed) {
-      this.stderrLines.push(trimmed);
+      pushRingLine(
+        this.stderrLines,
+        this.truncateDiagnosticLine(trimmed),
+        this.maxDiagnosticLines,
+      );
       this.stderrBuffer = "";
     }
   }
 
   private waitForNextStdoutLine(timeoutMs: number): Promise<WaitForLineResult> {
+    if (this.activeOutputExceededError) {
+      return Promise.resolve({
+        kind: "output_exceeded",
+        error: this.activeOutputExceededError,
+      });
+    }
     const existingLine = this.stdoutLines.shift();
     if (existingLine !== undefined) {
       return Promise.resolve({ kind: "line", line: existingLine });
@@ -538,7 +598,12 @@ export class ClaudePersistentSmokeSession {
         }
         removeArrayValue(this.stdoutWaiters, waiter);
         const line = this.stdoutLines.shift();
-        if (line !== undefined) {
+        if (this.activeOutputExceededError) {
+          resolve({
+            kind: "output_exceeded",
+            error: this.activeOutputExceededError,
+          });
+        } else if (line !== undefined) {
           resolve({ kind: "line", line });
         } else if (this.processError) {
           resolve({ kind: "error", error: this.processError });
@@ -555,6 +620,78 @@ export class ClaudePersistentSmokeSession {
       }, timeoutMs);
       this.stdoutWaiters.push(waiter);
     });
+  }
+
+  private beginRequestOutputLimit(maxOutputBytes: number | undefined): void {
+    this.activeMaxOutputBytes = maxOutputBytes ?? null;
+    this.activeOutputBytes = 0;
+    this.activeOutputExceededError = null;
+  }
+
+  private clearRequestOutputLimit(): void {
+    this.activeMaxOutputBytes = null;
+    this.activeOutputBytes = 0;
+    this.activeOutputExceededError = null;
+  }
+
+  private rejectOversizedStdoutChunk(chunk: string): boolean {
+    const chunkBytes = Buffer.byteLength(chunk, "utf8");
+    const projectedOutputBytes = this.activeOutputBytes + chunkBytes;
+    if (
+      this.activeMaxOutputBytes !== null &&
+      projectedOutputBytes > this.activeMaxOutputBytes
+    ) {
+      this.activeOutputBytes = projectedOutputBytes;
+      this.failForOutputExceeded(
+        `stream-json stdout exceeded max bytes before newline (${projectedOutputBytes}/${this.activeMaxOutputBytes})`,
+      );
+      return true;
+    }
+    this.activeOutputBytes = projectedOutputBytes;
+
+    if (wouldExceedUnterminatedBuffer(this.stdoutBuffer, chunk, this.maxStreamBufferBytes)) {
+      this.failForOutputExceeded(
+        `stream-json stdout buffer exceeded max bytes before newline (${this.maxStreamBufferBytes})`,
+      );
+      return true;
+    }
+    return false;
+  }
+
+  private rejectOversizedStderrChunk(chunk: string): boolean {
+    if (wouldExceedUnterminatedBuffer(this.stderrBuffer, chunk, this.maxStreamBufferBytes)) {
+      this.failForOutputExceeded(
+        `stream-json stderr buffer exceeded max bytes before newline (${this.maxStreamBufferBytes})`,
+      );
+      return true;
+    }
+    return false;
+  }
+
+  private failForOutputExceeded(error: string): void {
+    this.activeOutputExceededError ??= error;
+    this.kill();
+    this.notifyStdoutWaiters();
+  }
+
+  private truncateDiagnosticLine(line: string): string {
+    const bytes = Buffer.byteLength(line, "utf8");
+    if (bytes <= this.maxStreamBufferBytes) {
+      return line;
+    }
+    const tail = Buffer.from(line, "utf8")
+      .subarray(Math.max(0, bytes - this.maxStreamBufferBytes))
+      .toString("utf8");
+    return `[truncated ${bytes - Buffer.byteLength(tail, "utf8")} bytes]${tail}`;
+  }
+
+  private stderrLinesSince(startIndex: number): string[] {
+    if (startIndex < this.stderrLines.length) {
+      return this.stderrLines.slice(startIndex);
+    }
+    return this.stderrLines.length >= this.maxDiagnosticLines
+      ? [...this.stderrLines]
+      : [];
   }
 
   private waitForExit(timeoutMs: number): Promise<boolean> {
@@ -799,6 +936,43 @@ function defaultSpawnProcess(
   options: ClaudePersistentSmokeSpawnOptions,
 ): ClaudePersistentSmokeChildProcess {
   return spawn(command, args, options) as unknown as ClaudePersistentSmokeChildProcess;
+}
+
+function readPositiveIntegerOption(
+  value: number | undefined,
+  fallback: number,
+  name: string,
+): number {
+  const resolved = value ?? fallback;
+  if (!Number.isInteger(resolved) || resolved <= 0) {
+    throw new Error(`Claude persistent smoke ${name} must be a positive integer.`);
+  }
+  return resolved;
+}
+
+function pushRingLine(
+  lines: string[],
+  line: string,
+  maxLines: number,
+): void {
+  lines.push(line);
+  while (lines.length > maxLines) {
+    lines.shift();
+  }
+}
+
+function wouldExceedUnterminatedBuffer(
+  currentBuffer: string,
+  chunk: string,
+  maxBytes: number,
+): boolean {
+  const lastNewlineIndex = chunk.lastIndexOf("\n");
+  const pendingTail =
+    lastNewlineIndex >= 0 ? chunk.slice(lastNewlineIndex + 1) : chunk;
+  const projected = lastNewlineIndex >= 0
+    ? pendingTail
+    : `${currentBuffer}${pendingTail}`;
+  return Buffer.byteLength(projected, "utf8") > maxBytes;
 }
 
 function writeStdin(stream: Writable, payload: string): Promise<Error | null> {

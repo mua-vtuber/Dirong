@@ -256,6 +256,7 @@ export class NotionDashboardService {
           apiKey: settings.apiKey,
           apiVersion: settings.apiVersion,
           baseUrl: settings.baseUrl,
+          requestTimeoutMs: settings.requestTimeoutMs,
         })
       : null;
     const result = await runNotionUpload({
@@ -341,6 +342,7 @@ export class NotionDashboardService {
       apiKey: settings.apiKey,
       apiVersion: settings.apiVersion,
       baseUrl: settings.baseUrl,
+      requestTimeoutMs: settings.requestTimeoutMs,
     });
     const parsedTarget = parseNotionTargetUrl(settings.targetUrl);
     if (parsedTarget.kind === "invalid") {
@@ -566,6 +568,7 @@ export class NotionDashboardService {
       apiKey: settings.apiKey,
       apiVersion: settings.apiVersion,
       baseUrl: settings.baseUrl,
+      requestTimeoutMs: settings.requestTimeoutMs,
     });
 
     try {

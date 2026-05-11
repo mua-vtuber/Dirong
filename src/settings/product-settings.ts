@@ -451,6 +451,7 @@ function buildProductNotionSettings(
     apiKey,
     apiVersion: DEFAULT_NOTION_SETTINGS.apiVersion,
     baseUrl: DEFAULT_NOTION_SETTINGS.baseUrl,
+    requestTimeoutMs: DEFAULT_NOTION_SETTINGS.requestTimeoutMs,
     targetUrl: DEFAULT_NOTION_SETTINGS.targetUrl,
     targetType: DEFAULT_NOTION_SETTINGS.targetType,
     uploadMode: settings.notion.uploadMode ?? DEFAULT_NOTION_SETTINGS.uploadMode,

@@ -28,6 +28,7 @@ try {
         apiKey: settings.apiKey,
         apiVersion: settings.apiVersion,
         baseUrl: settings.baseUrl,
+        requestTimeoutMs: settings.requestTimeoutMs,
       })
     : null;
   const result = await runNotionUpload({

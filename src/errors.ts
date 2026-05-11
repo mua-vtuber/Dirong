@@ -1,4 +1,5 @@
 const SENSITIVE_KEY_PATTERN = /token|authorization|api[_-]?key|secret|password/i;
+export const DEFAULT_REGISTERED_SENSITIVE_VALUE_LIMIT = 256;
 const registeredSensitiveValues = new Set<string>();
 
 export class MissingRequiredConfigError extends Error {
@@ -30,7 +31,19 @@ export function registerSensitiveValue(value: string | null | undefined): void {
   if (!trimmed || trimmed.length < 8) {
     return;
   }
+  registeredSensitiveValues.delete(trimmed);
   registeredSensitiveValues.add(trimmed);
+  while (registeredSensitiveValues.size > DEFAULT_REGISTERED_SENSITIVE_VALUE_LIMIT) {
+    const oldest = registeredSensitiveValues.keys().next().value;
+    if (oldest === undefined) {
+      break;
+    }
+    registeredSensitiveValues.delete(oldest);
+  }
+}
+
+export function getRegisteredSensitiveValueCount(): number {
+  return registeredSensitiveValues.size;
 }
 
 export function redactSensitiveText(value: string): string {

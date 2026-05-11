@@ -30,7 +30,9 @@ import type {
   SessionStore,
 } from "../storage/session-store.js";
 
-type SpeakerSnapshot = {
+export const DEFAULT_SPEAKER_SNAPSHOT_CACHE_LIMIT = 512;
+
+export type SpeakerSnapshot = {
   displayName: string;
   isBot: boolean;
 };
@@ -772,6 +774,7 @@ export class RecordingProducer {
   ): Promise<SpeakerSnapshot> {
     const cached = active.speakerSnapshots.get(userId);
     if (cached) {
+      upsertSpeakerSnapshot(active.speakerSnapshots, userId, cached);
       return cached;
     }
 
@@ -790,7 +793,7 @@ export class RecordingProducer {
           displayName: user.globalName ?? user.username ?? userId,
           isBot: user.bot,
         };
-        active.speakerSnapshots.set(userId, snapshot);
+        upsertSpeakerSnapshot(active.speakerSnapshots, userId, snapshot);
         return snapshot;
       } catch (error) {
         this.store.recordConnectionEvent({
@@ -800,7 +803,7 @@ export class RecordingProducer {
           details: { userId, error: safeErrorInfo(error) },
         });
         const snapshot = { displayName: userId, isBot: false };
-        active.speakerSnapshots.set(userId, snapshot);
+        upsertSpeakerSnapshot(active.speakerSnapshots, userId, snapshot);
         return snapshot;
       }
     }
@@ -815,8 +818,28 @@ export class RecordingProducer {
       displayName: member.displayName || member.user.globalName || member.user.username,
       isBot: member.user.bot,
     };
-    active.speakerSnapshots.set(userId, snapshot);
+    upsertSpeakerSnapshot(active.speakerSnapshots, userId, snapshot);
     return snapshot;
+  }
+}
+
+export function upsertSpeakerSnapshot(
+  cache: Map<string, SpeakerSnapshot>,
+  userId: string,
+  snapshot: SpeakerSnapshot,
+  limit = DEFAULT_SPEAKER_SNAPSHOT_CACHE_LIMIT,
+): void {
+  if (!Number.isInteger(limit) || limit <= 0) {
+    throw new Error("Speaker snapshot cache limit must be a positive integer.");
+  }
+  cache.delete(userId);
+  cache.set(userId, snapshot);
+  while (cache.size > limit) {
+    const oldestUserId = cache.keys().next().value;
+    if (oldestUserId === undefined) {
+      break;
+    }
+    cache.delete(oldestUserId);
   }
 }
 

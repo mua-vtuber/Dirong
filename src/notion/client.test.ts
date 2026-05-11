@@ -179,6 +179,61 @@ test("Notion client surfaces network failures as retryable typed errors", async 
   );
 });
 
+test("Notion client reports request timeouts as retryable typed errors", async () => {
+  const client = createNotionClient({
+    apiKey,
+    apiVersion,
+    baseUrl: "https://notion.example.test",
+    requestTimeoutMs: 5,
+    fetchFn: async (_input, init) =>
+      await new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal?.aborted) {
+          reject(signal.reason);
+          return;
+        }
+        signal?.addEventListener(
+          "abort",
+          () => reject(signal.reason),
+          { once: true },
+        );
+      }),
+  });
+
+  await assert.rejects(
+    client.retrieveDataSource("target"),
+    (error: unknown) => {
+      assert.equal(error instanceof NotionApiError, true);
+      const notionError = error as NotionApiError;
+      assert.equal(notionError.kind, "timeout");
+      assert.equal(notionError.status, null);
+      assert.equal(notionError.retriable, true);
+      assert.match(notionError.message, /초과/);
+      assert.match(notionError.userAction, /NOTION_REQUEST_TIMEOUT_MS/);
+      return true;
+    },
+  );
+});
+
+test("Notion client forwards caller abort signals to fetch", async () => {
+  let observedSignal: AbortSignal | undefined;
+  const client = createNotionClient({
+    apiKey,
+    apiVersion,
+    baseUrl: "https://notion.example.test",
+    fetchFn: async (_input, init) => {
+      observedSignal = init?.signal ?? undefined;
+      return new Response(JSON.stringify({ object: "ok" }), { status: 200 });
+    },
+  });
+  const controller = new AbortController();
+
+  await client.retrievePage("page-id", { signal: controller.signal });
+
+  assert.ok(observedSignal);
+  assert.equal(observedSignal.aborted, false);
+});
+
 type CapturedRequest = {
   method: string;
   url: string;

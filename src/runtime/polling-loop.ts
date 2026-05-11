@@ -2,9 +2,12 @@ export type PollingLoopTimer = ReturnType<typeof setTimeout> & {
   unref?: () => void;
 };
 
+export const DEFAULT_POLLING_LOOP_STOP_WAIT_MS = 10000;
+
 export type PollingLoopOptions<T> = {
   intervalMs: number;
-  runTick: () => Promise<T>;
+  runTick: (signal: AbortSignal) => Promise<T>;
+  stopWaitMs?: number;
   onScheduledError?: (error: unknown) => void | Promise<void>;
   setTimeout?: (callback: () => void, delayMs: number) => PollingLoopTimer;
   clearTimeout?: (timer: PollingLoopTimer) => void;
@@ -13,6 +16,7 @@ export type PollingLoopOptions<T> = {
 export class PollingLoop<T> {
   private timer: PollingLoopTimer | null = null;
   private tickPromise: Promise<T> | null = null;
+  private tickAbortController: AbortController | null = null;
   private started = false;
   private stopping = false;
   private readonly setTimer: (
@@ -42,8 +46,13 @@ export class PollingLoop<T> {
       this.clearTimer(this.timer);
       this.timer = null;
     }
-    if (this.tickPromise) {
-      await this.tickPromise;
+    const tickPromise = this.tickPromise;
+    if (tickPromise) {
+      this.tickAbortController?.abort();
+      await waitForPromiseOrTimeout(
+        tickPromise,
+        this.options.stopWaitMs ?? DEFAULT_POLLING_LOOP_STOP_WAIT_MS,
+      );
     }
   }
 
@@ -52,10 +61,15 @@ export class PollingLoop<T> {
       return await this.tickPromise;
     }
 
-    this.tickPromise = this.options.runTick();
+    const abortController = new AbortController();
+    this.tickAbortController = abortController;
+    this.tickPromise = this.options.runTick(abortController.signal);
     try {
       return await this.tickPromise;
     } finally {
+      if (this.tickAbortController === abortController) {
+        this.tickAbortController = null;
+      }
       this.tickPromise = null;
     }
   }
@@ -78,6 +92,26 @@ export class PollingLoop<T> {
       await this.options.onScheduledError?.(error);
     } finally {
       this.schedule(this.options.intervalMs);
+    }
+  }
+}
+
+async function waitForPromiseOrTimeout(
+  promise: Promise<unknown>,
+  timeoutMs: number,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    await Promise.race([
+      promise.then(() => undefined),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, Math.max(0, timeoutMs));
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
     }
   }
 }

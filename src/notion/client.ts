@@ -1,4 +1,5 @@
 import { redactSensitiveText } from "../errors.js";
+import { DEFAULT_NOTION_REQUEST_TIMEOUT_MS } from "./settings.js";
 
 export type JsonObject = Record<string, unknown>;
 
@@ -15,37 +16,59 @@ export type NotionPageResponse = JsonObject;
 export type NotionAppendChildrenBody = JsonObject;
 export type NotionAppendChildrenResponse = JsonObject;
 export type NotionBlockChildrenResponse = JsonObject;
+export type NotionRequestOptions = {
+  signal?: AbortSignal;
+};
 
 export type NotionClient = {
-  retrievePage(pageId: string): Promise<NotionPageResponse>;
-  retrieveDatabase(databaseId: string): Promise<NotionDatabaseResponse>;
+  retrievePage(
+    pageId: string,
+    options?: NotionRequestOptions,
+  ): Promise<NotionPageResponse>;
+  retrieveDatabase(
+    databaseId: string,
+    options?: NotionRequestOptions,
+  ): Promise<NotionDatabaseResponse>;
   createDatabase(
     body: NotionCreateDatabaseBody,
+    options?: NotionRequestOptions,
   ): Promise<NotionDatabaseResponse>;
   createDataSource(
     body: NotionCreateDataSourceBody,
+    options?: NotionRequestOptions,
   ): Promise<NotionDataSourceResponse>;
-  retrieveDataSource(dataSourceId: string): Promise<NotionDataSourceResponse>;
+  retrieveDataSource(
+    dataSourceId: string,
+    options?: NotionRequestOptions,
+  ): Promise<NotionDataSourceResponse>;
   updateDataSource(
     dataSourceId: string,
     body: NotionUpdateDataSourceBody,
+    options?: NotionRequestOptions,
   ): Promise<NotionDataSourceResponse>;
   queryDataSource(
     dataSourceId: string,
     body: NotionQueryBody,
+    options?: NotionRequestOptions,
   ): Promise<NotionQueryResponse>;
-  createPage(body: NotionCreatePageBody): Promise<NotionPageResponse>;
+  createPage(
+    body: NotionCreatePageBody,
+    options?: NotionRequestOptions,
+  ): Promise<NotionPageResponse>;
   updatePage(
     pageId: string,
     body: NotionUpdatePageBody,
+    options?: NotionRequestOptions,
   ): Promise<NotionPageResponse>;
   appendBlockChildren(
     blockId: string,
     body: NotionAppendChildrenBody,
+    options?: NotionRequestOptions,
   ): Promise<NotionAppendChildrenResponse>;
   retrieveBlockChildren(
     blockId: string,
     cursor?: string | null,
+    options?: NotionRequestOptions,
   ): Promise<NotionBlockChildrenResponse>;
 };
 
@@ -53,6 +76,7 @@ export type NotionClientOptions = {
   apiKey: string;
   apiVersion: string;
   baseUrl: string;
+  requestTimeoutMs?: number;
   fetchFn?: typeof fetch;
 };
 
@@ -64,6 +88,7 @@ export type NotionApiErrorKind =
   | "validation"
   | "server"
   | "network"
+  | "timeout"
   | "invalid_json"
   | "unknown";
 
@@ -116,86 +141,131 @@ export function createNotionClient(options: NotionClientOptions): NotionClient {
 class FetchNotionClient implements NotionClient {
   private readonly fetchFn: typeof fetch;
   private readonly baseUrl: string;
+  private readonly requestTimeoutMs: number;
 
   constructor(private readonly options: NotionClientOptions) {
     this.fetchFn = options.fetchFn ?? fetch;
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
+    this.requestTimeoutMs =
+      options.requestTimeoutMs ?? DEFAULT_NOTION_REQUEST_TIMEOUT_MS;
+    if (!Number.isInteger(this.requestTimeoutMs) || this.requestTimeoutMs <= 0) {
+      throw new Error("Notion client requestTimeoutMs must be a positive integer.");
+    }
   }
 
-  retrievePage(pageId: string): Promise<NotionPageResponse> {
-    return this.request("GET", `/v1/pages/${encodeURIComponent(pageId)}`);
+  retrievePage(
+    pageId: string,
+    options?: NotionRequestOptions,
+  ): Promise<NotionPageResponse> {
+    return this.request(
+      "GET",
+      `/v1/pages/${encodeURIComponent(pageId)}`,
+      undefined,
+      options,
+    );
   }
 
-  retrieveDatabase(databaseId: string): Promise<NotionDatabaseResponse> {
-    return this.request("GET", `/v1/databases/${encodeURIComponent(databaseId)}`);
+  retrieveDatabase(
+    databaseId: string,
+    options?: NotionRequestOptions,
+  ): Promise<NotionDatabaseResponse> {
+    return this.request(
+      "GET",
+      `/v1/databases/${encodeURIComponent(databaseId)}`,
+      undefined,
+      options,
+    );
   }
 
   createDatabase(
     body: NotionCreateDatabaseBody,
+    options?: NotionRequestOptions,
   ): Promise<NotionDatabaseResponse> {
-    return this.request("POST", "/v1/databases", body);
+    return this.request("POST", "/v1/databases", body, options);
   }
 
   createDataSource(
     body: NotionCreateDataSourceBody,
+    options?: NotionRequestOptions,
   ): Promise<NotionDataSourceResponse> {
-    return this.request("POST", "/v1/data_sources", body);
+    return this.request("POST", "/v1/data_sources", body, options);
   }
 
-  retrieveDataSource(dataSourceId: string): Promise<NotionDataSourceResponse> {
+  retrieveDataSource(
+    dataSourceId: string,
+    options?: NotionRequestOptions,
+  ): Promise<NotionDataSourceResponse> {
     return this.request(
       "GET",
       `/v1/data_sources/${encodeURIComponent(dataSourceId)}`,
+      undefined,
+      options,
     );
   }
 
   updateDataSource(
     dataSourceId: string,
     body: NotionUpdateDataSourceBody,
+    options?: NotionRequestOptions,
   ): Promise<NotionDataSourceResponse> {
     return this.request(
       "PATCH",
       `/v1/data_sources/${encodeURIComponent(dataSourceId)}`,
       body,
+      options,
     );
   }
 
   queryDataSource(
     dataSourceId: string,
     body: NotionQueryBody,
+    options?: NotionRequestOptions,
   ): Promise<NotionQueryResponse> {
     return this.request(
       "POST",
       `/v1/data_sources/${encodeURIComponent(dataSourceId)}/query`,
       body,
+      options,
     );
   }
 
-  createPage(body: NotionCreatePageBody): Promise<NotionPageResponse> {
-    return this.request("POST", "/v1/pages", body);
+  createPage(
+    body: NotionCreatePageBody,
+    options?: NotionRequestOptions,
+  ): Promise<NotionPageResponse> {
+    return this.request("POST", "/v1/pages", body, options);
   }
 
   updatePage(
     pageId: string,
     body: NotionUpdatePageBody,
+    options?: NotionRequestOptions,
   ): Promise<NotionPageResponse> {
-    return this.request("PATCH", `/v1/pages/${encodeURIComponent(pageId)}`, body);
+    return this.request(
+      "PATCH",
+      `/v1/pages/${encodeURIComponent(pageId)}`,
+      body,
+      options,
+    );
   }
 
   appendBlockChildren(
     blockId: string,
     body: NotionAppendChildrenBody,
+    options?: NotionRequestOptions,
   ): Promise<NotionAppendChildrenResponse> {
     return this.request(
       "PATCH",
       `/v1/blocks/${encodeURIComponent(blockId)}/children`,
       body,
+      options,
     );
   }
 
   retrieveBlockChildren(
     blockId: string,
     cursor: string | null = null,
+    options?: NotionRequestOptions,
   ): Promise<NotionBlockChildrenResponse> {
     const url = new URL(
       `${this.baseUrl}/v1/blocks/${encodeURIComponent(blockId)}/children`,
@@ -204,13 +274,14 @@ class FetchNotionClient implements NotionClient {
     if (cursor) {
       url.searchParams.set("start_cursor", cursor);
     }
-    return this.request("GET", url);
+    return this.request("GET", url, undefined, options);
   }
 
   private async request<T extends JsonObject>(
     method: string,
     pathOrUrl: string | URL,
     body?: JsonObject,
+    options: NotionRequestOptions = {},
   ): Promise<T> {
     const url =
       pathOrUrl instanceof URL ? pathOrUrl : `${this.baseUrl}${pathOrUrl}`;
@@ -223,17 +294,28 @@ class FetchNotionClient implements NotionClient {
     }
 
     let response: Response;
+    let text: string;
+    const requestAbort = createRequestAbortSignal(
+      options.signal,
+      this.requestTimeoutMs,
+    );
     try {
       response = await this.fetchFn(url, {
         method,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
+        signal: requestAbort.signal,
       });
+      text = await response.text();
     } catch (error) {
+      if (requestAbort.timedOut()) {
+        throw createTimeoutError(this.requestTimeoutMs, this.options.apiKey);
+      }
       throw createNetworkError(error, this.options.apiKey);
+    } finally {
+      requestAbort.cleanup();
     }
 
-    const text = await response.text();
     const parsed = parseJsonResponse(text, this.options.apiKey);
     if (!parsed.ok) {
       throw createInvalidJsonError(response.status, parsed.detail);
@@ -250,6 +332,41 @@ class FetchNotionClient implements NotionClient {
 
     return parsed.value as T;
   }
+}
+
+function createRequestAbortSignal(
+  signal: AbortSignal | undefined,
+  timeoutMs: number,
+): {
+  signal: AbortSignal;
+  timedOut: () => boolean;
+  cleanup: () => void;
+} {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort(new Error("Notion request timed out."));
+  }, timeoutMs);
+  timer.unref?.();
+
+  const abortFromCaller = (): void => {
+    controller.abort(signal?.reason);
+  };
+  if (signal?.aborted) {
+    abortFromCaller();
+  } else {
+    signal?.addEventListener("abort", abortFromCaller, { once: true });
+  }
+
+  return {
+    signal: controller.signal,
+    timedOut: () => timedOut,
+    cleanup: () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abortFromCaller);
+    },
+  };
 }
 
 export function classifyNotionHttpError(input: {
@@ -326,6 +443,25 @@ function createNetworkError(error: unknown, apiKey: string): NotionApiError {
       retriable: true,
       userAction: "네트워크 연결을 확인한 뒤 다시 시도해 주세요.",
       technicalDetail: redactWithApiKey(message, apiKey),
+    },
+  );
+}
+
+function createTimeoutError(timeoutMs: number, apiKey: string): NotionApiError {
+  return new NotionApiError(
+    "timeout",
+    "Notion API 요청 시간이 초과되었습니다.",
+    {
+      status: null,
+      code: null,
+      retryAfterSeconds: null,
+      retriable: true,
+      userAction:
+        "네트워크 상태를 확인하거나 NOTION_REQUEST_TIMEOUT_MS 값을 늘린 뒤 다시 시도해 주세요.",
+      technicalDetail: redactWithApiKey(
+        `Notion request timed out after ${timeoutMs}ms.`,
+        apiKey,
+      ),
     },
   );
 }

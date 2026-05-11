@@ -355,6 +355,7 @@ function notionSettings(
     apiKey: "ntn_test_secret",
     apiVersion: "2026-03-11",
     baseUrl: "https://api.notion.com",
+    requestTimeoutMs: 30000,
     targetUrl: targetId,
     targetType: "data_source",
     uploadMode: "automatic_after_ai_cleanup",

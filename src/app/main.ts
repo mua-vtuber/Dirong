@@ -541,11 +541,12 @@ function createNotionAutomationService(
 ): NotionAutomationService {
   const settings = appSettings.notion;
   const notionClient = settings.apiKey
-    ? createNotionClient({
-        apiKey: settings.apiKey,
-        apiVersion: settings.apiVersion,
-        baseUrl: settings.baseUrl,
-      })
+      ? createNotionClient({
+          apiKey: settings.apiKey,
+          apiVersion: settings.apiVersion,
+          baseUrl: settings.baseUrl,
+          requestTimeoutMs: settings.requestTimeoutMs,
+        })
     : null;
   return new NotionAutomationService({
     settings,

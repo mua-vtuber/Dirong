@@ -52,6 +52,43 @@ test("PollingLoop stop clears timer and waits for in-flight tick", async () => {
   assert.equal(clock.pendingTimerCount(), 0);
 });
 
+test("PollingLoop stop aborts in-flight tick and returns after bounded wait", async () => {
+  let observedSignal: AbortSignal | null = null;
+  const runningForever = new Promise<void>(() => {
+    // Intentionally left pending to prove stop does not wait forever.
+  });
+  const loop = new PollingLoop<void>({
+    intervalMs: 1000,
+    stopWaitMs: 5,
+    runTick: async (signal) => {
+      observedSignal = signal;
+      await runningForever;
+    },
+  });
+
+  const running = loop.runOnce();
+  const startedAt = Date.now();
+  await loop.stop();
+  const elapsedMs = Date.now() - startedAt;
+
+  const signal = observedSignal as unknown as AbortSignal;
+  assert.equal(signal.aborted, true);
+  assert.ok(elapsedMs < 100, `stop waited too long: ${elapsedMs}ms`);
+  assert.equal(
+    await Promise.race([
+      running.then(() => "resolved"),
+      delay(10).then(() => "pending"),
+    ]),
+    "pending",
+  );
+});
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 function createDeferred<T>(): {
   promise: Promise<T>;
   resolve: (value: T | PromiseLike<T>) => void;

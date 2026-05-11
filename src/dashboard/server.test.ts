@@ -992,6 +992,7 @@ function makeNotionSource(
         apiKey: "[REDACTED]",
         apiVersion: "2026-03-11",
         baseUrl: "https://api.notion.com",
+        requestTimeoutMs: 30000,
         targetUrl: "https://notion.so/db",
         targetType: "data_source",
         uploadMode: "manual",

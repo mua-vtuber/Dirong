@@ -196,6 +196,12 @@ export function loadNotionSettingsFromEnv(
       readOptionalStringEnv(env, "NOTION_API_VERSION") ??
       DEFAULT_NOTION_SETTINGS.apiVersion,
     baseUrl: readNotionBaseUrl(env, options),
+    requestTimeoutMs: readPositiveIntegerEnv(
+      env,
+      "NOTION_REQUEST_TIMEOUT_MS",
+      DEFAULT_NOTION_SETTINGS.requestTimeoutMs,
+      options,
+    ),
     targetUrl: readOptionalStringEnv(env, "NOTION_TARGET_URL"),
     targetType: readNotionTargetType(env.NOTION_TARGET_TYPE),
     uploadMode: readNotionUploadMode(env.NOTION_UPLOAD_MODE),

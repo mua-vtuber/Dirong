@@ -21,6 +21,7 @@ export type NotionRuntimeSettings = {
   apiKey: string | null;
   apiVersion: string;
   baseUrl: string;
+  requestTimeoutMs: number;
   targetUrl: string | null;
   targetType: NotionTargetType;
   uploadMode: NotionUploadMode;
@@ -45,6 +46,7 @@ export type NotionSettingsValidation =
 
 export const DEFAULT_NOTION_API_VERSION = "2026-03-11";
 export const DEFAULT_NOTION_BASE_URL = "https://api.notion.com";
+export const DEFAULT_NOTION_REQUEST_TIMEOUT_MS = 30000;
 
 export const DEFAULT_NOTION_PROPERTY_NAMES: NotionPropertyNames = {
   title: "Name",

@@ -4,6 +4,7 @@ import { PassThrough, Writable } from "node:stream";
 import test from "node:test";
 import {
   ClaudePersistentSmokeSession,
+  DEFAULT_CLAUDE_STREAM_JSON_MAX_DIAGNOSTIC_LINES,
   parseClaudeStreamJsonLine,
   type ClaudePersistentSmokeChildProcess,
   type ClaudePersistentSmokeSpawnOptions,
@@ -109,6 +110,66 @@ test("ClaudePersistentSmokeSession treats malformed stdout as stream-json protoc
     "waiting_for_first_stream_event",
     "failed",
   ]);
+});
+
+test("ClaudePersistentSmokeSession kills large stdout before a newline can grow memory", async () => {
+  const fake = new FakeChildProcess(161);
+  const session = new ClaudePersistentSmokeSession({
+    command: "claude",
+    timeoutMs: 1_000,
+    platform: "linux",
+    spawnProcess: () => fake,
+    maxStreamBufferBytes: 64,
+  });
+
+  const resultPromise = session.request("hello", { maxOutputBytes: 16 });
+  fake.stdout.write("x".repeat(128));
+  const result = await resultPromise;
+
+  assert.equal(result.outputExceeded, true);
+  assert.equal(result.resultReceived, false);
+  assert.match(result.error ?? "", /stdout exceeded max bytes before newline/);
+  assert.equal(fake.killCalls[0], "SIGTERM");
+});
+
+test("ClaudePersistentSmokeSession kills large stderr before a newline can grow memory", async () => {
+  const fake = new FakeChildProcess(162);
+  const session = new ClaudePersistentSmokeSession({
+    command: "claude",
+    timeoutMs: 1_000,
+    platform: "linux",
+    spawnProcess: () => fake,
+    maxStreamBufferBytes: 16,
+  });
+
+  const resultPromise = session.request("hello");
+  fake.stderr.write("e".repeat(128));
+  const result = await resultPromise;
+
+  assert.equal(result.outputExceeded, true);
+  assert.equal(result.resultReceived, false);
+  assert.match(result.error ?? "", /stderr buffer exceeded max bytes/);
+  assert.equal(fake.killCalls[0], "SIGTERM");
+});
+
+test("ClaudePersistentSmokeSession keeps diagnostic lines in a ring buffer", async () => {
+  const fake = new FakeChildProcess(163);
+  const session = new ClaudePersistentSmokeSession({
+    command: "claude",
+    timeoutMs: 1_000,
+    platform: "linux",
+    spawnProcess: () => fake,
+    maxDiagnosticLines: 2,
+  });
+
+  const resultPromise = session.request("hello");
+  fake.stderr.write("first\nsecond\nthird\n");
+  fake.stdout.write(`${JSON.stringify({ type: "result" })}\n`);
+  const result = await resultPromise;
+
+  assert.deepEqual(session.stderrSnapshot, ["second", "third"]);
+  assert.deepEqual(result.stderrLines, ["second", "third"]);
+  assert.ok(DEFAULT_CLAUDE_STREAM_JSON_MAX_DIAGNOSTIC_LINES >= 2);
 });
 
 test("ClaudePersistentSmokeSession writes two turns to the same process", async () => {

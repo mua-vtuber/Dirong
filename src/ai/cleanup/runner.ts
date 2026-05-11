@@ -1,5 +1,3 @@
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
-import path from "node:path";
 import { DirongError, summarizeSafeText } from "../../errors.js";
 import type {
   AiCleanupFailureKind,
@@ -16,6 +14,18 @@ import {
   validateMeetingNotesDraftV1,
 } from "./draft.js";
 import { renderMeetingNotesDraftMarkdown } from "./markdown-renderer.js";
+import {
+  makeAiCleanupJobId,
+  makeArtifactPaths,
+  writeTextAtomic,
+} from "./artifact-store.js";
+import {
+  failedResult,
+  getInputBlockedReason,
+  makeBaseResult,
+  providerFailureKind,
+  summarizeAiCleanupError as summarizeError,
+} from "./cleanup-workflow.js";
 import type {
   AiCleanupProvider,
   AiCleanupProviderInput,
@@ -35,11 +45,11 @@ import {
   type AiCleanupProgressObserver,
   type AiCleanupProgressUpdate,
 } from "./progress.js";
+import { summarizeSchemaRepairFailure } from "./repair-workflow.js";
 import {
   buildPhase4TimelineInput,
   sha256Text,
   stableStringify,
-  type Phase4TimelineInput,
 } from "./timeline-input.js";
 
 export type AiCleanupRunResult = {
@@ -662,205 +672,4 @@ function toLegacyResetReason(
     return "success";
   }
   return "failure";
-}
-
-function makeBaseResult(
-  options: AiCleanupRunOptions,
-  input: Phase4TimelineInput,
-  inputChars: number,
-): AiCleanupRunResult {
-  return {
-    workerId: options.workerId,
-    dryRun: options.dryRun,
-    sessionId: options.sessionId,
-    provider: options.provider.providerName,
-    model: options.provider.modelName,
-    status: "dry_run",
-    dbChanged: false,
-    inputHash: input.inputHash,
-    inputEntryCount: input.timeline.entries.length,
-    inputChars,
-    maxInputChars: options.maxInputChars,
-    timelineMarkdownPreview: input.markdown.split("\n").slice(0, 5),
-    backupPaths: [],
-    job: null,
-    draft: null,
-    error: null,
-  };
-}
-
-function getInputBlockedReason(
-  input: Phase4TimelineInput,
-  inputChars: number,
-  options: AiCleanupRunOptions,
-): { kind: AiCleanupFailureKind; message: string } | null {
-  if (
-    options.includeFakeStt &&
-    !options.dryRun &&
-    options.provider.providerName !== "fake"
-  ) {
-    return {
-      kind: "unsafe_input",
-      message: [
-        "fake STT는 실제 AI cleanup provider로 보낼 수 없습니다.",
-        "일반 회의록 생성에서는 Phase 3 Real STT 결과만 사용해 주세요.",
-        "fake STT 검증은 dry-run 또는 --provider fake --smoke-test 경로에서만 허용됩니다.",
-      ].join(" "),
-    };
-  }
-
-  if (input.timeline.entries.length === 0) {
-    return {
-      kind: "empty_timeline",
-      message: [
-        "회의록으로 보낼 실제 STT 발화가 아직 없습니다.",
-        "Phase 3 Real STT를 먼저 실행해 주세요.",
-        "no_speech와 fake STT는 기본 Phase 4 입력에서 제외됩니다.",
-        "테스트 목적이면 dry-run에서 --include-fake-stt를 사용하거나,",
-        "명시적 smoke test로 --provider fake --smoke-test --include-fake-stt를 사용해 주세요.",
-      ].join(" "),
-    };
-  }
-  if (inputChars > options.maxInputChars) {
-    return {
-      kind: "input_too_long",
-      message: `회의 transcript가 Phase 4 MVP single-pass 한도를 초과했습니다. input=${inputChars}, max=${options.maxInputChars}. 긴 회의 map-reduce 요약은 Phase 4.1 이후 범위입니다.`,
-    };
-  }
-  return null;
-}
-
-function failedResult(
-  baseResult: AiCleanupRunResult,
-  backupPaths: string[],
-  job: AiCleanupJobRow | null,
-  error: string,
-): AiCleanupRunResult {
-  return {
-    ...baseResult,
-    status: "failed",
-    dbChanged: true,
-    backupPaths,
-    job,
-    error,
-  };
-}
-
-function makeArtifactPaths(input: {
-  sessionDataDir: string;
-  provider: string;
-  model: string;
-  inputHash: string;
-  jobId: string;
-}): {
-  jobId: string;
-  inputJsonPath: string;
-  inputMarkdownPath: string;
-  promptPath: string;
-  rawOutputPath: string;
-  stderrPath: string;
-  repairPromptPath: string;
-  repairRawOutputPath: string;
-  repairStderrPath: string;
-  draftJsonPath: string;
-  draftMarkdownPath: string;
-} {
-  const dir = path.resolve(input.sessionDataDir, "ai-cleanup");
-  const safeProvider = sanitizePathPart(input.provider);
-  const safeModel = sanitizePathPart(input.model);
-  const hash = input.inputHash.slice(0, 16);
-
-  return {
-    jobId: input.jobId,
-    inputJsonPath: path.join(
-      dir,
-      `input.phase3.5-transcript-timeline-v1.${hash}.json`,
-    ),
-    inputMarkdownPath: path.join(
-      dir,
-      `input.phase3.5-transcript-timeline-v1.${hash}.md`,
-    ),
-    promptPath: path.join(
-      dir,
-      `prompt.${PHASE4_AI_CLEANUP_PROMPT_VERSION}.${input.jobId}.txt`,
-    ),
-    rawOutputPath: path.join(dir, `raw.${safeProvider}.${safeModel}.${input.jobId}.txt`),
-    stderrPath: path.join(
-      dir,
-      `stderr.${safeProvider}.${safeModel}.${input.jobId}.txt`,
-    ),
-    repairPromptPath: path.join(
-      dir,
-      `prompt.repair.${PHASE4_AI_CLEANUP_PROMPT_VERSION}.${input.jobId}.txt`,
-    ),
-    repairRawOutputPath: path.join(
-      dir,
-      `raw.repair.${safeProvider}.${safeModel}.${input.jobId}.txt`,
-    ),
-    repairStderrPath: path.join(
-      dir,
-      `stderr.repair.${safeProvider}.${safeModel}.${input.jobId}.txt`,
-    ),
-    draftJsonPath: path.join(dir, `draft.${input.jobId}.json`),
-    draftMarkdownPath: path.join(dir, `draft.${input.jobId}.md`),
-  };
-}
-
-function makeAiCleanupJobId(input: {
-  sessionId: string;
-  provider: string;
-  model: string;
-  promptVersion: string;
-  inputHash: string;
-}): string {
-  const stable = sha256Text(
-    `${input.sessionId}\n${input.provider}\n${input.model}\n${input.promptVersion}\n${input.inputHash}`,
-  ).slice(0, 16);
-  return `ai_${sanitizePathPart(input.sessionId).slice(0, 48)}_${stable}`;
-}
-
-function sanitizePathPart(value: string): string {
-  return value.replace(/[^A-Za-z0-9_.-]+/g, "_").slice(0, 80) || "unknown";
-}
-
-function writeTextAtomic(filePath: string, content: string): void {
-  mkdirSync(path.dirname(filePath), { recursive: true });
-  const partPath = `${filePath}.part`;
-  writeFileSync(partPath, content, "utf8");
-  renameSync(partPath, filePath);
-}
-
-function providerFailureKind(error: unknown): AiCleanupFailureKind {
-  if (error instanceof AiCleanupProviderError) {
-    return error.failureKind;
-  }
-  return "unknown";
-}
-
-function summarizeSchemaRepairFailure(
-  initialIssues: readonly string[],
-  repairError: unknown,
-): string {
-  const initialSummary = initialIssues.slice(0, 5).join("; ");
-  const repairSummary = summarizeError(repairError);
-  const message = [
-    "회의록 JSON schema 검증에 실패했고 자동 repair도 실패했습니다.",
-    initialSummary ? `initial: ${initialSummary}` : null,
-    `repair: ${repairSummary}`,
-  ]
-    .filter((line): line is string => line !== null)
-    .join(" ");
-  return summarizeSafeText(message);
-}
-
-function summarizeError(error: unknown): string {
-  const message =
-    error instanceof DraftValidationError
-      ? error.issues.join("; ")
-      : error instanceof DraftParseError
-        ? error.message
-        : error instanceof Error
-          ? error.message
-          : String(error);
-  return summarizeSafeText(message);
 }

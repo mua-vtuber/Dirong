@@ -1,5 +1,6 @@
 import { existsSync, unlinkSync } from "node:fs";
 import path from "node:path";
+import { DEFAULT_RETENTION_SETTINGS } from "../settings/defaults.js";
 import { createStoragePathResolver } from "./path-resolver.js";
 import type { DirongDatabase } from "./sqlite.js";
 
@@ -8,10 +9,7 @@ export type RetentionPolicy = {
   textDraftRetentionDays: number;
 };
 
-export const DEFAULT_RETENTION_POLICY: RetentionPolicy = {
-  deleteAudioAfterNotionUpload: true,
-  textDraftRetentionDays: 30,
-};
+export const DEFAULT_RETENTION_POLICY: RetentionPolicy = DEFAULT_RETENTION_SETTINGS;
 
 export type RetentionDeletionReason =
   | "notion-upload-success"

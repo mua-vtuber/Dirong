@@ -38,6 +38,12 @@ import {
   LocalSettingsStore,
 } from "../settings/local-settings-store.js";
 import {
+  CREATABLE_NOTION_SCHEMA_LOCALES,
+  DEFAULT_AI_CLEANUP_SETTINGS,
+  DEFAULT_MEETING_NOTES_LANGUAGE,
+  DEFAULT_STT_SETTINGS,
+} from "../settings/defaults.js";
+import {
   DEFAULT_SECRET_REFS,
   LocalSecretStore,
 } from "../settings/local-secret-store.js";
@@ -425,8 +431,10 @@ export class SetupWizardService {
       });
     }
 
-    const language = readCleanString(body, ["language"]) ?? "ko";
-    const timeoutMs = readPositiveInteger(body, "timeoutMs") ?? 120000;
+    const language =
+      readCleanString(body, ["language"]) ?? DEFAULT_MEETING_NOTES_LANGUAGE;
+    const timeoutMs =
+      readPositiveInteger(body, "timeoutMs") ?? DEFAULT_STT_SETTINGS.timeoutMs;
     const currentSettings = this.options.settingsStore.read();
     const settingsUpdate =
       provider === "openai"
@@ -1006,7 +1014,7 @@ class DefaultClaudeSetupTester implements ClaudeSetupTester {
       }): Promise<ClaudeSetupTestResult> {
     if (input.mode === "cli") {
       const result = await runChild(input.command, ["--version"], {
-        timeoutMs: 5000,
+        timeoutMs: DEFAULT_AI_CLEANUP_SETTINGS.prepareTimeoutMs,
         maxStdoutBytes: 2000,
         maxStderrBytes: 2000,
       });
@@ -1024,7 +1032,10 @@ class DefaultClaudeSetupTester implements ClaudeSetupTester {
     }
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
+    const timer = setTimeout(
+      () => controller.abort(),
+      DEFAULT_AI_CLEANUP_SETTINGS.prepareTimeoutMs,
+    );
     try {
       const response = await fetch("https://api.anthropic.com/v1/models?limit=1", {
         method: "GET",
@@ -1156,7 +1167,7 @@ function buildOpenAiSttSettings(
       language,
       timeoutMs,
       openAiApiKeySecretRef: secretRef,
-      openAiModel: model ?? "gpt-4o-mini-transcribe",
+      openAiModel: model ?? DEFAULT_STT_SETTINGS.openai.model,
     },
     openAiApiKey: apiKey,
   };
@@ -1180,9 +1191,13 @@ function buildLocalWhisperSettings(
   }
   const localWhisper: LocalWhisperLocalSettings = {
     profile: profile.profile,
-    model: model ?? "small",
-    device: readCleanString(body, ["device"]) ?? "cpu",
-    computeType: readCleanString(body, ["computeType"]) ?? "int8",
+    model: model ?? DEFAULT_STT_SETTINGS.localWhisper.model,
+    device:
+      readCleanString(body, ["device"]) ??
+      DEFAULT_STT_SETTINGS.localWhisper.device,
+    computeType:
+      readCleanString(body, ["computeType"]) ??
+      DEFAULT_STT_SETTINGS.localWhisper.computeType,
   };
   return {
     ok: true,
@@ -1327,7 +1342,9 @@ function isDiscordSnowflake(value: string): boolean {
 }
 
 function isCreatableNotionLocale(locale: DirongLocale): locale is NotionLocale {
-  return locale === "ko";
+  return CREATABLE_NOTION_SCHEMA_LOCALES.includes(
+    locale as (typeof CREATABLE_NOTION_SCHEMA_LOCALES)[number],
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

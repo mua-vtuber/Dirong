@@ -7,9 +7,7 @@ import type {
   SttSettings,
 } from "./app-settings.js";
 import {
-  DEFAULT_NOTION_API_VERSION,
   DEFAULT_NOTION_BASE_URL,
-  DEFAULT_NOTION_PROPERTY_NAMES,
   validateNotionRuntimeSettings,
   type NotionIncludeTranscript,
   type NotionRuntimeSettings,
@@ -22,6 +20,11 @@ import {
   readOptionalStringEnv,
   readPositiveNumberEnv,
 } from "./env-readers.js";
+import {
+  DEFAULT_AI_CLEANUP_SETTINGS,
+  DEFAULT_NOTION_SETTINGS,
+  DEFAULT_STT_SETTINGS,
+} from "./defaults.js";
 
 export type EnvSettingsLoaderOptions = {
   allowTestNotionBaseUrl?: boolean;
@@ -48,10 +51,17 @@ export function loadSttSettingsFromEnv(
   env: NodeJS.ProcessEnv,
 ): SttSettings {
   const provider = readSttProvider(env.PHASE3_STT_PROVIDER);
-  const language = readOptionalStringEnv(env, "PHASE3_STT_LANGUAGE") ?? "ko";
-  const timeoutMs = readPositiveNumberEnv(env, "PHASE3_STT_TIMEOUT_MS", 120000, {
-    invalidMessage: "PHASE3_STT_TIMEOUT_MS는 1 이상의 숫자여야 합니다.",
-  });
+  const language =
+    readOptionalStringEnv(env, "PHASE3_STT_LANGUAGE") ??
+    DEFAULT_STT_SETTINGS.language;
+  const timeoutMs = readPositiveNumberEnv(
+    env,
+    "PHASE3_STT_TIMEOUT_MS",
+    DEFAULT_STT_SETTINGS.timeoutMs,
+    {
+      invalidMessage: "PHASE3_STT_TIMEOUT_MS는 1 이상의 숫자여야 합니다.",
+    },
+  );
 
   if (provider === "openai") {
     return {
@@ -62,7 +72,7 @@ export function loadSttSettingsFromEnv(
         apiKey: readOptionalStringEnv(env, "OPENAI_API_KEY") ?? "",
         model:
           readOptionalStringEnv(env, "PHASE3_STT_MODEL") ??
-          "gpt-4o-mini-transcribe",
+          DEFAULT_STT_SETTINGS.openai.model,
       },
     };
   }
@@ -72,16 +82,22 @@ export function loadSttSettingsFromEnv(
     language,
     timeoutMs,
     localWhisper: {
-      command: readOptionalStringEnv(env, "PHASE3_LOCAL_WHISPER_COMMAND") ?? "python",
+      command:
+        readOptionalStringEnv(env, "PHASE3_LOCAL_WHISPER_COMMAND") ??
+        DEFAULT_STT_SETTINGS.localWhisper.command,
       args: readCommandArgs(
         env.PHASE3_LOCAL_WHISPER_ARGS,
-        "scripts/local-whisper-json.py",
+        DEFAULT_STT_SETTINGS.localWhisper.args.join(" "),
       ),
-      model: readOptionalStringEnv(env, "PHASE3_LOCAL_WHISPER_MODEL") ?? "small",
-      device: readOptionalStringEnv(env, "PHASE3_LOCAL_WHISPER_DEVICE") ?? "cpu",
+      model:
+        readOptionalStringEnv(env, "PHASE3_LOCAL_WHISPER_MODEL") ??
+        DEFAULT_STT_SETTINGS.localWhisper.model,
+      device:
+        readOptionalStringEnv(env, "PHASE3_LOCAL_WHISPER_DEVICE") ??
+        DEFAULT_STT_SETTINGS.localWhisper.device,
       computeType:
         readOptionalStringEnv(env, "PHASE3_LOCAL_WHISPER_COMPUTE_TYPE") ??
-        "int8",
+        DEFAULT_STT_SETTINGS.localWhisper.computeType,
     },
   };
 }
@@ -91,39 +107,44 @@ export function loadAiCleanupSettingsFromEnv(
   options: EnvSettingsLoaderOptions = {},
 ): AiCleanupRuntimeSettings {
   return {
-    claudeCommand: readOptionalStringEnv(env, "PHASE4_CLAUDE_COMMAND") ?? "claude",
+    claudeCommand:
+      readOptionalStringEnv(env, "PHASE4_CLAUDE_COMMAND") ??
+      DEFAULT_AI_CLEANUP_SETTINGS.claudeCommand,
     claudeModel: readOptionalStringEnv(env, "PHASE4_CLAUDE_MODEL"),
     prepareTimeoutMs: readPositiveIntegerEnv(
       env,
       "PHASE4_AI_PREPARE_TIMEOUT_MS",
-      5000,
+      DEFAULT_AI_CLEANUP_SETTINGS.prepareTimeoutMs,
       options,
     ),
     autoCleanupEnabled: readBooleanEnv(
       env,
       "PHASE4_AI_AUTO_CLEANUP_ENABLED",
-      true,
+      DEFAULT_AI_CLEANUP_SETTINGS.autoCleanupEnabled,
       {
         onInvalid: () =>
-          options.onInvalidBoolean?.("PHASE4_AI_AUTO_CLEANUP_ENABLED", true),
+          options.onInvalidBoolean?.(
+            "PHASE4_AI_AUTO_CLEANUP_ENABLED",
+            DEFAULT_AI_CLEANUP_SETTINGS.autoCleanupEnabled,
+          ),
       },
     ),
     autoCleanupPollMs: readPositiveIntegerEnv(
       env,
       "PHASE4_AI_AUTO_CLEANUP_POLL_MS",
-      5000,
+      DEFAULT_AI_CLEANUP_SETTINGS.autoCleanupPollMs,
       options,
     ),
     autoCleanupSessionBatchLimit: readPositiveIntegerEnv(
       env,
       "PHASE4_AI_AUTO_CLEANUP_SESSION_BATCH_LIMIT",
-      3,
+      DEFAULT_AI_CLEANUP_SETTINGS.autoCleanupSessionBatchLimit,
       options,
     ),
     readinessRetryMs: readPositiveIntegerEnv(
       env,
       "PHASE4_AI_READINESS_RETRY_MS",
-      60000,
+      DEFAULT_AI_CLEANUP_SETTINGS.readinessRetryMs,
       options,
     ),
     leaseMs: readOptionalPositiveIntegerEnv(
@@ -134,25 +155,25 @@ export function loadAiCleanupSettingsFromEnv(
     maxAttempts: readPositiveIntegerEnv(
       env,
       "PHASE4_AI_MAX_ATTEMPTS",
-      3,
+      DEFAULT_AI_CLEANUP_SETTINGS.maxAttempts,
       options,
     ),
     maxInputChars: readPositiveIntegerEnv(
       env,
       "PHASE4_AI_MAX_INPUT_CHARS",
-      120000,
+      DEFAULT_AI_CLEANUP_SETTINGS.maxInputChars,
       options,
     ),
     timeoutMs: readPositiveIntegerEnv(
       env,
       "PHASE4_AI_TIMEOUT_MS",
-      120000,
+      DEFAULT_AI_CLEANUP_SETTINGS.timeoutMs,
       options,
     ),
     maxOutputBytes: readPositiveIntegerEnv(
       env,
       "PHASE4_AI_MAX_OUTPUT_BYTES",
-      2 * 1024 * 1024,
+      DEFAULT_AI_CLEANUP_SETTINGS.maxOutputBytes,
       options,
     ),
   };
@@ -163,14 +184,17 @@ export function loadNotionSettingsFromEnv(
   options: EnvSettingsLoaderOptions = {},
 ): NotionRuntimeSettings {
   const settings: NotionRuntimeSettings = {
-    enabled: readBooleanEnv(env, "NOTION_EXPORT_ENABLED", false, {
+    enabled: readBooleanEnv(env, "NOTION_EXPORT_ENABLED", DEFAULT_NOTION_SETTINGS.enabled, {
       onInvalid: () =>
-        options.onInvalidBoolean?.("NOTION_EXPORT_ENABLED", false),
+        options.onInvalidBoolean?.(
+          "NOTION_EXPORT_ENABLED",
+          DEFAULT_NOTION_SETTINGS.enabled,
+        ),
     }),
     apiKey: readOptionalStringEnv(env, "NOTION_API_KEY"),
     apiVersion:
       readOptionalStringEnv(env, "NOTION_API_VERSION") ??
-      DEFAULT_NOTION_API_VERSION,
+      DEFAULT_NOTION_SETTINGS.apiVersion,
     baseUrl: readNotionBaseUrl(env, options),
     targetUrl: readOptionalStringEnv(env, "NOTION_TARGET_URL"),
     targetType: readNotionTargetType(env.NOTION_TARGET_TYPE),
@@ -182,52 +206,52 @@ export function loadNotionSettingsFromEnv(
     autoPollMs: readPositiveIntegerEnv(
       env,
       "NOTION_AUTO_POLL_MS",
-      5000,
+      DEFAULT_NOTION_SETTINGS.autoPollMs,
       options,
     ),
     leaseMs: readPositiveIntegerEnv(
       env,
       "NOTION_LEASE_MS",
-      600000,
+      DEFAULT_NOTION_SETTINGS.leaseMs,
       options,
     ),
     maxAttempts: readPositiveIntegerEnv(
       env,
       "NOTION_MAX_ATTEMPTS",
-      3,
+      DEFAULT_NOTION_SETTINGS.maxAttempts,
       options,
     ),
     propertyNames: {
       title:
         readOptionalStringEnv(env, "NOTION_PROPERTY_TITLE") ??
-        DEFAULT_NOTION_PROPERTY_NAMES.title,
+        DEFAULT_NOTION_SETTINGS.propertyNames.title,
       date:
         readOptionalStringEnv(env, "NOTION_PROPERTY_DATE") ??
-        DEFAULT_NOTION_PROPERTY_NAMES.date,
+        DEFAULT_NOTION_SETTINGS.propertyNames.date,
       meetingTime:
         readOptionalStringEnv(env, "NOTION_PROPERTY_MEETING_TIME") ??
-        DEFAULT_NOTION_PROPERTY_NAMES.meetingTime,
+        DEFAULT_NOTION_SETTINGS.propertyNames.meetingTime,
       channel:
         readOptionalStringEnv(env, "NOTION_PROPERTY_CHANNEL") ??
-        DEFAULT_NOTION_PROPERTY_NAMES.channel,
+        DEFAULT_NOTION_SETTINGS.propertyNames.channel,
       participants:
         readOptionalStringEnv(env, "NOTION_PROPERTY_PARTICIPANTS") ??
-        DEFAULT_NOTION_PROPERTY_NAMES.participants,
+        DEFAULT_NOTION_SETTINGS.propertyNames.participants,
       status:
         readOptionalStringEnv(env, "NOTION_PROPERTY_STATUS") ??
-        DEFAULT_NOTION_PROPERTY_NAMES.status,
+        DEFAULT_NOTION_SETTINGS.propertyNames.status,
       sessionId:
         readOptionalStringEnv(env, "NOTION_PROPERTY_SESSION_ID") ??
-        DEFAULT_NOTION_PROPERTY_NAMES.sessionId,
+        DEFAULT_NOTION_SETTINGS.propertyNames.sessionId,
       draftId:
         readOptionalStringEnv(env, "NOTION_PROPERTY_DRAFT_ID") ??
-        DEFAULT_NOTION_PROPERTY_NAMES.draftId,
+        DEFAULT_NOTION_SETTINGS.propertyNames.draftId,
       contentHash:
         readOptionalStringEnv(env, "NOTION_PROPERTY_CONTENT_HASH") ??
-        DEFAULT_NOTION_PROPERTY_NAMES.contentHash,
+        DEFAULT_NOTION_SETTINGS.propertyNames.contentHash,
       localStatus:
         readOptionalStringEnv(env, "NOTION_PROPERTY_LOCAL_STATUS") ??
-        DEFAULT_NOTION_PROPERTY_NAMES.localStatus,
+        DEFAULT_NOTION_SETTINGS.propertyNames.localStatus,
     },
   };
 
@@ -242,7 +266,7 @@ export function loadNotionSettingsFromEnv(
 }
 
 function readSttProvider(value: string | undefined): SttProviderName {
-  const provider = value?.trim() || "local-whisper";
+  const provider = value?.trim() || DEFAULT_STT_SETTINGS.provider;
   if (provider !== "local-whisper" && provider !== "openai") {
     throw new Error("PHASE3_STT_PROVIDER는 local-whisper 또는 openai여야 합니다.");
   }
@@ -250,7 +274,7 @@ function readSttProvider(value: string | undefined): SttProviderName {
 }
 
 function readNotionTargetType(value: string | undefined): NotionTargetType {
-  const targetType = value?.trim() || "data_source";
+  const targetType = value?.trim() || DEFAULT_NOTION_SETTINGS.targetType;
   if (targetType !== "data_source") {
     throw new Error("NOTION_TARGET_TYPE은 data_source만 지원합니다.");
   }
@@ -258,7 +282,7 @@ function readNotionTargetType(value: string | undefined): NotionTargetType {
 }
 
 function readNotionUploadMode(value: string | undefined): NotionUploadMode {
-  const uploadMode = value?.trim() || "manual";
+  const uploadMode = value?.trim() || DEFAULT_NOTION_SETTINGS.uploadMode;
   if (
     uploadMode !== "manual" &&
     uploadMode !== "automatic_after_ai_cleanup"
@@ -271,7 +295,7 @@ function readNotionUploadMode(value: string | undefined): NotionUploadMode {
 }
 
 function readNotionTemplateType(value: string | undefined): NotionTemplateType {
-  const templateType = value?.trim() || "app";
+  const templateType = value?.trim() || DEFAULT_NOTION_SETTINGS.templateType;
   if (templateType !== "app") {
     throw new Error("NOTION_TEMPLATE_TYPE은 MVP에서 app만 지원합니다.");
   }
@@ -281,7 +305,7 @@ function readNotionTemplateType(value: string | undefined): NotionTemplateType {
 function readNotionIncludeTranscript(
   value: string | undefined,
 ): NotionIncludeTranscript {
-  const includeTranscript = value?.trim() || "never";
+  const includeTranscript = value?.trim() || DEFAULT_NOTION_SETTINGS.includeTranscript;
   if (includeTranscript !== "never") {
     throw new Error("NOTION_INCLUDE_TRANSCRIPT는 MVP에서 never만 지원합니다.");
   }
@@ -293,7 +317,8 @@ function readNotionBaseUrl(
   options: EnvSettingsLoaderOptions,
 ): string {
   const baseUrl =
-    readOptionalStringEnv(env, "NOTION_BASE_URL") ?? DEFAULT_NOTION_BASE_URL;
+    readOptionalStringEnv(env, "NOTION_BASE_URL") ??
+    DEFAULT_NOTION_SETTINGS.baseUrl;
   if (baseUrl === DEFAULT_NOTION_BASE_URL) {
     return baseUrl;
   }

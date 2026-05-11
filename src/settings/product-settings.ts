@@ -6,9 +6,6 @@ import {
   type HumanStatusDisplayInput,
 } from "../messages/human-status.js";
 import {
-  DEFAULT_NOTION_API_VERSION,
-  DEFAULT_NOTION_BASE_URL,
-  DEFAULT_NOTION_PROPERTY_NAMES,
   type NotionRuntimeSettings,
 } from "../notion/settings.js";
 import {
@@ -33,6 +30,15 @@ import {
   LocalSettingsStore,
   type SttLocalSettings,
 } from "./local-settings-store.js";
+import {
+  DEFAULT_AI_CLEANUP_SETTINGS,
+  DEFAULT_DASHBOARD_SETTINGS,
+  DEFAULT_NOTION_SETTINGS,
+  DEFAULT_RECORDING_SETTINGS,
+  DEFAULT_RETENTION_SETTINGS,
+  DEFAULT_SETUP_AI_SETTINGS,
+  DEFAULT_STT_SETTINGS,
+} from "./defaults.js";
 import {
   DEFAULT_SECRET_REFS,
   LocalSecretStore,
@@ -68,6 +74,7 @@ export type ProductSetupStatusSnapshot = {
   locale: DirongLocale;
   notionSchemaLocale: DirongLocale;
   dashboardTheme: DirongDashboardTheme;
+  defaults: ProductSetupDefaultsSnapshot;
   status: "not_configured" | "ready" | "blocked";
   userDataDir: string;
   settingsPath: string;
@@ -103,6 +110,28 @@ export type ProductSetupStatusSnapshot = {
       deleteAudioAfterNotionUpload: boolean;
       textDraftRetentionDays: number;
     };
+  };
+};
+
+export type ProductSetupDefaultsSnapshot = {
+  stt: {
+    provider: typeof DEFAULT_STT_SETTINGS.provider;
+    language: string;
+    timeoutMs: number;
+    openAiModel: string;
+    localWhisper: {
+      profile: typeof DEFAULT_LOCAL_WHISPER_TOOL_PROFILE;
+      model: string;
+      device: string;
+      computeType: string;
+    };
+  };
+  ai: typeof DEFAULT_SETUP_AI_SETTINGS;
+  retention: typeof DEFAULT_RETENTION_SETTINGS;
+  dashboard: {
+    locale: DirongLocale;
+    theme: DirongDashboardTheme;
+    themes: readonly DirongDashboardTheme[];
   };
 };
 
@@ -206,7 +235,9 @@ export function buildProductPhase1Config(
   secretStore: LocalSecretStore,
 ): Phase1Config {
   const guildIds = settings.discord.guildIds ?? [];
-  const aloneFinalizeGraceMs = settings.recording.aloneFinalizeGraceMs ?? 90000;
+  const aloneFinalizeGraceMs =
+    settings.recording.aloneFinalizeGraceMs ??
+    DEFAULT_RECORDING_SETTINGS.aloneFinalizeGraceMs;
 
   return {
     discordBotToken: secretStore.get(
@@ -217,22 +248,25 @@ export function buildProductPhase1Config(
     guildIds,
     dataDir: paths.sessionsDir,
     dbPath: paths.databasePath,
-    dbBusyTimeoutMs: 5000,
-    silenceMs: 1000,
-    softRolloverMs: 60000,
-    maxChunkMs: 120000,
-    sttSafeFormat: "webm",
-    sttMaxAttempts: 3,
-    sttLeaseMs: 900000,
-    partRepairAgeMs: 300000,
-    enableDave: true,
-    decryptionFailureTolerance: 24,
-    debugVoice: false,
+    dbBusyTimeoutMs: DEFAULT_RECORDING_SETTINGS.dbBusyTimeoutMs,
+    silenceMs: DEFAULT_RECORDING_SETTINGS.silenceMs,
+    softRolloverMs: DEFAULT_RECORDING_SETTINGS.softRolloverMs,
+    maxChunkMs: DEFAULT_RECORDING_SETTINGS.maxChunkMs,
+    sttSafeFormat: DEFAULT_RECORDING_SETTINGS.sttSafeFormat,
+    sttMaxAttempts: DEFAULT_RECORDING_SETTINGS.sttMaxAttempts,
+    sttLeaseMs: DEFAULT_RECORDING_SETTINGS.sttLeaseMs,
+    partRepairAgeMs: DEFAULT_RECORDING_SETTINGS.partRepairAgeMs,
+    enableDave: DEFAULT_RECORDING_SETTINGS.enableDave,
+    decryptionFailureTolerance:
+      DEFAULT_RECORDING_SETTINGS.decryptionFailureTolerance,
+    debugVoice: DEFAULT_RECORDING_SETTINGS.productDebugVoice,
     autoRegisterCommands: guildIds.length > 0,
-    dashboardHost: "127.0.0.1",
-    dashboardPort: 3095,
-    openDashboard: true,
-    aloneFinalizeEnabled: settings.recording.aloneFinalizeEnabled ?? true,
+    dashboardHost: DEFAULT_DASHBOARD_SETTINGS.host,
+    dashboardPort: DEFAULT_DASHBOARD_SETTINGS.port,
+    openDashboard: DEFAULT_DASHBOARD_SETTINGS.openDashboard,
+    aloneFinalizeEnabled:
+      settings.recording.aloneFinalizeEnabled ??
+      DEFAULT_RECORDING_SETTINGS.productAloneFinalizeEnabled,
     aloneFinalizeGraceMs,
   };
 }
@@ -245,17 +279,18 @@ export function buildProductAppSettings(
     stt: buildProductSttSettings(settings.stt, secretStore),
     aiCleanup: {
       claudeCommand: buildProductClaudeCommand(settings.ai),
-      claudeModel: settings.ai.model ?? null,
-      prepareTimeoutMs: 5000,
+      claudeModel: settings.ai.model ?? DEFAULT_AI_CLEANUP_SETTINGS.claudeModel,
+      prepareTimeoutMs: DEFAULT_AI_CLEANUP_SETTINGS.prepareTimeoutMs,
       autoCleanupEnabled: isAiConfigured(settings.ai, secretStore),
-      autoCleanupPollMs: 5000,
-      autoCleanupSessionBatchLimit: 3,
-      readinessRetryMs: 60000,
-      leaseMs: null,
-      maxAttempts: 3,
-      maxInputChars: 120000,
-      timeoutMs: 120000,
-      maxOutputBytes: 2 * 1024 * 1024,
+      autoCleanupPollMs: DEFAULT_AI_CLEANUP_SETTINGS.autoCleanupPollMs,
+      autoCleanupSessionBatchLimit:
+        DEFAULT_AI_CLEANUP_SETTINGS.autoCleanupSessionBatchLimit,
+      readinessRetryMs: DEFAULT_AI_CLEANUP_SETTINGS.readinessRetryMs,
+      leaseMs: DEFAULT_AI_CLEANUP_SETTINGS.leaseMs,
+      maxAttempts: DEFAULT_AI_CLEANUP_SETTINGS.maxAttempts,
+      maxInputChars: DEFAULT_AI_CLEANUP_SETTINGS.maxInputChars,
+      timeoutMs: DEFAULT_AI_CLEANUP_SETTINGS.timeoutMs,
+      maxOutputBytes: DEFAULT_AI_CLEANUP_SETTINGS.maxOutputBytes,
     },
     notion: buildProductNotionSettings(settings, secretStore),
   };
@@ -311,6 +346,7 @@ export function buildProductSetupStatus(input: {
     locale,
     notionSchemaLocale: locale,
     dashboardTheme,
+    defaults: buildProductSetupDefaults(),
     status: featureStatuses.every((status) => status === "ready")
       ? "ready"
       : featureStatuses.includes("not_configured")
@@ -363,9 +399,9 @@ function buildProductSttSettings(
   settings: SttLocalSettings,
   secretStore: LocalSecretStore,
 ): SttSettings {
-  const provider = settings.provider ?? "local-whisper";
-  const language = settings.language ?? "ko";
-  const timeoutMs = settings.timeoutMs ?? 120000;
+  const provider = settings.provider ?? DEFAULT_STT_SETTINGS.provider;
+  const language = settings.language ?? DEFAULT_STT_SETTINGS.language;
+  const timeoutMs = settings.timeoutMs ?? DEFAULT_STT_SETTINGS.timeoutMs;
 
   if (provider === "openai") {
     return {
@@ -377,7 +413,7 @@ function buildProductSttSettings(
           secretStore.get(
             settings.openAiApiKeySecretRef ?? DEFAULT_SECRET_REFS.openAiApiKey,
           ) ?? "",
-        model: settings.openAiModel ?? "gpt-4o-mini-transcribe",
+        model: settings.openAiModel ?? DEFAULT_STT_SETTINGS.openai.model,
       },
     };
   }
@@ -390,9 +426,13 @@ function buildProductSttSettings(
     localWhisper: {
       command: localWhisper.command,
       args: localWhisper.args,
-      model: settings.localWhisper?.model ?? "small",
-      device: settings.localWhisper?.device ?? "cpu",
-      computeType: settings.localWhisper?.computeType ?? "int8",
+      model:
+        settings.localWhisper?.model ?? DEFAULT_STT_SETTINGS.localWhisper.model,
+      device:
+        settings.localWhisper?.device ?? DEFAULT_STT_SETTINGS.localWhisper.device,
+      computeType:
+        settings.localWhisper?.computeType ??
+        DEFAULT_STT_SETTINGS.localWhisper.computeType,
     },
   };
 }
@@ -409,17 +449,17 @@ function buildProductNotionSettings(
   return {
     enabled: Boolean(apiKey && parentPageUrl),
     apiKey,
-    apiVersion: DEFAULT_NOTION_API_VERSION,
-    baseUrl: DEFAULT_NOTION_BASE_URL,
-    targetUrl: null,
-    targetType: "data_source",
-    uploadMode: settings.notion.uploadMode ?? "manual",
-    templateType: "app",
-    includeTranscript: "never",
-    autoPollMs: 5000,
-    leaseMs: 600000,
-    maxAttempts: 3,
-    propertyNames: DEFAULT_NOTION_PROPERTY_NAMES,
+    apiVersion: DEFAULT_NOTION_SETTINGS.apiVersion,
+    baseUrl: DEFAULT_NOTION_SETTINGS.baseUrl,
+    targetUrl: DEFAULT_NOTION_SETTINGS.targetUrl,
+    targetType: DEFAULT_NOTION_SETTINGS.targetType,
+    uploadMode: settings.notion.uploadMode ?? DEFAULT_NOTION_SETTINGS.uploadMode,
+    templateType: DEFAULT_NOTION_SETTINGS.templateType,
+    includeTranscript: DEFAULT_NOTION_SETTINGS.includeTranscript,
+    autoPollMs: DEFAULT_NOTION_SETTINGS.autoPollMs,
+    leaseMs: DEFAULT_NOTION_SETTINGS.leaseMs,
+    maxAttempts: DEFAULT_NOTION_SETTINGS.maxAttempts,
+    propertyNames: { ...DEFAULT_NOTION_SETTINGS.propertyNames },
   };
 }
 
@@ -503,8 +543,9 @@ function buildSttStatus(
     provider: settings.stt.provider,
     model:
       settings.stt.provider === "openai"
-        ? settings.stt.openAiModel ?? "gpt-4o-mini-transcribe"
-        : settings.stt.localWhisper?.model ?? "small",
+        ? settings.stt.openAiModel ?? DEFAULT_STT_SETTINGS.openai.model
+        : settings.stt.localWhisper?.model ??
+          DEFAULT_STT_SETTINGS.localWhisper.model,
   });
 }
 
@@ -691,9 +732,36 @@ function buildDataRetentionStatus(
     userActionKey: null,
     missing: [],
     deleteAudioAfterNotionUpload:
-      settings.retention.deleteAudioAfterNotionUpload ?? true,
-    textDraftRetentionDays: settings.retention.textDraftRetentionDays ?? 30,
+      settings.retention.deleteAudioAfterNotionUpload ??
+      DEFAULT_RETENTION_SETTINGS.deleteAudioAfterNotionUpload,
+    textDraftRetentionDays:
+      settings.retention.textDraftRetentionDays ??
+      DEFAULT_RETENTION_SETTINGS.textDraftRetentionDays,
   });
+}
+
+function buildProductSetupDefaults(): ProductSetupDefaultsSnapshot {
+  return {
+    stt: {
+      provider: DEFAULT_STT_SETTINGS.provider,
+      language: DEFAULT_STT_SETTINGS.language,
+      timeoutMs: DEFAULT_STT_SETTINGS.timeoutMs,
+      openAiModel: DEFAULT_STT_SETTINGS.openai.model,
+      localWhisper: {
+        profile: DEFAULT_STT_SETTINGS.localWhisper.profile,
+        model: DEFAULT_STT_SETTINGS.localWhisper.model,
+        device: DEFAULT_STT_SETTINGS.localWhisper.device,
+        computeType: DEFAULT_STT_SETTINGS.localWhisper.computeType,
+      },
+    },
+    ai: { ...DEFAULT_SETUP_AI_SETTINGS },
+    retention: { ...DEFAULT_RETENTION_SETTINGS },
+    dashboard: {
+      locale: DEFAULT_DASHBOARD_SETTINGS.locale,
+      theme: DEFAULT_DASHBOARD_SETTINGS.theme,
+      themes: [...DEFAULT_DASHBOARD_SETTINGS.themes],
+    },
+  };
 }
 
 function withLocalizedText<T extends { status: ProductFeatureStatus; missing: string[] }>(

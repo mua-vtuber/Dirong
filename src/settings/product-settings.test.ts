@@ -6,6 +6,12 @@ import test from "node:test";
 import { getDirongUserDataPaths } from "./dirong-user-data.js";
 import { LocalSecretStore, DEFAULT_SECRET_REFS } from "./local-secret-store.js";
 import { LocalSettingsStore } from "./local-settings-store.js";
+import {
+  DEFAULT_DASHBOARD_SETTINGS,
+  DEFAULT_RETENTION_SETTINGS,
+  DEFAULT_SETUP_AI_SETTINGS,
+  DEFAULT_STT_SETTINGS,
+} from "./defaults.js";
 import { NOTION_MANAGED_SCHEMA_VERSION } from "../notion/managed-schema.js";
 import { NotionRegistryStore } from "../notion/registry-store.js";
 import {
@@ -148,6 +154,27 @@ test("buildProductSetupStatus localizes setup messages and exposes locale keys",
     assert.equal(status.locale, "en");
     assert.equal(status.notionSchemaLocale, "en");
     assert.equal(status.dashboardTheme, "system");
+    assert.deepEqual(status.defaults, {
+      stt: {
+        provider: DEFAULT_STT_SETTINGS.provider,
+        language: DEFAULT_STT_SETTINGS.language,
+        timeoutMs: DEFAULT_STT_SETTINGS.timeoutMs,
+        openAiModel: DEFAULT_STT_SETTINGS.openai.model,
+        localWhisper: {
+          profile: DEFAULT_STT_SETTINGS.localWhisper.profile,
+          model: DEFAULT_STT_SETTINGS.localWhisper.model,
+          device: DEFAULT_STT_SETTINGS.localWhisper.device,
+          computeType: DEFAULT_STT_SETTINGS.localWhisper.computeType,
+        },
+      },
+      ai: DEFAULT_SETUP_AI_SETTINGS,
+      retention: DEFAULT_RETENTION_SETTINGS,
+      dashboard: {
+        locale: DEFAULT_DASHBOARD_SETTINGS.locale,
+        theme: DEFAULT_DASHBOARD_SETTINGS.theme,
+        themes: DEFAULT_DASHBOARD_SETTINGS.themes,
+      },
+    });
     assert.equal(
       status.features.discord.messageKey,
       "setup.discord.status.notConfigured.message",

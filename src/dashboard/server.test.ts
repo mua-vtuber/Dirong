@@ -8,6 +8,16 @@ import type { Phase1Config } from "../config.js";
 import type { RecordingProducer } from "../recording/recording-producer.js";
 import type { SessionStore } from "../storage/session-store.js";
 import type { DirongLocale } from "../settings/local-settings-store.js";
+import { LocalSettingsStore } from "../settings/local-settings-store.js";
+import { LocalSecretStore } from "../settings/local-secret-store.js";
+import { getDirongUserDataPaths } from "../settings/dirong-user-data.js";
+import {
+  DEFAULT_DASHBOARD_SETTINGS,
+  DEFAULT_RETENTION_SETTINGS,
+  DEFAULT_SETUP_AI_SETTINGS,
+  DEFAULT_STT_SETTINGS,
+} from "../settings/defaults.js";
+import { SetupWizardService } from "../setup/wizard-service.js";
 import type {
   DashboardNotionAutomationSource,
   DashboardNotionSource,
@@ -402,6 +412,47 @@ test("DashboardServer setup wizard routes read state and post actions through th
     assert.deepEqual(calls, [{ applicationId: "123456789012345678" }]);
   } finally {
     await fixture.close();
+  }
+});
+
+test("DashboardServer setup STT route lets the wizard apply server defaults", async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-dashboard-setup-"));
+  const paths = getDirongUserDataPaths(dir);
+  const settingsStore = new LocalSettingsStore(paths.settingsFile);
+  const secretStore = new LocalSecretStore(paths.secretsFile);
+  const fixture = await startDashboardFixture({
+    setupWizard: new SetupWizardService({
+      paths,
+      settingsStore,
+      secretStore,
+    }),
+  });
+  try {
+    const response = await postJson(fixture.baseUrl, "/api/setup/stt", {
+      provider: "local-whisper",
+    });
+    const body = await response.json() as { ok: boolean };
+
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.deepEqual(settingsStore.read().stt, {
+      provider: "local-whisper",
+      language: DEFAULT_STT_SETTINGS.language,
+      timeoutMs: DEFAULT_STT_SETTINGS.timeoutMs,
+      localWhisper: {
+        profile: DEFAULT_STT_SETTINGS.localWhisper.profile,
+        command: undefined,
+        args: undefined,
+        model: DEFAULT_STT_SETTINGS.localWhisper.model,
+        device: DEFAULT_STT_SETTINGS.localWhisper.device,
+        computeType: DEFAULT_STT_SETTINGS.localWhisper.computeType,
+      },
+      openAiApiKeySecretRef: undefined,
+      openAiModel: undefined,
+    });
+  } finally {
+    await fixture.close();
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
@@ -1068,6 +1119,27 @@ function makeSetupStatusSource(): DashboardSetupStatusSource {
       locale: "ko",
       notionSchemaLocale: "ko",
       dashboardTheme: "system",
+      defaults: {
+        stt: {
+          provider: DEFAULT_STT_SETTINGS.provider,
+          language: DEFAULT_STT_SETTINGS.language,
+          timeoutMs: DEFAULT_STT_SETTINGS.timeoutMs,
+          openAiModel: DEFAULT_STT_SETTINGS.openai.model,
+          localWhisper: {
+            profile: DEFAULT_STT_SETTINGS.localWhisper.profile,
+            model: DEFAULT_STT_SETTINGS.localWhisper.model,
+            device: DEFAULT_STT_SETTINGS.localWhisper.device,
+            computeType: DEFAULT_STT_SETTINGS.localWhisper.computeType,
+          },
+        },
+        ai: DEFAULT_SETUP_AI_SETTINGS,
+        retention: DEFAULT_RETENTION_SETTINGS,
+        dashboard: {
+          locale: DEFAULT_DASHBOARD_SETTINGS.locale,
+          theme: DEFAULT_DASHBOARD_SETTINGS.theme,
+          themes: DEFAULT_DASHBOARD_SETTINGS.themes,
+        },
+      },
       status: "not_configured",
       userDataDir: "C:\\Users\\Taniar\\AppData\\Local\\Dirong",
       settingsPath: "C:\\Users\\Taniar\\AppData\\Local\\Dirong\\settings\\settings.json",

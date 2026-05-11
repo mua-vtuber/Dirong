@@ -20,6 +20,10 @@ import {
   LocalSecretStore,
 } from "../settings/local-secret-store.js";
 import { LocalSettingsStore } from "../settings/local-settings-store.js";
+import {
+  DEFAULT_MEETING_NOTES_LANGUAGE,
+  DEFAULT_STT_SETTINGS,
+} from "../settings/defaults.js";
 import { getDirongUserDataPaths } from "../settings/dirong-user-data.js";
 import { SqlRunner } from "../storage/sql-runner.js";
 import { DirongDatabase } from "../storage/sqlite.js";
@@ -148,6 +152,34 @@ test("SetupWizardService saves STT and Claude settings and uses the fake Claude 
     const tested = await fixture.service.testClaudeConnection();
     assert.equal(tested.ok, true);
     assert.deepEqual(claudeCalls, ["cli"]);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("SetupWizardService applies server STT defaults when optional setup fields are empty", () => {
+  const fixture = createFixture();
+  try {
+    const result = fixture.service.saveSttSettings({
+      provider: "local-whisper",
+    });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(fixture.settings.read().stt, {
+      provider: "local-whisper",
+      language: DEFAULT_MEETING_NOTES_LANGUAGE,
+      timeoutMs: DEFAULT_STT_SETTINGS.timeoutMs,
+      localWhisper: {
+        profile: DEFAULT_STT_SETTINGS.localWhisper.profile,
+        command: undefined,
+        args: undefined,
+        model: DEFAULT_STT_SETTINGS.localWhisper.model,
+        device: DEFAULT_STT_SETTINGS.localWhisper.device,
+        computeType: DEFAULT_STT_SETTINGS.localWhisper.computeType,
+      },
+      openAiApiKeySecretRef: undefined,
+      openAiModel: undefined,
+    });
   } finally {
     fixture.close();
   }

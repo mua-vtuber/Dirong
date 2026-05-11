@@ -1,8 +1,15 @@
 import path from "node:path";
 import dotenv from "dotenv";
 import { MissingRequiredConfigError } from "./errors.js";
+import {
+  DEFAULT_DASHBOARD_SETTINGS,
+  DEFAULT_RECORDING_SETTINGS,
+  LOCAL_ONLY_DASHBOARD_HOST,
+  SUPPORTED_STT_SAFE_FORMATS,
+  type SttSafeFormat,
+} from "./settings/defaults.js";
 
-export type SttSafeFormat = "webm" | "wav";
+export type { SttSafeFormat } from "./settings/defaults.js";
 
 export type Phase1Config = {
   discordBotToken: string;
@@ -23,7 +30,7 @@ export type Phase1Config = {
   decryptionFailureTolerance: number;
   debugVoice: boolean;
   autoRegisterCommands: boolean;
-  dashboardHost: "127.0.0.1";
+  dashboardHost: typeof LOCAL_ONLY_DASHBOARD_HOST;
   dashboardPort: number;
   openDashboard: boolean;
   aloneFinalizeEnabled: boolean;
@@ -57,16 +64,24 @@ export function loadPhase1Config(options?: {
     process.env[key]?.trim() || fallback;
   const guildIds = readDiscordGuildIdsFromEnv();
 
-  const sttSafeFormat = optional("PHASE1_STT_SAFE_FORMAT", "webm");
-  if (sttSafeFormat !== "webm" && sttSafeFormat !== "wav") {
+  const sttSafeFormat = optional(
+    "PHASE1_STT_SAFE_FORMAT",
+    DEFAULT_RECORDING_SETTINGS.sttSafeFormat,
+  );
+  if (!isSttSafeFormat(sttSafeFormat)) {
     throw new Error(
       "PHASE1_STT_SAFE_FORMAT은 webm 또는 wav 중 하나여야 합니다.",
     );
   }
 
-  const dataDir = path.resolve(optional("PHASE1_DATA_DIR", "./data/sessions"));
-  const dashboardHost = optional("PHASE1_DASHBOARD_HOST", "127.0.0.1");
-  if (dashboardHost !== "127.0.0.1") {
+  const dataDir = path.resolve(
+    optional("PHASE1_DATA_DIR", DEFAULT_RECORDING_SETTINGS.dataDir),
+  );
+  const dashboardHost = optional(
+    "PHASE1_DASHBOARD_HOST",
+    DEFAULT_DASHBOARD_SETTINGS.host,
+  );
+  if (dashboardHost !== LOCAL_ONLY_DASHBOARD_HOST) {
     throw new Error("Dirong dashboard는 127.0.0.1에만 bind할 수 있습니다.");
   }
 
@@ -83,26 +98,68 @@ export function loadPhase1Config(options?: {
     dbPath: path.resolve(
       optional("PHASE1_DB_PATH", path.join(dataDir, "dirong.sqlite")),
     ),
-    dbBusyTimeoutMs: readNumber("PHASE1_DB_BUSY_TIMEOUT_MS", 5000),
-    silenceMs: readNumber("PHASE1_SILENCE_MS", 1000),
-    softRolloverMs: readNumber("PHASE1_SOFT_ROLLOVER_MS", 60000),
-    maxChunkMs: readNumber("PHASE1_MAX_CHUNK_MS", 120000),
+    dbBusyTimeoutMs: readNumber(
+      "PHASE1_DB_BUSY_TIMEOUT_MS",
+      DEFAULT_RECORDING_SETTINGS.dbBusyTimeoutMs,
+    ),
+    silenceMs: readNumber(
+      "PHASE1_SILENCE_MS",
+      DEFAULT_RECORDING_SETTINGS.silenceMs,
+    ),
+    softRolloverMs: readNumber(
+      "PHASE1_SOFT_ROLLOVER_MS",
+      DEFAULT_RECORDING_SETTINGS.softRolloverMs,
+    ),
+    maxChunkMs: readNumber(
+      "PHASE1_MAX_CHUNK_MS",
+      DEFAULT_RECORDING_SETTINGS.maxChunkMs,
+    ),
     sttSafeFormat,
-    sttMaxAttempts: readNumber("PHASE1_STT_MAX_ATTEMPTS", 3),
-    sttLeaseMs: readNumber("PHASE1_STT_LEASE_MS", 900000),
-    partRepairAgeMs: readNumber("PHASE1_PART_REPAIR_AGE_MS", 300000),
-    enableDave: readBoolean("PHASE1_ENABLE_DAVE", true),
+    sttMaxAttempts: readNumber(
+      "PHASE1_STT_MAX_ATTEMPTS",
+      DEFAULT_RECORDING_SETTINGS.sttMaxAttempts,
+    ),
+    sttLeaseMs: readNumber(
+      "PHASE1_STT_LEASE_MS",
+      DEFAULT_RECORDING_SETTINGS.sttLeaseMs,
+    ),
+    partRepairAgeMs: readNumber(
+      "PHASE1_PART_REPAIR_AGE_MS",
+      DEFAULT_RECORDING_SETTINGS.partRepairAgeMs,
+    ),
+    enableDave: readBoolean(
+      "PHASE1_ENABLE_DAVE",
+      DEFAULT_RECORDING_SETTINGS.enableDave,
+    ),
     decryptionFailureTolerance: readNumber(
       "PHASE1_DECRYPTION_FAILURE_TOLERANCE",
-      24,
+      DEFAULT_RECORDING_SETTINGS.decryptionFailureTolerance,
     ),
-    debugVoice: readBoolean("PHASE1_DEBUG_VOICE", true),
-    autoRegisterCommands: readBoolean("PHASE1_AUTO_REGISTER_COMMANDS", true),
+    debugVoice: readBoolean(
+      "PHASE1_DEBUG_VOICE",
+      DEFAULT_RECORDING_SETTINGS.envDebugVoice,
+    ),
+    autoRegisterCommands: readBoolean(
+      "PHASE1_AUTO_REGISTER_COMMANDS",
+      DEFAULT_RECORDING_SETTINGS.envAutoRegisterCommands,
+    ),
     dashboardHost,
-    dashboardPort: readNumber("PHASE1_DASHBOARD_PORT", 3095),
-    openDashboard: readBoolean("PHASE1_OPEN_DASHBOARD", true),
-    aloneFinalizeEnabled: readBoolean("DIRONG_ALONE_FINALIZE_ENABLED", false),
-    aloneFinalizeGraceMs: readNumber("DIRONG_ALONE_FINALIZE_GRACE_MS", 90000),
+    dashboardPort: readNumber(
+      "PHASE1_DASHBOARD_PORT",
+      DEFAULT_DASHBOARD_SETTINGS.port,
+    ),
+    openDashboard: readBoolean(
+      "PHASE1_OPEN_DASHBOARD",
+      DEFAULT_DASHBOARD_SETTINGS.openDashboard,
+    ),
+    aloneFinalizeEnabled: readBoolean(
+      "DIRONG_ALONE_FINALIZE_ENABLED",
+      DEFAULT_RECORDING_SETTINGS.envAloneFinalizeEnabled,
+    ),
+    aloneFinalizeGraceMs: readNumber(
+      "DIRONG_ALONE_FINALIZE_GRACE_MS",
+      DEFAULT_RECORDING_SETTINGS.aloneFinalizeGraceMs,
+    ),
   };
 
   if (config.dashboardPort <= 0 || config.dashboardPort > 65535) {
@@ -175,4 +232,8 @@ function splitDiscordGuildIds(value: string | undefined): string[] {
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)];
+}
+
+function isSttSafeFormat(value: string): value is SttSafeFormat {
+  return SUPPORTED_STT_SAFE_FORMATS.includes(value as SttSafeFormat);
 }

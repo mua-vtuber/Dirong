@@ -1072,9 +1072,9 @@
       welcomeDone: window.localStorage.getItem('dirong.setup.welcomeDone') === 'true',
       recordingDone: window.localStorage.getItem('dirong.setup.recordingDone') === 'true',
       privacyDone: window.localStorage.getItem('dirong.setup.privacyDone') === 'true',
-      sttProvider: window.localStorage.getItem('dirong.setup.sttProvider') ?? 'local-whisper',
-      sttModel: window.localStorage.getItem('dirong.setup.sttModel') ?? 'small',
-      aiMode: window.localStorage.getItem('dirong.setup.aiMode') ?? 'cli',
+      sttProvider: window.localStorage.getItem('dirong.setup.sttProvider') || null,
+      sttModel: window.localStorage.getItem('dirong.setup.sttModel') || null,
+      aiMode: window.localStorage.getItem('dirong.setup.aiMode') || null,
       selectedGuildId: window.localStorage.getItem('dirong.setup.guildId') ?? '',
       guilds: [],
       lastResult: null,
@@ -1082,6 +1082,25 @@
       forceRender: false
     };
     let notionRulesDirty = false;
+    function setupDefaults(setup) {
+      return setup?.defaults ?? setupLocalState.lastSetup?.defaults ?? null;
+    }
+    function requireSetupDefaults() {
+      const defaults = setupDefaults(setupLocalState.lastSetup);
+      if (!defaults) {
+        setupLocalState.lastResult = {
+          ok: false,
+          status: 'failed',
+          message: '서버 기본값을 아직 불러오지 못했습니다.',
+          userAction: '잠시 후 다시 시도해 주세요.'
+        };
+        setupLocalState.forceRender = true;
+        renderSetupWizard(setupLocalState.lastSetup);
+        setupLocalState.forceRender = false;
+        return null;
+      }
+      return defaults;
+    }
     let notionSchemaResult = null;
     const rel = (value) => {
       if (!value) return "";
@@ -1191,7 +1210,7 @@
       return renderSetupFinal(setup);
     }
     function renderSetupLanguage(setup) {
-      const locale = setup.locale ?? 'ko';
+      const locale = setup.locale ?? setupDefaults(setup)?.dashboard?.locale;
       return '<h3>앱 언어를 선택해 주세요</h3>' +
         '<p class="setup-copy">MVP에서는 앱 언어, 위자드 언어, Notion schema locale을 같은 값으로 저장합니다.</p>' +
         '<div class="setup-cards">' +
@@ -1240,8 +1259,9 @@
         setupNextButton(setup, 'guild') + '</div>';
     }
     function renderSetupStt(setup) {
-      const provider = setupLocalState.sttProvider;
-      const model = setupLocalState.sttModel;
+      const defaults = setupDefaults(setup);
+      const provider = setupLocalState.sttProvider ?? defaults?.stt?.provider;
+      const model = setupLocalState.sttModel ?? defaults?.stt?.localWhisper?.model;
       return '<h3>STT provider와 모델을 선택합니다</h3>' +
         '<p class="setup-copy">기본 추천은 내 PC에서 처리하는 local faster-whisper입니다. OpenAI STT는 API 발급이 필요한 유료 고급 대안입니다.</p>' +
         '<div class="setup-cards">' +
@@ -1258,7 +1278,7 @@
         setupNextButton(setup, 'stt') + '</div>';
     }
     function renderSetupAi(setup) {
-      const mode = setupLocalState.aiMode;
+      const mode = setupLocalState.aiMode ?? setupDefaults(setup)?.ai?.mode;
       return '<h3>Claude 사용 방식을 선택합니다</h3>' +
         '<p class="setup-copy">MVP에서는 Claude만 실제 지원합니다. CLI 또는 API 중 하나를 선택합니다.</p>' +
         '<div class="setup-cards">' +
@@ -1288,7 +1308,7 @@
         '<button type="button" onclick="setupVerifyNotionParent()">접근 확인</button>' + setupNextButton(setup, 'notionParent') + '</div>';
     }
     function renderSetupNotionManaged(setup) {
-      const locale = setup.locale ?? 'ko';
+      const locale = setup.locale ?? setupDefaults(setup)?.dashboard?.locale;
       const unsupported = locale !== 'ko';
       const notice = unsupported
         ? '<div class="setup-notice">현재 앱 언어와 Notion schema locale은 ' + escapeHtml(locale) + '입니다. MVP managed Notion DB 자동 생성은 한국어 preset만 지원하므로, 생성하려면 언어 선택 단계에서 한국어로 바꿔 주세요.</div>'
@@ -1309,12 +1329,13 @@
     }
     function renderSetupPrivacy(setup) {
       const retention = setup.features?.dataRetention;
+      const defaultRetention = setupDefaults(setup)?.retention;
       const audioCopy = retention?.deleteAudioAfterNotionUpload === false
         ? '음성 파일 자동 삭제가 꺼져 있으며 Dirong 실행 PC에 보관됩니다.'
         : '음성 파일은 Dirong 실행 PC에 저장되며, Notion 업로드 성공 후 즉시 삭제합니다.';
       return '<h3>개인정보와 보관 정책을 확인합니다</h3>' +
         '<p class="setup-copy">' + audioCopy + ' STT 텍스트와 AI draft는 기본 ' +
-        escapeHtml(retention?.textDraftRetentionDays ?? 30) + '일 뒤 삭제합니다.</p>' +
+        escapeHtml(retention?.textDraftRetentionDays ?? defaultRetention?.textDraftRetentionDays ?? '-') + '일 뒤 삭제합니다.</p>' +
         '<label class="setup-guild"><input id="setupPrivacyConfirm" type="checkbox"' + (setupLocalState.privacyDone ? ' checked' : '') + '> 녹음 시작 안내와 기본 보관 정책을 확인했습니다.</label>' +
         '<div class="setup-actions"><button type="button" onclick="setupConfirmPrivacy()">계속</button></div>';
     }
@@ -1441,7 +1462,9 @@
       }
     }
     async function setupSaveLanguage() {
-      const selected = document.querySelector('input[name="setupLanguage"]:checked')?.value ?? 'ko';
+      const defaults = requireSetupDefaults();
+      if (!defaults) return;
+      const selected = document.querySelector('input[name="setupLanguage"]:checked')?.value ?? defaults.dashboard.locale;
       const result = await setupPost('/api/settings/language', { locale: selected });
       if (result.ok) setupGoNext();
     }
@@ -1492,34 +1515,40 @@
       await setupPost('/api/setup/discord/guild-allowlist', { guildIds: selected ? [selected] : [] });
     }
     async function setupSaveStt() {
-      const provider = setupLocalState.sttProvider;
+      const defaults = requireSetupDefaults();
+      if (!defaults) return;
+      const provider = setupLocalState.sttProvider ?? defaults.stt.provider;
       if (provider === 'openai') {
         await setupPost('/api/setup/stt', {
           provider,
-          model: 'gpt-4o-mini-transcribe',
+          model: defaults.stt.openAiModel,
           apiKey: document.getElementById('setupOpenAiApiKey')?.value ?? '',
-          language: 'ko',
-          timeoutMs: 120000
+          language: defaults.stt.language,
+          timeoutMs: defaults.stt.timeoutMs
         });
         return;
       }
-      const model = setupLocalState.sttModel === 'medium' ? 'medium' : 'small';
+      const model = setupLocalState.sttModel === 'medium'
+        ? 'medium'
+        : defaults.stt.localWhisper.model;
       await setupPost('/api/setup/stt', {
         provider: 'local-whisper',
-        profile: 'local-whisper-python-script',
+        profile: defaults.stt.localWhisper.profile,
         model,
-        device: 'cpu',
-        computeType: 'int8',
-        language: 'ko',
-        timeoutMs: 120000
+        device: defaults.stt.localWhisper.device,
+        computeType: defaults.stt.localWhisper.computeType,
+        language: defaults.stt.language,
+        timeoutMs: defaults.stt.timeoutMs
       });
     }
     async function setupSaveClaude() {
-      const mode = setupLocalState.aiMode;
+      const defaults = requireSetupDefaults();
+      if (!defaults) return;
+      const mode = setupLocalState.aiMode ?? defaults.ai.mode;
       const model = document.getElementById('setupClaudeModel')?.value ?? '';
       await setupPost('/api/setup/ai/claude', mode === 'api'
         ? { mode, apiKey: document.getElementById('setupClaudeApiKey')?.value ?? '', model }
-        : { mode, profile: 'claude-cli-default', model });
+        : { mode, profile: defaults.ai.claudeProfile, model });
     }
     async function setupTestClaude() {
       await setupPost('/api/setup/ai/claude/test', {});
@@ -1572,7 +1601,10 @@
     function renderState(state, setup) {
       const setupSnapshot = setup ?? state.setup ?? null;
       const runtime = state.runtime ?? {};
-      const theme = setupSnapshot?.dashboardTheme ?? 'system';
+      const theme =
+        setupSnapshot?.dashboardTheme ??
+        setupSnapshot?.defaults?.dashboard?.theme ??
+        document.body.dataset.theme;
       document.body.dataset.theme = theme;
       document.getElementById('generatedAt').textContent =
         tr('dashboard.app.generatedAt') + ': ' + (state.generatedAt ?? '-');
@@ -1932,7 +1964,10 @@
         return '<div class="metric"><div class="label">' + i18n('dashboard.settings.tabs.reset') + '</div>' +
           '<div class="value error">' + i18n('dashboard.settings.resetDanger') + '</div></div>';
       }
-      const theme = setup?.dashboardTheme ?? document.body.dataset.theme ?? 'system';
+      const theme =
+        setup?.dashboardTheme ??
+        setup?.defaults?.dashboard?.theme ??
+        document.body.dataset.theme;
       const body = activeSettingsTab === 'retention'
         ? renderRetentionSettings(setup)
         : activeSettingsTab === 'aloneFinalize'
@@ -1940,10 +1975,11 @@
           : '<div class="metric"><div class="label">' + i18n('dashboard.settings.tabs.' + activeSettingsTab) + '</div>' +
             renderHumanDisplay(featureMap[activeSettingsTab]) +
             '<div class="muted">' + i18n('dashboard.settings.secretsHidden') + '</div></div>';
-      return body + renderThemeSettings(theme);
+      return body + renderThemeSettings(theme, setup);
     }
     function renderRetentionSettings(setup) {
       const retention = setup?.features?.dataRetention;
+      const defaultRetention = setup?.defaults?.retention;
       const audioPolicy = retention?.deleteAudioAfterNotionUpload === false
         ? 'dashboard.settings.retention.audioKept'
         : 'dashboard.settings.retention.audioDeleteAfterNotion';
@@ -1951,11 +1987,13 @@
         renderHumanDisplay(retention) +
         '<div class="muted">' + i18n(audioPolicy) + '<br>' +
         i18n('dashboard.settings.retention.textDraftDays', {
-          days: retention?.textDraftRetentionDays ?? 30
+          days: retention?.textDraftRetentionDays ??
+            defaultRetention?.textDraftRetentionDays ?? '-'
         }) + '</div></div>';
     }
-    function renderThemeSettings(theme) {
-      const options = ['system', 'light', 'dark'].map((value) =>
+    function renderThemeSettings(theme, setup) {
+      const values = setup?.defaults?.dashboard?.themes ?? [];
+      const options = values.map((value) =>
         '<label><input type="radio" name="dashboardTheme" value="' + value + '"' +
         (theme === value ? ' checked' : '') + '> ' + i18n('dashboard.settings.theme.' + value) + '</label>'
       ).join('');
@@ -1965,7 +2003,10 @@
         i18n('dashboard.settings.theme.save') + '</button><span class="muted" id="themeStatus"></span></div></div>';
     }
     async function saveDashboardTheme() {
-      const theme = document.querySelector('input[name="dashboardTheme"]:checked')?.value ?? 'system';
+      const defaults = setupDefaults(setupLocalState.lastSetup);
+      const theme = document.querySelector('input[name="dashboardTheme"]:checked')?.value ??
+        defaults?.dashboard?.theme;
+      if (!theme) return;
       const statusEl = document.getElementById('themeStatus');
       if (statusEl) statusEl.textContent = tr('dashboard.common.saving');
       try {

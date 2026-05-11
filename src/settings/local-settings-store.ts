@@ -9,18 +9,27 @@ import path from "node:path";
 import type { NotionUploadMode } from "../notion/settings.js";
 import type { SttProviderName } from "./app-settings.js";
 import {
+  DEFAULT_DASHBOARD_SETTINGS,
+  DEFAULT_RECORDING_SETTINGS,
+  DEFAULT_RETENTION_SETTINGS,
+  DIRONG_DASHBOARD_THEMES,
+  DIRONG_LOCALES,
+  type DirongDashboardTheme,
+  type DirongLocale,
+} from "./defaults.js";
+import {
   isClaudeToolProfile,
   isLocalWhisperToolProfile,
   type ClaudeToolProfile,
   type LocalWhisperToolProfile,
 } from "./tool-profiles.js";
 
-export const DIRONG_LOCALES = ["ko", "en"] as const;
-export type DirongLocale = (typeof DIRONG_LOCALES)[number];
-export const DEFAULT_DIRONG_LOCALE: DirongLocale = "ko";
-export const DIRONG_DASHBOARD_THEMES = ["system", "light", "dark"] as const;
-export type DirongDashboardTheme = (typeof DIRONG_DASHBOARD_THEMES)[number];
-export const DEFAULT_DIRONG_DASHBOARD_THEME: DirongDashboardTheme = "system";
+export { DIRONG_DASHBOARD_THEMES, DIRONG_LOCALES };
+export type { DirongDashboardTheme, DirongLocale };
+export const DEFAULT_DIRONG_LOCALE: DirongLocale =
+  DEFAULT_DASHBOARD_SETTINGS.locale;
+export const DEFAULT_DIRONG_DASHBOARD_THEME: DirongDashboardTheme =
+  DEFAULT_DASHBOARD_SETTINGS.theme;
 export type AiProviderName = "claude";
 export type AiProviderMode = "cli" | "api";
 
@@ -90,12 +99,13 @@ export const DEFAULT_LOCAL_SETTINGS: DirongLocalSettings = {
   ai: {},
   notion: {},
   recording: {
-    aloneFinalizeEnabled: true,
-    aloneFinalizeGraceMs: 90000,
+    aloneFinalizeEnabled: DEFAULT_RECORDING_SETTINGS.productAloneFinalizeEnabled,
+    aloneFinalizeGraceMs: DEFAULT_RECORDING_SETTINGS.aloneFinalizeGraceMs,
   },
   retention: {
-    deleteAudioAfterNotionUpload: true,
-    textDraftRetentionDays: 30,
+    deleteAudioAfterNotionUpload:
+      DEFAULT_RETENTION_SETTINGS.deleteAudioAfterNotionUpload,
+    textDraftRetentionDays: DEFAULT_RETENTION_SETTINGS.textDraftRetentionDays,
   },
 };
 

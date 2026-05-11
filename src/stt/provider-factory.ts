@@ -5,6 +5,7 @@ import type {
   SttSettings,
   SttSettingsOverrides,
 } from "../settings/app-settings.js";
+import { DEFAULT_STT_SETTINGS } from "../settings/defaults.js";
 
 export type Phase3SttProviderSelection = {
   provider: SttProvider;
@@ -66,7 +67,10 @@ export function applySttSettingsOverrides(
     const existingOpenAi =
       settings.provider === "openai"
         ? settings.openai
-        : { apiKey: "", model: "gpt-4o-mini-transcribe" };
+        : {
+            apiKey: DEFAULT_STT_SETTINGS.openai.apiKey,
+            model: DEFAULT_STT_SETTINGS.openai.model,
+          };
 
     return {
       provider,
@@ -83,11 +87,11 @@ export function applySttSettingsOverrides(
     settings.provider === "local-whisper"
       ? settings.localWhisper
       : {
-          command: "python",
-          args: ["scripts/local-whisper-json.py"],
-          model: "small",
-          device: "cpu",
-          computeType: "int8",
+          command: DEFAULT_STT_SETTINGS.localWhisper.command,
+          args: [...DEFAULT_STT_SETTINGS.localWhisper.args],
+          model: DEFAULT_STT_SETTINGS.localWhisper.model,
+          device: DEFAULT_STT_SETTINGS.localWhisper.device,
+          computeType: DEFAULT_STT_SETTINGS.localWhisper.computeType,
         };
 
   return {

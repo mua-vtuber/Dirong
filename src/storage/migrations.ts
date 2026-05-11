@@ -1,4 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
+import { NOTION_WRITES_SCHEMA_SQL } from "./schema-fragments/notion-002.js";
+import { NOTION_CUSTOM_PROPERTY_RULES_SCHEMA_SQL } from "./schema-fragments/notion-003.js";
+import { NOTION_REGISTRY_SCHEMA_SQL } from "./schema-fragments/notion-007.js";
 
 type SchemaMigration = {
   id: string;
@@ -119,77 +122,11 @@ function migrateTranscriptSegmentsSpeechStatus(db: DatabaseSync): void {
 }
 
 function migrateNotionWrites(db: DatabaseSync): void {
-  db.exec(`
-CREATE TABLE IF NOT EXISTS notion_writes (
-  id TEXT PRIMARY KEY,
-  session_id TEXT NOT NULL,
-  draft_id TEXT NOT NULL,
-  target_type TEXT NOT NULL CHECK (target_type = 'data_source'),
-  target_id TEXT NOT NULL,
-  target_url TEXT NOT NULL,
-  notion_page_id TEXT,
-  notion_page_url TEXT,
-  content_hash TEXT NOT NULL,
-  status TEXT NOT NULL,
-  status_message TEXT,
-  last_successful_block_index INTEGER NOT NULL DEFAULT -1,
-  attempts INTEGER NOT NULL DEFAULT 0,
-  max_attempts INTEGER NOT NULL DEFAULT 3,
-  locked_by TEXT,
-  locked_until TEXT,
-  next_attempt_at TEXT NOT NULL,
-  last_error TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  UNIQUE (draft_id, target_type, target_id),
-  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-  FOREIGN KEY (draft_id) REFERENCES meeting_notes_drafts(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_notion_writes_status_next_attempt
-  ON notion_writes(status, next_attempt_at);
-
-CREATE INDEX IF NOT EXISTS idx_notion_writes_session_created
-  ON notion_writes(session_id, created_at);
-
-CREATE TABLE IF NOT EXISTS notion_blocks (
-  notion_write_id TEXT NOT NULL,
-  block_index INTEGER NOT NULL,
-  content_hash TEXT NOT NULL,
-  notion_block_id TEXT,
-  status TEXT NOT NULL,
-  appended_at TEXT,
-  last_error TEXT,
-  PRIMARY KEY (notion_write_id, block_index),
-  FOREIGN KEY (notion_write_id) REFERENCES notion_writes(id) ON DELETE CASCADE
-);
-`);
+  db.exec(NOTION_WRITES_SCHEMA_SQL);
 }
 
 function migrateNotionCustomPropertyRules(db: DatabaseSync): void {
-  db.exec(`
-CREATE TABLE IF NOT EXISTS notion_custom_property_rules (
-  property_name TEXT PRIMARY KEY,
-  property_id TEXT,
-  property_type TEXT NOT NULL,
-  value_source TEXT NOT NULL DEFAULT 'ai',
-  enabled INTEGER NOT NULL DEFAULT 0,
-  prompt_description TEXT NOT NULL DEFAULT '',
-  max_length INTEGER NOT NULL DEFAULT 1000,
-  relation_target_url TEXT,
-  relation_data_source_id TEXT,
-  relation_target_page_url TEXT,
-  relation_target_page_id TEXT,
-  relation_match_property_name TEXT NOT NULL DEFAULT 'Name',
-  relation_auto_create INTEGER NOT NULL DEFAULT 0,
-  last_seen_at TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_notion_custom_property_rules_enabled
-  ON notion_custom_property_rules(enabled, property_name);
-`);
+  db.exec(NOTION_CUSTOM_PROPERTY_RULES_SCHEMA_SQL);
 }
 
 function migrateNotionRelationPropertyRules(db: DatabaseSync): void {
@@ -260,85 +197,5 @@ function migrateNotionCustomPropertyValueSource(db: DatabaseSync): void {
 }
 
 function migrateNotionRegistry(db: DatabaseSync): void {
-  db.exec(`
-CREATE TABLE IF NOT EXISTS notion_workspace_settings (
-  id TEXT PRIMARY KEY,
-  locale TEXT NOT NULL CHECK (locale IN ('ko', 'en')),
-  parent_page_url TEXT NOT NULL,
-  parent_page_id TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS notion_managed_databases (
-  role TEXT PRIMARY KEY CHECK (role IN ('meeting', 'member', 'task')),
-  locale TEXT NOT NULL CHECK (locale IN ('ko', 'en')),
-  database_id TEXT NOT NULL,
-  data_source_id TEXT NOT NULL,
-  url TEXT NOT NULL,
-  name TEXT NOT NULL,
-  created_by_dirong INTEGER NOT NULL DEFAULT 1 CHECK (created_by_dirong IN (0, 1)),
-  schema_version TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS notion_property_mappings (
-  database_role TEXT NOT NULL CHECK (database_role IN ('meeting', 'member', 'task')),
-  semantic_key TEXT NOT NULL CHECK (
-    semantic_key IN (
-      'meeting.title',
-      'meeting.date',
-      'meeting.time',
-      'meeting.channel',
-      'meeting.memberRelation',
-      'meeting.participants',
-      'meeting.actionItems',
-      'meeting.status',
-      'meeting.sessionId',
-      'meeting.draftId',
-      'meeting.contentHash',
-      'meeting.localStatus',
-      'member.discordName',
-      'member.notionPerson',
-      'member.organization',
-      'member.roles',
-      'task.title',
-      'task.meeting',
-      'task.workerRelation',
-      'task.assignee',
-      'task.role',
-      'task.dueDate',
-      'task.status',
-      'task.evidence',
-      'task.sourceActionId'
-    )
-  ),
-  property_name TEXT NOT NULL,
-  property_id TEXT,
-  property_type TEXT NOT NULL CHECK (
-    property_type IN (
-      'title',
-      'rich_text',
-      'date',
-      'people',
-      'select',
-      'multi_select',
-      'status',
-      'relation',
-      'rollup'
-    )
-  ),
-  locked INTEGER NOT NULL DEFAULT 1 CHECK (locked IN (0, 1)),
-  source_kind TEXT NOT NULL CHECK (
-    source_kind IN ('system', 'rollup', 'user', 'ai', 'custom')
-  ),
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  PRIMARY KEY (database_role, semantic_key)
-);
-
-CREATE INDEX IF NOT EXISTS idx_notion_property_mappings_database_role
-  ON notion_property_mappings(database_role, semantic_key);
-`);
+  db.exec(NOTION_REGISTRY_SCHEMA_SQL);
 }

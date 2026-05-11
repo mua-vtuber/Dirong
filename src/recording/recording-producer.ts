@@ -1,12 +1,10 @@
 import { createWriteStream, existsSync, mkdirSync } from "node:fs";
-import { rename, stat } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import {
   ChannelType,
   type Client,
   type Guild,
-  type GuildMember,
   type VoiceBasedChannel,
 } from "discord.js";
 import {
@@ -20,22 +18,25 @@ import {
 } from "@discordjs/voice";
 import * as prism from "prism-media";
 import type { Phase1Config } from "../config.js";
-import { extractDaveEvidence } from "../dave.js";
 import { safeErrorInfo, toKoreanErrorMessage } from "../errors.js";
 import { criticalHealthFailed, runHealthCheck } from "../health.js";
-import { sha256File, transcodeToSttSafe, validatePlayable } from "../media.js";
 import type {
   RecordingRuntimeState,
   SessionStatus,
   SessionStore,
 } from "../storage/session-store.js";
+import { ChunkFinalizer } from "./chunk-finalizer.js";
+import {
+  SpeakerChunkManager,
+  type SpeakerSnapshot,
+} from "./speaker-chunk-manager.js";
+import { VoiceConnectionController } from "./voice-connection-controller.js";
 
-export const DEFAULT_SPEAKER_SNAPSHOT_CACHE_LIMIT = 512;
-
-export type SpeakerSnapshot = {
-  displayName: string;
-  isBot: boolean;
-};
+export {
+  DEFAULT_SPEAKER_SNAPSHOT_CACHE_LIMIT,
+  upsertSpeakerSnapshot,
+  type SpeakerSnapshot,
+} from "./speaker-chunk-manager.js";
 
 type ActiveChunk = {
   chunkId: string;
@@ -63,6 +64,7 @@ type ActiveSession = {
   channel: VoiceBasedChannel;
   activeChunks: Map<string, ActiveChunk>;
   speakerSnapshots: Map<string, SpeakerSnapshot>;
+  voiceController?: VoiceConnectionController;
   chunkCounter: number;
   fatalErrors: number;
   lastDisconnectedAt: number | null;
@@ -76,13 +78,21 @@ export type RecordingStopResult = {
 
 export class RecordingProducer {
   private active: ActiveSession | null = null;
+  private readonly chunkFinalizer: ChunkFinalizer;
+  private readonly speakerChunks: SpeakerChunkManager;
   private stopPromise: Promise<RecordingStopResult> | null = null;
 
   constructor(
     private readonly client: Client,
     private readonly config: Phase1Config,
     private readonly store: SessionStore,
-  ) {}
+  ) {
+    this.chunkFinalizer = new ChunkFinalizer(store, {
+      sttMaxAttempts: config.sttMaxAttempts,
+      sttSafeFormat: config.sttSafeFormat,
+    });
+    this.speakerChunks = new SpeakerChunkManager(client, store);
+  }
 
   isActive(): boolean {
     return this.active !== null;
@@ -189,14 +199,18 @@ export class RecordingProducer {
       channel: input.voiceChannel,
       activeChunks: new Map(),
       speakerSnapshots: new Map(),
+      voiceController: new VoiceConnectionController(this.store),
       chunkCounter: 0,
       fatalErrors: 0,
       lastDisconnectedAt: null,
     };
 
     this.active = active;
-    this.attachConnectionEvents(active);
-    this.attachReceiverEvents(active);
+    active.voiceController?.attach(active, {
+      onSpeakingStart: (userId) => {
+        void this.openChunkForSpeaker(active, userId);
+      },
+    });
 
     try {
       await entersState(connection, VoiceConnectionStatus.Ready, 30000);
@@ -208,6 +222,7 @@ export class RecordingProducer {
         level: "error",
         details: safeErrorInfo(error),
       });
+      active.voiceController?.detach();
       connection.destroy();
       this.store.stopSession({
         sessionId: active.sessionId,
@@ -265,6 +280,7 @@ export class RecordingProducer {
         openChunks: active.activeChunks.size,
       },
     });
+    active.voiceController?.detach();
 
     const stoppingChunks = [...active.activeChunks.values()];
     for (const chunk of stoppingChunks) {
@@ -339,105 +355,6 @@ export class RecordingProducer {
     });
   }
 
-  private attachReceiverEvents(active: ActiveSession): void {
-    const { receiver } = active.connection;
-
-    receiver.speaking.on("start", (userId) => {
-      this.store.recordConnectionEvent({
-        sessionId: active.sessionId,
-        eventType: "speaking_start",
-        startedAtMs: Date.now() - active.startedAtMs,
-        details: { userId },
-      });
-      void this.openChunkForSpeaker(active, userId);
-    });
-
-    receiver.speaking.on("end", (userId) => {
-      this.store.recordConnectionEvent({
-        sessionId: active.sessionId,
-        eventType: "speaking_stop",
-        endedAtMs: Date.now() - active.startedAtMs,
-        details: { userId },
-      });
-    });
-  }
-
-  private attachConnectionEvents(active: ActiveSession): void {
-    active.connection.on("stateChange", (oldState, newState) => {
-      const evidence = extractDaveEvidence(newState);
-      this.store.recordConnectionEvent({
-        sessionId: active.sessionId,
-        eventType: "voice_state_change",
-        level: evidence.length > 0 ? "info" : "debug",
-        startedAtMs: Date.now() - active.startedAtMs,
-        details: {
-          oldStatus: oldState.status,
-          newStatus: newState.status,
-          daveEvidence: evidence,
-        },
-      });
-
-      if (newState.status === VoiceConnectionStatus.Ready) {
-        if (active.lastDisconnectedAt !== null) {
-          this.store.updateSessionStatus(active.sessionId, "active");
-          this.store.recordConnectionEvent({
-            sessionId: active.sessionId,
-            eventType: "connection_resumed",
-            details: { gapMs: Date.now() - active.lastDisconnectedAt },
-          });
-          active.lastDisconnectedAt = null;
-        } else {
-          this.store.recordConnectionEvent({
-            sessionId: active.sessionId,
-            eventType: "connection_ready",
-          });
-        }
-      }
-
-      if (newState.status === VoiceConnectionStatus.Disconnected) {
-        active.lastDisconnectedAt = Date.now();
-        this.store.updateSessionStatus(active.sessionId, "reconnecting");
-        this.store.recordConnectionEvent({
-          sessionId: active.sessionId,
-          eventType: "connection_disconnected",
-          level: "warn",
-          details: { reason: "VoiceConnectionStatus.Disconnected" },
-        });
-      }
-
-      if (
-        newState.status === VoiceConnectionStatus.Connecting ||
-        newState.status === VoiceConnectionStatus.Signalling
-      ) {
-        this.store.recordConnectionEvent({
-          sessionId: active.sessionId,
-          eventType: "connection_reconnecting",
-          details: { status: newState.status },
-        });
-      }
-    });
-
-    active.connection.on("debug", (message) => {
-      const isDave = /dave|encrypt|decrypt|protocol|session/i.test(message);
-      this.store.recordConnectionEvent({
-        sessionId: active.sessionId,
-        eventType: isDave ? "voice_debug_dave_evidence" : "voice_debug",
-        level: isDave ? "info" : "debug",
-        details: { message },
-      });
-    });
-
-    active.connection.on("error", (error) => {
-      active.fatalErrors += 1;
-      this.store.recordConnectionEvent({
-        sessionId: active.sessionId,
-        eventType: "voice_connection_error",
-        level: "error",
-        details: safeErrorInfo(error),
-      });
-    });
-  }
-
   private async openChunkForSpeaker(
     active: ActiveSession,
     userId: string,
@@ -456,7 +373,7 @@ export class RecordingProducer {
     }
 
     const seenAtMs = Date.now() - active.startedAtMs;
-    const speaker = await this.resolveSpeakerSnapshot(active, userId);
+    const speaker = await this.speakerChunks.resolveSpeakerSnapshot(active, userId);
     this.store.upsertSpeaker({
       sessionId: active.sessionId,
       userId,
@@ -627,219 +544,20 @@ export class RecordingProducer {
     }
 
     try {
-      await this.finalizeChunk(active, chunk, getCloseReason(), pipelineError);
+      await this.chunkFinalizer.finalize(
+        active,
+        chunk,
+        getCloseReason(),
+        pipelineError,
+      );
     } catch (error) {
-      this.store.markChunkFailed({
-        chunkId: chunk.chunkId,
-        error: safeErrorInfo(error),
-      });
-      this.store.recordRepairItem({
-        type: "chunk_finalize_failed",
+      this.chunkFinalizer.recordFailure({
         sessionId: active.sessionId,
         chunkId: chunk.chunkId,
-        path: chunk.rawFinalPath,
-        severity: "error",
-        details: safeErrorInfo(error),
-      });
-      this.store.recordConnectionEvent({
-        sessionId: active.sessionId,
-        eventType: "chunk_finalize_failed",
-        level: "error",
-        details: { chunkId: chunk.chunkId, error: safeErrorInfo(error) },
+        rawFinalPath: chunk.rawFinalPath,
+        error,
       });
     }
-  }
-
-  private async finalizeChunk(
-    active: ActiveSession,
-    chunk: ActiveChunk,
-    closeReason: string,
-    pipelineError: unknown,
-  ): Promise<void> {
-    const endedAtMs = Date.now() - active.startedAtMs;
-    const rawExists = existsSync(chunk.rawPartPath) || existsSync(chunk.rawFinalPath);
-
-    if (!rawExists) {
-      this.store.markChunkFailed({
-        chunkId: chunk.chunkId,
-        error: { message: "chunk 파일이 생성되지 않았습니다.", pipelineError },
-      });
-      this.store.recordRepairItem({
-        type: "chunk_audio_missing_after_write",
-        sessionId: active.sessionId,
-        chunkId: chunk.chunkId,
-        path: chunk.rawPartPath,
-        severity: "error",
-      });
-      return;
-    }
-
-    if (existsSync(chunk.rawPartPath) && !existsSync(chunk.rawFinalPath)) {
-      await rename(chunk.rawPartPath, chunk.rawFinalPath);
-    }
-
-    const rawStat = await stat(chunk.rawFinalPath);
-    const rawPlayback = await validatePlayable(chunk.rawFinalPath, active.ffmpegPath);
-    const rawSha256 = rawStat.size > 0 ? await sha256File(chunk.rawFinalPath) : null;
-    const durationMs = Math.max(0, endedAtMs - chunk.startedAtMs);
-
-    this.store.finalizeRawChunk({
-      chunkId: chunk.chunkId,
-      endedAtMs,
-      durationMs,
-      rawByteSize: rawStat.size,
-      rawSha256,
-      closeReason,
-      pipelineError,
-    });
-
-    if (rawStat.size === 0 || !rawPlayback.ok) {
-      this.store.markChunkTranscodeFailed({
-        chunkId: chunk.chunkId,
-        error: rawPlayback.error ?? "raw audio playback validation failed",
-      });
-      this.store.recordRepairItem({
-        type: "raw_audio_not_playable",
-        sessionId: active.sessionId,
-        chunkId: chunk.chunkId,
-        path: chunk.rawFinalPath,
-        severity: "error",
-        details: { rawByteSize: rawStat.size, rawPlaybackError: rawPlayback.error },
-      });
-      return;
-    }
-
-    const transcode = await transcodeToSttSafe(
-      chunk.rawFinalPath,
-      active.sttAudioDir,
-      chunk.baseName,
-      this.config.sttSafeFormat,
-      active.ffmpegPath,
-    );
-
-    if (!transcode.playbackChecked || transcode.byteSize === 0) {
-      this.store.markChunkTranscodeFailed({
-        chunkId: chunk.chunkId,
-        error: transcode.error ?? "STT-safe transcode validation failed",
-      });
-      this.store.recordRepairItem({
-        type: "stt_transcode_failed",
-        sessionId: active.sessionId,
-        chunkId: chunk.chunkId,
-        path: transcode.outputPath,
-        severity: "error",
-        details: {
-          format: transcode.format,
-          byteSize: transcode.byteSize,
-          error: transcode.error,
-        },
-      });
-      return;
-    }
-
-    const sttSha256 = await sha256File(transcode.outputPath);
-    this.store.completeChunkTranscodeAndQueueJob({
-      chunkId: chunk.chunkId,
-      sttAudioPath: transcode.outputPath,
-      sttAudioFormat: transcode.format,
-      sttByteSize: transcode.byteSize,
-      sttSha256,
-      maxAttempts: this.config.sttMaxAttempts,
-    });
-
-    this.store.recordConnectionEvent({
-      sessionId: active.sessionId,
-      eventType: "chunk_finalized_and_queued",
-      endedAtMs,
-      details: {
-        chunkId: chunk.chunkId,
-        userId: chunk.userId,
-        displayNameSnapshot: chunk.displayNameSnapshot,
-        rawAudioPath: chunk.rawFinalPath,
-        rawByteSize: rawStat.size,
-        rawSha256,
-        sttAudioPath: transcode.outputPath,
-        sttAudioFormat: transcode.format,
-        sttByteSize: transcode.byteSize,
-        sttSha256,
-        durationMs,
-        closeReason,
-      },
-    });
-  }
-
-  private async resolveSpeakerSnapshot(
-    active: ActiveSession,
-    userId: string,
-  ): Promise<SpeakerSnapshot> {
-    const cached = active.speakerSnapshots.get(userId);
-    if (cached) {
-      upsertSpeakerSnapshot(active.speakerSnapshots, userId, cached);
-      return cached;
-    }
-
-    const memberFromChannel = active.channel.members.get(userId);
-    if (memberFromChannel) {
-      return this.cacheSpeaker(active, userId, memberFromChannel);
-    }
-
-    try {
-      const member = await active.guild.members.fetch(userId);
-      return this.cacheSpeaker(active, userId, member);
-    } catch {
-      try {
-        const user = await this.client.users.fetch(userId);
-        const snapshot = {
-          displayName: user.globalName ?? user.username ?? userId,
-          isBot: user.bot,
-        };
-        upsertSpeakerSnapshot(active.speakerSnapshots, userId, snapshot);
-        return snapshot;
-      } catch (error) {
-        this.store.recordConnectionEvent({
-          sessionId: active.sessionId,
-          eventType: "speaker_lookup_failed",
-          level: "warn",
-          details: { userId, error: safeErrorInfo(error) },
-        });
-        const snapshot = { displayName: userId, isBot: false };
-        upsertSpeakerSnapshot(active.speakerSnapshots, userId, snapshot);
-        return snapshot;
-      }
-    }
-  }
-
-  private cacheSpeaker(
-    active: ActiveSession,
-    userId: string,
-    member: GuildMember,
-  ): SpeakerSnapshot {
-    const snapshot = {
-      displayName: member.displayName || member.user.globalName || member.user.username,
-      isBot: member.user.bot,
-    };
-    upsertSpeakerSnapshot(active.speakerSnapshots, userId, snapshot);
-    return snapshot;
-  }
-}
-
-export function upsertSpeakerSnapshot(
-  cache: Map<string, SpeakerSnapshot>,
-  userId: string,
-  snapshot: SpeakerSnapshot,
-  limit = DEFAULT_SPEAKER_SNAPSHOT_CACHE_LIMIT,
-): void {
-  if (!Number.isInteger(limit) || limit <= 0) {
-    throw new Error("Speaker snapshot cache limit must be a positive integer.");
-  }
-  cache.delete(userId);
-  cache.set(userId, snapshot);
-  while (cache.size > limit) {
-    const oldestUserId = cache.keys().next().value;
-    if (oldestUserId === undefined) {
-      break;
-    }
-    cache.delete(oldestUserId);
   }
 }
 

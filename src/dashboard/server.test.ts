@@ -283,18 +283,13 @@ test("DashboardServer root serves the dashboard HTML without caching", async () 
     assert.match(html, /app-shell/);
     assert.match(html, /statusChips/);
     assert.match(html, /\/assets\/dirong\/dirong_head\.png/);
-    assert.match(html, /fetch\('\/api\/i18n'/);
-    assert.match(html, /첫 설정 위자드/);
-    assert.match(html, /OpenAI STT 사용 \(API 발급 필요 - 유료\)/);
-    assert.match(html, /database id, data source id, property id를 입력하지 않습니다/);
-    assert.match(html, /setupCreateManagedDatabases/);
-    assert.match(html, /dashboard\.db\.customFields\.relation\.targetPageUrl/);
-    assert.match(html, /data-protected-rule/);
-    assert.match(html, /dashboard\.db\.customFields\.protectedDelete/);
     assert.doesNotMatch(html, /관리 외 삭제/);
-    assert.match(html, /escapeHtml/);
     assert.match(html, /window\.__DIRONG_DASHBOARD_TOKEN__/);
-    assert.match(html, /fetch\('\/api\/state'/);
+    assert.match(html, /\/dashboard\/api-client\.js/);
+    assert.match(html, /\/dashboard\/setup-wizard\.js/);
+    assert.match(html, /\/dashboard\/notion-properties\.js/);
+    assert.match(html, /\/dashboard\/dashboard-client\.js/);
+    assert.doesNotMatch(html, /function refresh/);
   } finally {
     await fixture.close();
   }
@@ -574,6 +569,36 @@ test("DashboardServer serves copied Dirong image assets", async () => {
 
     assert.equal(response.status, 200);
     assert.match(response.headers.get("content-type") ?? "", /image\/png/);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("DashboardServer serves split dashboard client scripts", async () => {
+  const fixture = await startDashboardFixture();
+  try {
+    const api = await fetch(`${fixture.baseUrl}/dashboard/api-client.js`);
+    const setup = await fetch(`${fixture.baseUrl}/dashboard/setup-wizard.js`);
+    const notion = await fetch(`${fixture.baseUrl}/dashboard/notion-properties.js`);
+    const dashboard = await fetch(`${fixture.baseUrl}/dashboard/dashboard-client.js`);
+    const apiText = await api.text();
+    const setupText = await setup.text();
+    const notionText = await notion.text();
+    const dashboardText = await dashboard.text();
+
+    assert.equal(api.status, 200);
+    assert.equal(setup.status, 200);
+    assert.equal(notion.status, 200);
+    assert.equal(dashboard.status, 200);
+    assert.match(api.headers.get("content-type") ?? "", /text\/javascript/);
+    assert.equal(api.headers.get("cache-control"), "no-store");
+    assert.match(apiText, /dashboardJsonHeaders/);
+    assert.match(setupText, /setupCreateManagedDatabases/);
+    assert.match(notionText, /data-notion-action/);
+    assert.match(dashboardText, /fetch\('\/api\/state'/);
+    assert.doesNotMatch(notionText, /onclick=/);
+    assert.doesNotMatch(notionText, /onchange=/);
+    assert.doesNotMatch(notionText, /oninput=/);
   } finally {
     await fixture.close();
   }

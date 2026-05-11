@@ -1,0 +1,249 @@
+import type { IncomingMessage, ServerResponse } from "node:http";
+import type { NotionCustomPropertyRuleInput } from "../notion/property-rules.js";
+import type { NotionSchemaApplyOptions } from "../notion/schema-manager.js";
+import {
+  isRecord,
+  readJsonBody,
+  readOptionalBodyString,
+  sendJson,
+  withMessageKeys,
+} from "./http.js";
+import type { DashboardRuntimeSources } from "./server.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
+
+export async function handleNotionAction(
+  request: IncomingMessage,
+  response: ServerResponse,
+  sources: DashboardRuntimeSources,
+  locale: DirongLocale,
+  force: boolean,
+): Promise<void> {
+  if (!sources.notion) {
+    sendJson(response, withMessageKeys(locale, {
+      ok: false,
+      status: "not_configured",
+      messageKey: "error.dashboard.notionActionSourceMissing.message",
+      userActionKey: "error.dashboard.notionActionSourceMissing.action",
+      pageUrl: null,
+    }));
+    return;
+  }
+
+  try {
+    const body = await readJsonBody(request);
+    const result = await sources.notion.runManualUpload({
+      sessionId: readOptionalBodyString(body, "sessionId"),
+      draftId: readOptionalBodyString(body, "draftId"),
+      force,
+    });
+    sendJson(response, result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const localized = withMessageKeys(locale, {
+      messageKey: "error.dashboard.requestInvalid.message",
+      userActionKey: "action.request.retry",
+      status: "failed",
+      technicalDetail: message,
+    });
+    sendJson(response, {
+      ok: false,
+      pageUrl: null,
+      ...localized,
+    }, 400);
+  }
+}
+
+export async function handleNotionPropertiesSync(
+  response: ServerResponse,
+  sources: DashboardRuntimeSources,
+  locale: DirongLocale,
+): Promise<void> {
+  if (!sources.notion) {
+    sendJson(response, withMessageKeys(locale, {
+      ok: false,
+      status: "not_configured",
+      messageKey: "error.dashboard.notionActionSourceMissing.message",
+      userActionKey: "error.dashboard.notionActionSourceMissing.action",
+      warnings: [],
+      customProperties: null,
+    }));
+    return;
+  }
+
+  const result = await sources.notion.syncCustomProperties();
+  sendJson(response, result);
+}
+
+export async function handleNotionPropertiesSave(
+  request: IncomingMessage,
+  response: ServerResponse,
+  sources: DashboardRuntimeSources,
+  locale: DirongLocale,
+): Promise<void> {
+  if (!sources.notion) {
+    sendJson(response, withMessageKeys(locale, {
+      ok: false,
+      status: "not_configured",
+      messageKey: "error.dashboard.notionActionSourceMissing.message",
+      userActionKey: "error.dashboard.notionActionSourceMissing.action",
+      warnings: [],
+      customProperties: null,
+    }));
+    return;
+  }
+
+  try {
+    const body = await readJsonBody(request);
+    const result = sources.notion.saveCustomPropertyRules(
+      readCustomPropertyRuleInputs(body),
+    );
+    sendJson(response, result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const localized = withMessageKeys(locale, {
+      messageKey: "error.dashboard.requestInvalid.message",
+      userActionKey: "action.request.retry",
+      status: "failed",
+      technicalDetail: message,
+    });
+    sendJson(response, {
+      ok: false,
+      warnings: [],
+      customProperties: null,
+      ...localized,
+    }, 400);
+  }
+}
+
+export async function handleNotionSchemaInspect(
+  response: ServerResponse,
+  sources: DashboardRuntimeSources,
+  locale: DirongLocale,
+): Promise<void> {
+  if (!sources.notion) {
+    sendJson(response, withMessageKeys(locale, {
+      ok: false,
+      status: "not_configured",
+      messageKey: "error.dashboard.notionActionSourceMissing.message",
+      userActionKey: "error.dashboard.notionActionSourceMissing.action",
+      warnings: [],
+      diff: null,
+      operations: null,
+    }));
+    return;
+  }
+
+  const result = await sources.notion.inspectSchema();
+  sendJson(response, result);
+}
+
+export async function handleNotionSchemaApply(
+  request: IncomingMessage,
+  response: ServerResponse,
+  sources: DashboardRuntimeSources,
+  locale: DirongLocale,
+): Promise<void> {
+  if (!sources.notion) {
+    sendJson(response, withMessageKeys(locale, {
+      ok: false,
+      status: "not_configured",
+      messageKey: "error.dashboard.notionActionSourceMissing.message",
+      userActionKey: "error.dashboard.notionActionSourceMissing.action",
+      warnings: [],
+      diff: null,
+      operations: null,
+    }));
+    return;
+  }
+
+  try {
+    const body = await readJsonBody(request);
+    const result = await sources.notion.applySchema(
+      readNotionSchemaApplyOptions(body),
+    );
+    sendJson(response, result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const localized = withMessageKeys(locale, {
+      messageKey: "error.dashboard.requestInvalid.message",
+      userActionKey: "action.request.retry",
+      status: "failed",
+      technicalDetail: message,
+    });
+    sendJson(response, {
+      ok: false,
+      warnings: [],
+      diff: null,
+      operations: null,
+      ...localized,
+    }, 400);
+  }
+}
+
+function readCustomPropertyRuleInputs(
+  body: unknown,
+): NotionCustomPropertyRuleInput[] {
+  if (!isRecord(body) || !Array.isArray(body.rules)) {
+    return [];
+  }
+
+  const rules: NotionCustomPropertyRuleInput[] = [];
+  for (const entry of body.rules) {
+    if (!isRecord(entry) || typeof entry.propertyName !== "string") {
+      continue;
+    }
+    rules.push({
+      originalPropertyName:
+        typeof entry.originalPropertyName === "string"
+          ? entry.originalPropertyName
+          : null,
+      propertyName: entry.propertyName,
+      propertyType:
+        typeof entry.propertyType === "string" ? entry.propertyType : null,
+      valueSource:
+        typeof entry.valueSource === "string" ? entry.valueSource : null,
+      enabled: entry.enabled === true,
+      promptDescription:
+        typeof entry.promptDescription === "string"
+          ? entry.promptDescription
+          : "",
+      maxLength:
+        typeof entry.maxLength === "number" && Number.isFinite(entry.maxLength)
+          ? entry.maxLength
+          : null,
+      relationTargetUrl:
+        typeof entry.relationTargetUrl === "string"
+          ? entry.relationTargetUrl
+          : null,
+      relationDataSourceId:
+        typeof entry.relationDataSourceId === "string"
+          ? entry.relationDataSourceId
+          : null,
+      relationTargetPageUrl:
+        typeof entry.relationTargetPageUrl === "string"
+          ? entry.relationTargetPageUrl
+          : null,
+      relationTargetPageId:
+        typeof entry.relationTargetPageId === "string"
+          ? entry.relationTargetPageId
+          : null,
+      relationMatchPropertyName:
+        typeof entry.relationMatchPropertyName === "string"
+          ? entry.relationMatchPropertyName
+          : null,
+      relationAutoCreate: entry.relationAutoCreate === true,
+      deleted: entry.deleted === true,
+    });
+  }
+  return rules;
+}
+
+function readNotionSchemaApplyOptions(body: unknown): NotionSchemaApplyOptions {
+  const record = isRecord(body) ? body : {};
+  return {
+    createMissing: record.createMissing !== false,
+    updateTypes: record.updateTypes === true,
+    deleteExtra: false,
+    confirmDeleteExtra: false,
+  };
+}

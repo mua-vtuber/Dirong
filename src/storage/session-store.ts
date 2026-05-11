@@ -2,15 +2,19 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { redactForJson } from "../errors.js";
+import { AiCleanupJobQueue } from "./ai-cleanup-job-queue.js";
 import { buildAiCleanupSttTerminalSnapshot } from "./ai-cleanup-terminal-read-model.js";
+import { ChunkRepository } from "./chunk-repository.js";
 import { buildDashboardReadModel } from "./dashboard-read-model.js";
 import {
   createStoragePathResolver,
   type StoragePathResolver,
 } from "./path-resolver.js";
+import { RepairRepository } from "./repair-repository.js";
+import { SessionRepository } from "./session-repository.js";
 import { SqlRunner } from "./sql-runner.js";
 import { DirongDatabase, type SqlValue } from "./sqlite.js";
+import { SttJobQueue } from "./stt-job-queue.js";
 import { buildStatusTextReadModel } from "./status-text-read-model.js";
 
 export type SessionStatus =
@@ -245,6 +249,11 @@ export type SessionStoreOptions = {
 export class SessionStore {
   private readonly paths: StoragePathResolver;
   private readonly sql: SqlRunner;
+  private readonly aiCleanupJobs: AiCleanupJobQueue;
+  private readonly chunks: ChunkRepository;
+  private readonly repairs: RepairRepository;
+  private readonly sessions: SessionRepository;
+  private readonly sttJobs: SttJobQueue;
 
   constructor(
     private readonly database: DirongDatabase,
@@ -252,6 +261,20 @@ export class SessionStore {
   ) {
     this.paths = createStoragePathResolver(options.storageRoot);
     this.sql = new SqlRunner(database);
+    const repositoryOptions = {
+      now: isoNow,
+      resolveStoredPath: (filePath: string | null) =>
+        this.resolveStoredPath(filePath),
+      toStoredPath: (filePath: string | null) => this.toStoredPath(filePath),
+    };
+    this.aiCleanupJobs = new AiCleanupJobQueue(this.sql, repositoryOptions);
+    this.chunks = new ChunkRepository(this.sql, repositoryOptions);
+    this.repairs = new RepairRepository(this.sql, repositoryOptions);
+    this.sessions = new SessionRepository(this.sql, {
+      now: isoNow,
+      toStoredPath: (filePath) => this.toStoredPath(filePath),
+    });
+    this.sttJobs = new SttJobQueue(this.sql, repositoryOptions);
     if (options.normalizeStoredPaths && this.paths.storageRoot) {
       this.normalizeStoredPaths();
     }
@@ -272,26 +295,7 @@ export class SessionStore {
     startedByDisplayName: string;
     dataDir: string;
   }): void {
-    const now = isoNow();
-    this.run(
-      `INSERT INTO sessions (
-        id, guild_id, guild_name, text_channel_id, voice_channel_id,
-        voice_channel_name, started_by_user_id, started_by_display_name,
-        status, started_at, data_dir, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'created', ?, ?, ?, ?)`,
-      input.id,
-      input.guildId,
-      input.guildName,
-      input.textChannelId,
-      input.voiceChannelId,
-      input.voiceChannelName,
-      input.startedByUserId,
-      input.startedByDisplayName,
-      now,
-      this.toStoredPath(input.dataDir),
-      now,
-      now,
-    );
+    this.sessions.create(input);
   }
 
   updateSessionStatus(
@@ -299,15 +303,7 @@ export class SessionStore {
     status: SessionStatus,
     lastError?: string | null,
   ): void {
-    this.run(
-      `UPDATE sessions
-       SET status = ?, last_error = COALESCE(?, last_error), updated_at = ?
-       WHERE id = ?`,
-      status,
-      lastError ?? null,
-      isoNow(),
-      sessionId,
-    );
+    this.sessions.updateStatus(sessionId, status, lastError);
   }
 
   stopSession(input: {
@@ -317,35 +313,15 @@ export class SessionStore {
     status: SessionStatus;
     lastError?: string | null;
   }): void {
-    const now = isoNow();
-    this.run(
-      `UPDATE sessions
-       SET status = ?, stopped_by_user_id = ?, stopped_by_display_name = ?,
-           stopped_at = ?, finalized_at = ?, last_error = ?, updated_at = ?
-       WHERE id = ?`,
-      input.status,
-      input.stoppedByUserId,
-      input.stoppedByDisplayName,
-      now,
-      now,
-      input.lastError ?? null,
-      now,
-      input.sessionId,
-    );
+    this.sessions.stop(input);
   }
 
   getSession(sessionId: string): SessionRow | null {
-    return this.mapSessionRow(
-      this.get<SessionRow>("SELECT * FROM sessions WHERE id = ?", sessionId),
-    );
+    return this.mapSessionRow(this.sessions.get(sessionId));
   }
 
   getLatestSession(): SessionRow | null {
-    return this.mapSessionRow(
-      this.get<SessionRow>(
-        "SELECT * FROM sessions ORDER BY started_at DESC LIMIT 1",
-      ),
-    );
+    return this.mapSessionRow(this.sessions.getLatest());
   }
 
   listFinalizedSessionsForAiCleanupAutomation(
@@ -359,103 +335,9 @@ export class SessionStore {
           nowIso?: string;
         } = 3,
   ): SessionRow[] {
-    const options = typeof input === "number" ? { limit: input } : input;
-    const safeLimit = Math.max(1, Math.trunc(options.limit ?? 3));
-    const nowIso = options.nowIso ?? isoNow();
-    const provider = options.provider ?? null;
-    const model = options.model ?? null;
-    const promptVersion = options.promptVersion ?? null;
-    return this.all<SessionRow>(
-      `WITH finalized_sessions AS (
-         SELECT *
-         FROM sessions
-         WHERE status = 'finalized'
-       ),
-       chunk_stats AS (
-         SELECT
-           session_id,
-           SUM(CASE WHEN status = 'writing' THEN 1 ELSE 0 END) AS open_chunk_count
-         FROM chunks
-         GROUP BY session_id
-       ),
-       stt_stats AS (
-         SELECT
-           session_id,
-           SUM(CASE WHEN status IN ('queued', 'processing') THEN 1 ELSE 0 END) AS waiting_stt_count,
-           SUM(
-             CASE
-               WHEN status NOT IN ('done', 'failed', 'failed_missing_file', 'queued', 'processing') THEN 1
-               ELSE 0
-             END
-           ) AS other_non_terminal_stt_count
-         FROM stt_jobs
-         GROUP BY session_id
-       ),
-       transcript_stats AS (
-         SELECT session_id, COUNT(*) AS real_transcript_count
-         FROM transcript_segments
-         WHERE speech_status = 'speech'
-           AND length(trim(text)) > 0
-           AND source <> 'fake'
-           AND provider <> 'dirong-fake-stt'
-         GROUP BY session_id
-       ),
-       matching_ai_jobs AS (
-         SELECT
-           session_id,
-           COUNT(*) AS matching_ai_job_count,
-           SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) AS processing_ai_job_count,
-           SUM(CASE WHEN status = 'queued' AND next_attempt_at <= ? THEN 1 ELSE 0 END) AS due_queued_ai_job_count,
-           SUM(CASE WHEN status = 'queued' AND next_attempt_at > ? THEN 1 ELSE 0 END) AS future_queued_ai_job_count
-         FROM ai_cleanup_jobs
-         WHERE (? IS NULL OR provider = ?)
-           AND (? IS NULL OR model = ?)
-           AND (? IS NULL OR prompt_version = ?)
-         GROUP BY session_id
-       )
-       SELECT s.*
-       FROM finalized_sessions s
-       LEFT JOIN chunk_stats c ON c.session_id = s.id
-       LEFT JOIN stt_stats stt ON stt.session_id = s.id
-       LEFT JOIN transcript_stats t ON t.session_id = s.id
-       LEFT JOIN matching_ai_jobs ai ON ai.session_id = s.id
-       ORDER BY
-         CASE
-           WHEN COALESCE(ai.processing_ai_job_count, 0) > 0 THEN 0
-           WHEN COALESCE(c.open_chunk_count, 0) = 0
-             AND COALESCE(stt.waiting_stt_count, 0) = 0
-             AND COALESCE(stt.other_non_terminal_stt_count, 0) = 0
-             AND COALESCE(t.real_transcript_count, 0) > 0
-             AND (
-               COALESCE(ai.matching_ai_job_count, 0) = 0
-               OR COALESCE(ai.due_queued_ai_job_count, 0) > 0
-             ) THEN 1
-           WHEN COALESCE(c.open_chunk_count, 0) = 0
-             AND COALESCE(stt.waiting_stt_count, 0) = 0
-             AND COALESCE(stt.other_non_terminal_stt_count, 0) = 0
-             AND COALESCE(t.real_transcript_count, 0) = 0
-             AND (
-               COALESCE(ai.matching_ai_job_count, 0) = 0
-               OR COALESCE(ai.due_queued_ai_job_count, 0) > 0
-             ) THEN 2
-           WHEN COALESCE(c.open_chunk_count, 0) > 0
-             OR COALESCE(stt.waiting_stt_count, 0) > 0
-             OR COALESCE(stt.other_non_terminal_stt_count, 0) > 0 THEN 3
-           WHEN COALESCE(ai.future_queued_ai_job_count, 0) > 0 THEN 4
-           ELSE 5
-         END ASC,
-         COALESCE(s.finalized_at, s.updated_at, s.created_at) ASC
-       LIMIT ?`,
-      nowIso,
-      nowIso,
-      provider,
-      provider,
-      model,
-      model,
-      promptVersion,
-      promptVersion,
-      safeLimit,
-    ).map((row) => this.mapSessionRow(row));
+    return this.sessions
+      .listFinalizedForAiCleanupAutomation(input)
+      .map((row) => this.mapSessionRow(row));
   }
 
   upsertSpeaker(input: {
@@ -465,26 +347,7 @@ export class SessionStore {
     isBot: boolean;
     seenAtMs: number;
   }): void {
-    const now = isoNow();
-    this.run(
-      `INSERT INTO session_speakers (
-        session_id, user_id, display_name_snapshot, is_bot,
-        first_seen_at_ms, first_seen_at, last_seen_at_ms, last_seen_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(session_id, user_id) DO UPDATE SET
-        display_name_snapshot = excluded.display_name_snapshot,
-        is_bot = excluded.is_bot,
-        last_seen_at_ms = excluded.last_seen_at_ms,
-        last_seen_at = excluded.last_seen_at`,
-      input.sessionId,
-      input.userId,
-      input.displayNameSnapshot,
-      input.isBot ? 1 : 0,
-      input.seenAtMs,
-      now,
-      input.seenAtMs,
-      now,
-    );
+    this.chunks.upsertSpeaker(input);
   }
 
   createChunkWriting(input: {
@@ -496,23 +359,7 @@ export class SessionStore {
     startedAtMs: number;
     rawAudioPath: string;
   }): void {
-    const now = isoNow();
-    this.run(
-      `INSERT INTO chunks (
-        id, session_id, chunk_index, user_id, display_name_snapshot,
-        status, started_at_ms, raw_audio_path, raw_audio_format,
-        transcode_status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, 'writing', ?, ?, 'ogg-opus', 'pending', ?, ?)`,
-      input.chunkId,
-      input.sessionId,
-      input.chunkIndex,
-      input.userId,
-      input.displayNameSnapshot,
-      input.startedAtMs,
-      this.toStoredPath(input.rawAudioPath),
-      now,
-      now,
-    );
+    this.chunks.createWriting(input);
   }
 
   finalizeRawChunk(input: {
@@ -524,35 +371,7 @@ export class SessionStore {
     closeReason: string;
     pipelineError: unknown;
   }): void {
-    this.database.transaction(() => {
-      this.run(
-        `UPDATE chunks
-         SET status = 'finalized', ended_at_ms = ?, duration_ms = ?,
-             raw_byte_size = ?, raw_sha256 = ?, close_reason = ?,
-             pipeline_error_json = ?, updated_at = ?
-         WHERE id = ?`,
-        input.endedAtMs,
-        input.durationMs,
-        input.rawByteSize,
-        input.rawSha256,
-        input.closeReason,
-        input.pipelineError === null
-          ? null
-          : JSON.stringify(redactForJson(input.pipelineError)),
-        isoNow(),
-        input.chunkId,
-      );
-      this.run(
-        `UPDATE session_speakers
-         SET chunk_count = chunk_count + 1, last_seen_at_ms = ?, last_seen_at = ?
-         WHERE session_id = (SELECT session_id FROM chunks WHERE id = ?)
-           AND user_id = (SELECT user_id FROM chunks WHERE id = ?)`,
-        input.endedAtMs,
-        isoNow(),
-        input.chunkId,
-        input.chunkId,
-      );
-    });
+    this.chunks.finalizeRaw(input);
   }
 
   completeChunkTranscodeAndQueueJob(input: {
@@ -563,28 +382,23 @@ export class SessionStore {
     sttSha256: string | null;
     maxAttempts: number;
   }): void {
-    this.database.transaction(() => {
+    this.sql.transaction(() => {
       const chunk = this.getChunk(input.chunkId);
       if (!chunk) {
         throw new Error(`chunk를 찾지 못했습니다: ${input.chunkId}`);
       }
 
       const now = isoNow();
-      this.run(
-        `UPDATE chunks
-         SET status = 'queued', stt_audio_path = ?, stt_audio_format = ?,
-             stt_byte_size = ?, stt_sha256 = ?, transcode_status = 'done',
-             transcode_error = NULL, updated_at = ?
-         WHERE id = ?`,
-        this.toStoredPath(input.sttAudioPath),
-        input.sttAudioFormat,
-        input.sttByteSize,
-        input.sttSha256,
+      this.chunks.markTranscodedAndQueued({
+        chunkId: input.chunkId,
+        sttAudioPath: input.sttAudioPath,
+        sttAudioFormat: input.sttAudioFormat,
+        sttByteSize: input.sttByteSize,
+        sttSha256: input.sttSha256,
         now,
-        input.chunkId,
-      );
+      });
 
-      this.insertSttJobForChunk(chunk, {
+      this.sttJobs.upsertForChunk(chunk, {
         inputAudioPath: input.sttAudioPath,
         inputAudioSha256: input.sttSha256,
         maxAttempts: input.maxAttempts,
@@ -597,55 +411,26 @@ export class SessionStore {
     chunkId: string;
     error: string;
   }): void {
-    this.run(
-      `UPDATE chunks
-       SET status = 'transcode_failed', transcode_status = 'failed',
-           transcode_error = ?, updated_at = ?
-       WHERE id = ?`,
-      input.error,
-      isoNow(),
-      input.chunkId,
-    );
+    this.chunks.markTranscodeFailed(input);
   }
 
   markChunkFailed(input: {
     chunkId: string;
     error: unknown;
   }): void {
-    this.run(
-      `UPDATE chunks
-       SET status = 'failed', pipeline_error_json = ?, updated_at = ?
-       WHERE id = ?`,
-      JSON.stringify(redactForJson(input.error)),
-      isoNow(),
-      input.chunkId,
-    );
+    this.chunks.markFailed(input);
   }
 
   getChunk(chunkId: string): ChunkRow | null {
-    return this.mapChunkRow(
-      this.get<ChunkRow>("SELECT * FROM chunks WHERE id = ?", chunkId),
-    );
+    return this.mapChunkRow(this.chunks.get(chunkId));
   }
 
   listChunksMissingSttJob(): ChunkRow[] {
-    return this.all<ChunkRow>(
-      `SELECT c.*
-       FROM chunks c
-       LEFT JOIN stt_jobs j ON j.chunk_id = c.id
-       WHERE j.id IS NULL
-         AND c.status IN ('finalized', 'queued', 'transcode_failed')
-       ORDER BY c.created_at ASC`,
-    ).map((row) => this.mapChunkRow(row));
+    return this.chunks.listMissingSttJob().map((row) => this.mapChunkRow(row));
   }
 
   listWritingChunks(): ChunkRow[] {
-    return this.all<ChunkRow>(
-      `SELECT *
-       FROM chunks
-       WHERE status = 'writing'
-       ORDER BY created_at ASC`,
-    ).map((row) => this.mapChunkRow(row));
+    return this.chunks.listWriting().map((row) => this.mapChunkRow(row));
   }
 
   queueExistingSttJobForChunk(chunkId: string, maxAttempts: number): boolean {
@@ -654,16 +439,10 @@ export class SessionStore {
       return false;
     }
 
-    this.database.transaction(() => {
+    this.sql.transaction(() => {
       const now = isoNow();
-      this.run(
-        `UPDATE chunks
-         SET status = 'queued', transcode_status = 'done', updated_at = ?
-         WHERE id = ?`,
-        now,
-        chunkId,
-      );
-      this.insertSttJobForChunk(chunk, {
+      this.chunks.markExistingSttQueued(chunkId, now);
+      this.sttJobs.upsertForChunk(chunk, {
         inputAudioPath: chunk.stt_audio_path ?? "",
         inputAudioSha256: chunk.stt_sha256 ?? chunk.raw_sha256,
         maxAttempts,
@@ -682,21 +461,7 @@ export class SessionStore {
     endedAtMs?: number | null;
     details?: unknown;
   }): void {
-    this.run(
-      `INSERT INTO connection_events (
-        session_id, event_type, level, started_at_ms, ended_at_ms,
-        details_json, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      input.sessionId,
-      input.eventType,
-      input.level ?? "info",
-      input.startedAtMs ?? null,
-      input.endedAtMs ?? null,
-      input.details === undefined
-        ? null
-        : JSON.stringify(redactForJson(input.details)),
-      isoNow(),
-    );
+    this.repairs.recordConnectionEvent(input);
   }
 
   recordRepairItem(input: {
@@ -709,71 +474,19 @@ export class SessionStore {
     sttJobId?: string | null;
     details?: unknown;
   }): void {
-    const now = isoNow();
-    const storedPath = this.toStoredPath(input.path ?? null);
-    const dedupeKey = makeRepairItemDedupeKey({
-      type: input.type,
-      sessionId: input.sessionId ?? null,
-      path: storedPath,
-      chunkId: input.chunkId ?? null,
-      sttJobId: input.sttJobId ?? null,
-    });
-
-    this.run(
-      `INSERT INTO repair_items (
-        dedupe_key, session_id, item_type, status, severity, path,
-        chunk_id, stt_job_id, details_json, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(dedupe_key) DO UPDATE SET
-        status = excluded.status,
-        severity = excluded.severity,
-        details_json = excluded.details_json,
-        updated_at = excluded.updated_at,
-        resolved_at = CASE
-          WHEN excluded.status IN ('repaired', 'ignored') THEN excluded.updated_at
-          ELSE repair_items.resolved_at
-        END`,
-      dedupeKey,
-      input.sessionId ?? null,
-      input.type,
-      input.status ?? "open",
-      input.severity ?? "warn",
-      storedPath,
-      input.chunkId ?? null,
-      input.sttJobId ?? null,
-      input.details === undefined
-        ? null
-        : JSON.stringify(redactForJson(input.details)),
-      now,
-      now,
-    );
+    this.repairs.recordItem(input);
   }
 
   failJobsWithMissingAudio(): number {
-    const jobs = this.all<SttJobRow>(
-      `SELECT *
-       FROM stt_jobs
-       WHERE status NOT IN ('done', 'failed_missing_file')
-         AND input_audio_path IS NOT NULL`,
-    );
-
     let failed = 0;
-    for (const job of jobs) {
+    for (const job of this.sttJobs.listNonTerminalWithInputAudio()) {
       const inputAudioPath = this.resolveStoredPath(job.input_audio_path);
       if (inputAudioPath && existsSync(inputAudioPath)) {
         continue;
       }
 
       const now = isoNow();
-      this.run(
-        `UPDATE stt_jobs
-         SET status = 'failed_missing_file', locked_by = NULL,
-             locked_until = NULL, last_error = ?, updated_at = ?
-         WHERE id = ?`,
-        "STT input audio file이 없습니다.",
-        now,
-        job.id,
-      );
+      this.sttJobs.markMissingAudio(job.id, now);
       this.recordRepairItem({
         type: "stt_job_missing_audio",
         sessionId: job.session_id,
@@ -790,26 +503,9 @@ export class SessionStore {
   }
 
   releaseExpiredProcessingLeases(nowIso = isoNow()): number {
-    const jobs = this.all<SttJobRow>(
-      `SELECT *
-       FROM stt_jobs
-       WHERE status = 'processing'
-         AND locked_until IS NOT NULL
-         AND locked_until < ?
-         AND attempts < max_attempts`,
-      nowIso,
-    );
-
+    const jobs = this.sttJobs.listExpiredProcessingLeases(nowIso);
     for (const job of jobs) {
-      this.run(
-        `UPDATE stt_jobs
-         SET status = 'queued', locked_by = NULL, locked_until = NULL,
-             next_attempt_at = ?, updated_at = ?
-         WHERE id = ?`,
-        nowIso,
-        nowIso,
-        job.id,
-      );
+      this.sttJobs.requeueExpiredProcessingLease(job.id, nowIso);
       this.recordRepairItem({
         type: "expired_processing_lease_requeued",
         status: "repaired",
@@ -832,89 +528,14 @@ export class SessionStore {
     leaseMs: number;
     sessionId?: string | null;
   }): SttJobRow | null {
-    const now = isoNow();
-    const lockedUntil = new Date(Date.now() + input.leaseMs).toISOString();
-    let claimed: SttJobRow | null = null;
-
-    this.database.transaction(() => {
-      const job = input.sessionId
-        ? this.get<SttJobRow>(
-            `SELECT *
-             FROM stt_jobs
-             WHERE status = 'queued'
-               AND next_attempt_at <= ?
-               AND session_id = ?
-             ORDER BY created_at ASC
-             LIMIT 1`,
-            now,
-            input.sessionId,
-          )
-        : this.get<SttJobRow>(
-            `SELECT *
-             FROM stt_jobs
-             WHERE status = 'queued'
-               AND next_attempt_at <= ?
-             ORDER BY created_at ASC
-             LIMIT 1`,
-            now,
-          );
-
-      if (!job) {
-        return;
-      }
-
-      const result = this.database.db.prepare(
-        `UPDATE stt_jobs
-         SET status = 'processing',
-             attempts = attempts + 1,
-             locked_by = ?,
-             locked_until = ?,
-             last_error = NULL,
-             updated_at = ?
-         WHERE id = ?
-           AND status = 'queued'`,
-      ).run(input.workerId, lockedUntil, now, job.id) as { changes: number };
-
-      if (result.changes === 0) {
-        return;
-      }
-
-      claimed = this.mapSttJobRow(
-        this.get<SttJobRow>("SELECT * FROM stt_jobs WHERE id = ?", job.id),
-      );
-    });
-
-    return claimed;
+    return this.mapSttJobRow(this.sttJobs.claimNext(input));
   }
 
   listQueuedSttJobs(input: {
     limit: number;
     sessionId?: string | null;
   }): SttJobRow[] {
-    const now = isoNow();
-    return input.sessionId
-      ? this.all<SttJobRow>(
-          `SELECT *
-           FROM stt_jobs
-           WHERE status = 'queued'
-             AND next_attempt_at <= ?
-             AND session_id = ?
-           ORDER BY created_at ASC
-           LIMIT ?`,
-          now,
-          input.sessionId,
-          input.limit,
-        ).map((row) => this.mapSttJobRow(row))
-      : this.all<SttJobRow>(
-          `SELECT *
-           FROM stt_jobs
-           WHERE status = 'queued'
-             AND next_attempt_at <= ?
-           ORDER BY created_at ASC
-           LIMIT ?`,
-          now,
-          input.limit,
-        ).map((row) => this.mapSttJobRow(row));
+    return this.sttJobs.listQueued(input).map((row) => this.mapSttJobRow(row));
   }
 
   completeFakeSttJob(input: {
@@ -952,7 +573,7 @@ export class SessionStore {
     const startMs = chunk.started_at_ms;
     const endMs = chunk.ended_at_ms ?? chunk.started_at_ms;
 
-    this.database.transaction(() => {
+    this.sql.transaction(() => {
       this.run(
         `INSERT INTO transcript_segments (
           id, session_id, chunk_id, stt_job_id, user_id,
@@ -986,27 +607,15 @@ export class SessionStore {
         now,
       );
 
-      this.run(
-        `UPDATE stt_jobs
-         SET status = 'done',
-             locked_by = NULL,
-             locked_until = NULL,
-             input_audio_sha256 = COALESCE(?, input_audio_sha256),
-             result_text_sha256 = ?,
-             last_error = NULL,
-             updated_at = ?
-         WHERE id = ?`,
-        input.inputAudioSha256 ?? null,
-        resultHash,
+      this.sttJobs.markDone({
+        job: input.job,
+        inputAudioSha256: input.inputAudioSha256 ?? null,
         now,
-        input.job.id,
-      );
+        resultHash,
+      });
     });
 
-    const segment = this.get<TranscriptSegmentRow>(
-      "SELECT * FROM transcript_segments WHERE stt_job_id = ?",
-      input.job.id,
-    );
+    const segment = this.sttJobs.getTranscriptSegment(input.job.id);
     if (!segment) {
       throw new Error(`transcript segment 저장에 실패했습니다: ${input.job.id}`);
     }
@@ -1015,19 +624,8 @@ export class SessionStore {
 
   markSttJobMissingAudio(job: SttJobRow): void {
     const now = isoNow();
-    this.database.transaction(() => {
-      this.run(
-        `UPDATE stt_jobs
-         SET status = 'failed_missing_file',
-             locked_by = NULL,
-             locked_until = NULL,
-             last_error = ?,
-             updated_at = ?
-         WHERE id = ?`,
-        "STT input audio file이 없습니다.",
-        now,
-        job.id,
-      );
+    this.sql.transaction(() => {
+      this.sttJobs.markMissingAudio(job.id, now);
       this.recordRepairItem({
         type: "stt_job_missing_audio",
         sessionId: job.session_id,
@@ -1044,34 +642,7 @@ export class SessionStore {
     jobId: string;
     error: string;
   }): void {
-    const job = this.get<SttJobRow>("SELECT * FROM stt_jobs WHERE id = ?", input.jobId);
-    if (!job) {
-      return;
-    }
-
-    const now = isoNow();
-    const shouldRetry = job.attempts < job.max_attempts;
-    const backoffMs = Math.min(
-      15 * 60 * 1000,
-      30 * 1000 * Math.max(1, 2 ** Math.max(0, job.attempts - 1)),
-    );
-    const nextAttemptAt = new Date(Date.now() + backoffMs).toISOString();
-
-    this.run(
-      `UPDATE stt_jobs
-       SET status = ?,
-           locked_by = NULL,
-           locked_until = NULL,
-           next_attempt_at = ?,
-           last_error = ?,
-           updated_at = ?
-       WHERE id = ?`,
-      shouldRetry ? "queued" : "failed",
-      shouldRetry ? nextAttemptAt : now,
-      input.error,
-      now,
-      input.jobId,
-    );
+    this.sttJobs.failProcessing(input);
   }
 
   listRecentTranscriptSegments(sessionId: string | null, limit = 30): TranscriptSegmentRow[] {
@@ -1147,72 +718,11 @@ export class SessionStore {
     inputTimelineMarkdownPath: string | null;
     maxAttempts: number;
   }): AiCleanupJobRow {
-    const now = isoNow();
-    this.run(
-      `INSERT INTO ai_cleanup_jobs (
-        id, session_id, status, attempts, max_attempts, locked_by,
-        locked_until, next_attempt_at, provider, model, command,
-        prompt_version, input_contract_version, input_hash,
-        input_entry_count, input_timeline_json_path,
-        input_timeline_markdown_path, created_at, updated_at
-      ) VALUES (?, ?, 'queued', 0, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(session_id, provider, model, prompt_version, input_hash)
-      DO UPDATE SET
-        command = excluded.command,
-        input_entry_count = excluded.input_entry_count,
-        input_timeline_json_path = COALESCE(excluded.input_timeline_json_path, ai_cleanup_jobs.input_timeline_json_path),
-        input_timeline_markdown_path = COALESCE(excluded.input_timeline_markdown_path, ai_cleanup_jobs.input_timeline_markdown_path),
-        max_attempts = CASE
-          WHEN ai_cleanup_jobs.status IN ('queued', 'blocked', 'failed') THEN excluded.max_attempts
-          ELSE ai_cleanup_jobs.max_attempts
-        END,
-        updated_at = excluded.updated_at`,
-      input.id,
-      input.sessionId,
-      input.maxAttempts,
-      now,
-      input.provider,
-      input.model,
-      input.command,
-      input.promptVersion,
-      input.inputContractVersion,
-      input.inputHash,
-      input.inputEntryCount,
-      this.toStoredPath(input.inputTimelineJsonPath),
-      this.toStoredPath(input.inputTimelineMarkdownPath),
-      now,
-      now,
-    );
-
-    const job = this.mapAiCleanupJobRow(
-      this.get<AiCleanupJobRow>(
-        `SELECT *
-         FROM ai_cleanup_jobs
-         WHERE session_id = ?
-           AND provider = ?
-           AND model = ?
-           AND prompt_version = ?
-           AND input_hash = ?`,
-        input.sessionId,
-        input.provider,
-        input.model,
-        input.promptVersion,
-        input.inputHash,
-      ),
-    );
-    if (!job) {
-      throw new Error("AI cleanup job 저장에 실패했습니다.");
-    }
-    return job;
+    return this.mapAiCleanupJobRow(this.aiCleanupJobs.getOrCreate(input));
   }
 
   getAiCleanupJob(jobId: string): AiCleanupJobRow | null {
-    return this.mapAiCleanupJobRow(
-      this.get<AiCleanupJobRow>(
-        "SELECT * FROM ai_cleanup_jobs WHERE id = ?",
-        jobId,
-      ),
-    );
+    return this.mapAiCleanupJobRow(this.aiCleanupJobs.get(jobId));
   }
 
   getAiCleanupJobByIdentity(input: {
@@ -1222,22 +732,7 @@ export class SessionStore {
     promptVersion: string;
     inputHash: string;
   }): AiCleanupJobRow | null {
-    return this.mapAiCleanupJobRow(
-      this.get<AiCleanupJobRow>(
-        `SELECT *
-         FROM ai_cleanup_jobs
-         WHERE session_id = ?
-           AND provider = ?
-           AND model = ?
-           AND prompt_version = ?
-           AND input_hash = ?`,
-        input.sessionId,
-        input.provider,
-        input.model,
-        input.promptVersion,
-        input.inputHash,
-      ),
-    );
+    return this.mapAiCleanupJobRow(this.aiCleanupJobs.getByIdentity(input));
   }
 
   claimAiCleanupJob(input: {
@@ -1245,35 +740,7 @@ export class SessionStore {
     workerId: string;
     leaseMs: number;
   }): AiCleanupJobRow | null {
-    const now = isoNow();
-    const lockedUntil = new Date(Date.now() + input.leaseMs).toISOString();
-    let claimed: AiCleanupJobRow | null = null;
-
-    this.database.transaction(() => {
-      const result = this.database.db.prepare(
-        `UPDATE ai_cleanup_jobs
-         SET status = 'processing',
-             attempts = attempts + 1,
-             locked_by = ?,
-             locked_until = ?,
-             failure_kind = NULL,
-             last_error = NULL,
-             updated_at = ?
-         WHERE id = ?
-           AND status = 'queued'
-           AND next_attempt_at <= ?`,
-      ).run(input.workerId, lockedUntil, now, input.jobId, now) as {
-        changes: number;
-      };
-
-      if (result.changes === 0) {
-        return;
-      }
-
-      claimed = this.getAiCleanupJob(input.jobId);
-    });
-
-    return claimed;
+    return this.mapAiCleanupJobRow(this.aiCleanupJobs.claim(input));
   }
 
   updateAiCleanupJobArtifacts(input: {
@@ -1286,27 +753,7 @@ export class SessionStore {
     markdownPath?: string | null;
     outputHash?: string | null;
   }): void {
-    this.run(
-      `UPDATE ai_cleanup_jobs
-       SET command = COALESCE(?, command),
-           prompt_path = COALESCE(?, prompt_path),
-           raw_output_path = COALESCE(?, raw_output_path),
-           stderr_path = COALESCE(?, stderr_path),
-           parsed_json_path = COALESCE(?, parsed_json_path),
-           markdown_path = COALESCE(?, markdown_path),
-           output_hash = COALESCE(?, output_hash),
-           updated_at = ?
-       WHERE id = ?`,
-      input.command ?? null,
-      this.toStoredPath(input.promptPath ?? null),
-      this.toStoredPath(input.rawOutputPath ?? null),
-      this.toStoredPath(input.stderrPath ?? null),
-      this.toStoredPath(input.parsedJsonPath ?? null),
-      this.toStoredPath(input.markdownPath ?? null),
-      input.outputHash ?? null,
-      isoNow(),
-      input.jobId,
-    );
+    this.aiCleanupJobs.updateArtifacts(input);
   }
 
   blockAiCleanupJob(input: {
@@ -1314,20 +761,7 @@ export class SessionStore {
     failureKind: AiCleanupFailureKind;
     error: string;
   }): void {
-    this.run(
-      `UPDATE ai_cleanup_jobs
-       SET status = 'blocked',
-           locked_by = NULL,
-           locked_until = NULL,
-           failure_kind = ?,
-           last_error = ?,
-           updated_at = ?
-       WHERE id = ?`,
-      input.failureKind,
-      input.error,
-      isoNow(),
-      input.jobId,
-    );
+    this.aiCleanupJobs.block(input);
   }
 
   failProcessingAiCleanupJob(input: {
@@ -1335,36 +769,7 @@ export class SessionStore {
     failureKind: AiCleanupFailureKind;
     error: string;
   }): void {
-    const job = this.getAiCleanupJob(input.jobId);
-    if (!job) {
-      return;
-    }
-
-    const now = isoNow();
-    const shouldRetry = job.attempts < job.max_attempts;
-    const backoffMs = Math.min(
-      15 * 60 * 1000,
-      30 * 1000 * Math.max(1, 2 ** Math.max(0, job.attempts - 1)),
-    );
-    const nextAttemptAt = new Date(Date.now() + backoffMs).toISOString();
-
-    this.run(
-      `UPDATE ai_cleanup_jobs
-       SET status = ?,
-           locked_by = NULL,
-           locked_until = NULL,
-           next_attempt_at = ?,
-           failure_kind = ?,
-           last_error = ?,
-           updated_at = ?
-       WHERE id = ?`,
-      shouldRetry ? "queued" : "failed",
-      shouldRetry ? nextAttemptAt : now,
-      input.failureKind,
-      input.error,
-      now,
-      input.jobId,
-    );
+    this.aiCleanupJobs.failProcessing(input);
   }
 
   completeAiCleanupJob(input: {
@@ -1391,7 +796,7 @@ export class SessionStore {
     }
 
     const now = isoNow();
-    this.database.transaction(() => {
+    this.sql.transaction(() => {
       this.run(
         `INSERT INTO meeting_notes_drafts (
           id, session_id, ai_cleanup_job_id, schema_version, language,
@@ -1419,26 +824,14 @@ export class SessionStore {
         now,
         now,
       );
-      this.run(
-        `UPDATE ai_cleanup_jobs
-         SET status = 'done',
-             locked_by = NULL,
-             locked_until = NULL,
-             parsed_json_path = ?,
-             markdown_path = ?,
-             raw_output_path = ?,
-             output_hash = ?,
-             failure_kind = NULL,
-             last_error = NULL,
-             updated_at = ?
-         WHERE id = ?`,
-        this.toStoredPath(input.jsonPath),
-        this.toStoredPath(input.markdownPath),
-        this.toStoredPath(input.rawOutputPath),
-        input.outputHash,
+      this.aiCleanupJobs.markDone({
+        jobId: input.jobId,
+        jsonPath: input.jsonPath,
+        markdownPath: input.markdownPath,
+        rawOutputPath: input.rawOutputPath,
+        outputHash: input.outputHash,
         now,
-        input.jobId,
-      );
+      });
     });
 
     const draft = this.mapMeetingNotesDraftRow(
@@ -1454,111 +847,22 @@ export class SessionStore {
   }
 
   releaseExpiredAiCleanupLeases(nowIso = isoNow()): number {
-    const jobs = this.all<AiCleanupJobRow>(
-      `SELECT *
-       FROM ai_cleanup_jobs
-       WHERE status = 'processing'
-         AND locked_until IS NOT NULL
-         AND locked_until < ?
-         AND attempts < max_attempts`,
-      nowIso,
-    );
-
-    for (const job of jobs) {
-      this.run(
-        `UPDATE ai_cleanup_jobs
-         SET status = 'queued',
-             locked_by = NULL,
-             locked_until = NULL,
-             next_attempt_at = ?,
-             updated_at = ?
-         WHERE id = ?`,
-        nowIso,
-        nowIso,
-        job.id,
-      );
-    }
-
-    return jobs.length;
+    return this.aiCleanupJobs.releaseExpiredLeases(nowIso);
   }
 
   repairExpiredAiCleanupProcessingJobs(
     nowIso = isoNow(),
   ): AiCleanupLeaseRepairSummary {
-    const jobs = this.all<AiCleanupJobRow>(
-      `SELECT *
-       FROM ai_cleanup_jobs
-       WHERE status = 'processing'
-         AND locked_until IS NOT NULL
-         AND locked_until < ?`,
-      nowIso,
-    );
-    let requeued = 0;
-    let failed = 0;
-
-    for (const job of jobs) {
-      if (job.attempts < job.max_attempts) {
-        this.run(
-          `UPDATE ai_cleanup_jobs
-           SET status = 'queued',
-               locked_by = NULL,
-               locked_until = NULL,
-               next_attempt_at = ?,
-               last_error = ?,
-               updated_at = ?
-           WHERE id = ?`,
-          nowIso,
-          "AI cleanup processing lease expired; retrying.",
-          nowIso,
-          job.id,
-        );
-        requeued += 1;
-        continue;
-      }
-
-      this.run(
-        `UPDATE ai_cleanup_jobs
-         SET status = 'failed',
-             locked_by = NULL,
-             locked_until = NULL,
-             next_attempt_at = ?,
-             failure_kind = 'provider_timeout',
-             last_error = ?,
-             updated_at = ?
-         WHERE id = ?`,
-        nowIso,
-        "AI cleanup processing lease expired after max attempts.",
-        nowIso,
-        job.id,
-      );
-      failed += 1;
-    }
-
-    return { requeued, failed };
+    return this.aiCleanupJobs.repairExpiredProcessingJobs(nowIso);
   }
 
   listRecentAiCleanupJobs(
     sessionId: string | null,
     limit = 20,
   ): AiCleanupJobRow[] {
-    const rows = sessionId === null
-      ? this.all<AiCleanupJobRow>(
-          `SELECT *
-           FROM ai_cleanup_jobs
-           ORDER BY created_at DESC
-           LIMIT ?`,
-          limit,
-        )
-      : this.all<AiCleanupJobRow>(
-          `SELECT *
-           FROM ai_cleanup_jobs
-           WHERE session_id = ?
-           ORDER BY created_at DESC
-           LIMIT ?`,
-          sessionId,
-          limit,
-        );
-    return rows.map((row) => this.mapAiCleanupJobRow(row));
+    return this.aiCleanupJobs
+      .listRecent(sessionId, limit)
+      .map((row) => this.mapAiCleanupJobRow(row));
   }
 
   getLatestMeetingNotesDraft(sessionId: string): MeetingNotesDraftRow | null {
@@ -1630,22 +934,7 @@ export class SessionStore {
   }
 
   hasChunkAudioPath(filePath: string): boolean {
-    const candidates = uniqueStrings([
-      filePath,
-      path.resolve(filePath),
-      this.toStoredPath(filePath),
-      this.resolveStoredPath(filePath),
-    ]);
-    const placeholders = candidates.map(() => "?").join(", ");
-    const row = this.get<{ count: number }>(
-      `SELECT COUNT(*) AS count
-       FROM chunks
-       WHERE raw_audio_path IN (${placeholders})
-          OR stt_audio_path IN (${placeholders})`,
-      ...candidates,
-      ...candidates,
-    );
-    return (row?.count ?? 0) > 0;
+    return this.chunks.hasAudioPath(filePath);
   }
 
   getAudioPathForChunk(
@@ -1692,46 +981,6 @@ export class SessionStore {
       getSession: (sessionId) => this.getSession(sessionId),
       getLatestSession: () => this.getLatestSession(),
     });
-  }
-
-  private insertSttJobForChunk(
-    chunk: ChunkRow,
-    input: {
-      inputAudioPath: string;
-      inputAudioSha256: string | null;
-      maxAttempts: number;
-      now: string;
-    },
-  ): void {
-    const jobId = `stt_${chunk.id}`;
-    this.run(
-      `INSERT INTO stt_jobs (
-        id, session_id, chunk_id, user_id, display_name_snapshot,
-        input_audio_path, status, attempts, max_attempts, locked_by,
-        locked_until, next_attempt_at, input_audio_sha256,
-        result_text_sha256, last_error, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 'queued', 0, ?, NULL, NULL, ?, ?, NULL, NULL, ?, ?)
-      ON CONFLICT(chunk_id) DO UPDATE SET
-        input_audio_path = excluded.input_audio_path,
-        status = CASE
-          WHEN stt_jobs.status = 'failed_missing_file' THEN 'queued'
-          ELSE stt_jobs.status
-        END,
-        input_audio_sha256 = excluded.input_audio_sha256,
-        max_attempts = excluded.max_attempts,
-        updated_at = excluded.updated_at`,
-      jobId,
-      chunk.session_id,
-      chunk.id,
-      chunk.user_id,
-      chunk.display_name_snapshot,
-      this.toStoredPath(input.inputAudioPath),
-      input.maxAttempts,
-      input.now,
-      input.inputAudioSha256,
-      input.now,
-      input.now,
-    );
   }
 
   private normalizeStoredPaths(): void {
@@ -1782,40 +1031,7 @@ export class SessionStore {
         }
       }
     });
-    this.normalizeRepairItemDedupeKeys();
-  }
-
-  private normalizeRepairItemDedupeKeys(): void {
-    const repairItems = this.all<{
-      row_id: number;
-      dedupe_key: string;
-      item_type: string;
-      session_id: string | null;
-      path: string | null;
-      chunk_id: string | null;
-      stt_job_id: string | null;
-    }>(
-      `SELECT rowid AS row_id, dedupe_key, item_type, session_id, path, chunk_id, stt_job_id
-       FROM repair_items`,
-    );
-
-    for (const item of repairItems) {
-      const dedupeKey = makeRepairItemDedupeKey({
-        type: item.item_type,
-        sessionId: item.session_id,
-        path: item.path,
-        chunkId: item.chunk_id,
-        sttJobId: item.stt_job_id,
-      });
-      if (dedupeKey === item.dedupe_key) {
-        continue;
-      }
-      this.run(
-        "UPDATE OR IGNORE repair_items SET dedupe_key = ? WHERE rowid = ?",
-        dedupeKey,
-        item.row_id,
-      );
-    }
+    this.repairs.normalizeDedupeKeys();
   }
 
   private toStoredPath(filePath: string | null): string | null {
@@ -1927,26 +1143,6 @@ function isoNow(): string {
 
 function sha256Text(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
-}
-
-function uniqueStrings(values: Array<string | null>): string[] {
-  return [...new Set(values.filter((value): value is string => Boolean(value)))];
-}
-
-function makeRepairItemDedupeKey(input: {
-  type: string;
-  sessionId: string | null;
-  path: string | null;
-  chunkId: string | null;
-  sttJobId: string | null;
-}): string {
-  return [
-    input.type,
-    input.sessionId ?? "",
-    input.path ?? "",
-    input.chunkId ?? "",
-    input.sttJobId ?? "",
-  ].join(":");
 }
 
 export function relativeDisplayPath(filePath: string | null): string | null {

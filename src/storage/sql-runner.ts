@@ -7,8 +7,11 @@ export class SqlRunner {
     return this.database.transaction(fn);
   }
 
-  run(sql: string, ...params: SqlValue[]): void {
-    this.database.db.prepare(sql).run(...params);
+  run(sql: string, ...params: SqlValue[]): number {
+    const result = this.database.db.prepare(sql).run(...params) as {
+      changes?: number | bigint;
+    };
+    return Number(result.changes ?? 0);
   }
 
   get<T>(sql: string, ...params: SqlValue[]): T | null {

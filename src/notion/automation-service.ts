@@ -24,6 +24,10 @@ import {
 } from "./writer.js";
 import { readManagedNotionRegistrySnapshot } from "./managed-registry.js";
 import type { NotionWriteStore } from "./write-store.js";
+import {
+  applyRetentionAfterSuccessfulUpload,
+  type NotionUploadRetentionHandler,
+} from "./upload-retention.js";
 
 export type NotionAutomationStatus =
   | "disabled"
@@ -69,6 +73,7 @@ export type NotionAutomationServiceOptions = {
   leaseMs: number;
   registryStore?: NotionRegistryStore | null;
   customPropertyRules?: () => readonly NotionCustomPropertyRule[];
+  retention?: NotionUploadRetentionHandler;
 };
 
 export class NotionAutomationService {
@@ -247,6 +252,10 @@ export class NotionAutomationService {
         registryStore: this.options.registryStore ?? null,
         customPropertyRules: this.options.customPropertyRules?.() ?? [],
       });
+      await applyRetentionAfterSuccessfulUpload(
+        this.options.retention,
+        result,
+      );
       this.snapshot = snapshotFromRunResult({
         previous: this.snapshot,
         result,

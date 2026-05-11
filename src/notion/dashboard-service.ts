@@ -1,4 +1,5 @@
 import type { Phase1Config } from "../config.js";
+import { redactSensitiveText } from "../errors.js";
 import {
   buildHumanStatusDisplay,
   type HumanStatusDisplay,
@@ -33,6 +34,10 @@ import {
   runNotionUpload,
   type NotionDraftSelector,
 } from "./writer.js";
+import {
+  applyRetentionAfterSuccessfulUpload,
+  type NotionUploadRetentionHandler,
+} from "./upload-retention.js";
 import {
   readManagedNotionRegistrySnapshot,
   type ManagedNotionRegistrySnapshot,
@@ -118,6 +123,7 @@ export class NotionDashboardService {
       database: DirongDatabase;
       config: Pick<Phase1Config, "sttLeaseMs">;
       workerId: string;
+      retention?: NotionUploadRetentionHandler;
     },
   ) {
     this.runner = new SqlRunner(input.database);
@@ -265,6 +271,35 @@ export class NotionDashboardService {
       registryStore: this.registryStore,
       customPropertyRules: this.propertyRuleStore.listEnabledRules(),
     });
+    try {
+      await applyRetentionAfterSuccessfulUpload(this.input.retention, result);
+    } catch (error) {
+      return {
+        ok: false,
+        status: "failed",
+        message: "Notion 업로드 후 보관 정책 적용 중 오류가 발생했습니다.",
+        userAction:
+          "로컬 파일 경로와 데이터 폴더 설정을 확인한 뒤 다시 시도해 주세요.",
+        display: buildNotionUploadActionDisplay({
+          status: "failed",
+          message: "Notion 업로드 후 보관 정책 적용 중 오류가 발생했습니다.",
+          userAction:
+            "로컬 파일 경로와 데이터 폴더 설정을 확인한 뒤 다시 시도해 주세요.",
+          technicalDetail: summarizeError(error),
+          details: [
+            { label: "sessionId", value: result.sessionId },
+            { label: "draftId", value: result.draftId },
+            { label: "targetId", value: result.targetId },
+            { label: "writeId", value: result.writeId },
+            { label: "pageId", value: result.pageId },
+            { label: "contentHash", value: result.contentHash },
+            { label: "warnings", value: result.warnings },
+          ],
+        }),
+        technicalDetail: summarizeError(error),
+        pageUrl: result.pageUrl,
+      };
+    }
 
     return {
       ok: ["done", "retry_wait", "not_claimed"].includes(result.status),
@@ -777,6 +812,12 @@ function buildNotionUploadActionDisplay(input: {
     technicalDetail: input.technicalDetail,
     details: input.details,
   });
+}
+
+function summarizeError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const redacted = redactSensitiveText(message);
+  return redacted.length <= 1000 ? redacted : `${redacted.slice(0, 1000)}...`;
 }
 
 function notionDashboardDisplayKeys(

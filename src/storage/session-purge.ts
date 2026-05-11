@@ -1,4 +1,12 @@
 import { existsSync } from "node:fs";
+import {
+  DEFAULT_RETENTION_POLICY,
+  buildRetentionDeletionPlan,
+  executeRetentionDeletionPlan,
+  type RetentionDeletionExecutionResult,
+  type RetentionDeletionPlan,
+  type RetentionPolicy,
+} from "./file-retention.js";
 import { createStoragePathResolver } from "./path-resolver.js";
 import type { DirongDatabase, SqlValue } from "./sqlite.js";
 
@@ -45,6 +53,8 @@ export type SessionPurgeResult = {
   dryRun: boolean;
   candidates: SessionPurgeCandidate[];
   counts: SessionPurgeCounts;
+  fileRetentionPlans: RetentionDeletionPlan[];
+  fileRetentionResults: RetentionDeletionExecutionResult[];
 };
 
 type SessionRow = {
@@ -59,12 +69,21 @@ export function previewSessionPurge(input: {
   database: DirongDatabase;
   storageRoot: string | null;
   selector: SessionPurgeSelector;
+  retentionPolicy?: RetentionPolicy;
 }): SessionPurgeResult {
   const candidates = selectCandidates(input);
+  const fileRetentionPlans = buildFileRetentionPlans({
+    database: input.database,
+    storageRoot: input.storageRoot,
+    candidates,
+    retentionPolicy: input.retentionPolicy,
+  });
   return {
     dryRun: true,
     candidates,
     counts: countPurgeRows(input.database, candidates.map((row) => row.sessionId)),
+    fileRetentionPlans,
+    fileRetentionResults: [],
   };
 }
 
@@ -73,10 +92,21 @@ export function purgeSessions(input: {
   storageRoot: string | null;
   selector: SessionPurgeSelector;
   dryRun: boolean;
+  retentionPolicy?: RetentionPolicy;
 }): SessionPurgeResult {
   const candidates = selectCandidates(input);
   const sessionIds = candidates.map((row) => row.sessionId);
   const counts = countPurgeRows(input.database, sessionIds);
+  const fileRetentionPlans = buildFileRetentionPlans({
+    database: input.database,
+    storageRoot: input.storageRoot,
+    candidates,
+    retentionPolicy: input.retentionPolicy,
+  });
+  const fileRetentionResults = input.dryRun
+    ? []
+    : fileRetentionPlans.map((plan) => executeRetentionDeletionPlan(plan));
+  assertNoFileRetentionFailures(fileRetentionResults);
 
   if (!input.dryRun && sessionIds.length > 0) {
     input.database.transaction(() => {
@@ -109,7 +139,54 @@ export function purgeSessions(input: {
     });
   }
 
-  return { dryRun: input.dryRun, candidates, counts };
+  return {
+    dryRun: input.dryRun,
+    candidates,
+    counts,
+    fileRetentionPlans,
+    fileRetentionResults,
+  };
+}
+
+function assertNoFileRetentionFailures(
+  results: readonly RetentionDeletionExecutionResult[],
+): void {
+  const failures = results.flatMap((result) =>
+    result.results.filter((item) => item.status === "failed"),
+  );
+  if (failures.length === 0) {
+    return;
+  }
+  throw new Error(
+    failures
+      .map((item) =>
+        [
+          "Session purge file deletion failed",
+          `session=${item.target.sessionId}`,
+          `kind=${item.target.kind}`,
+          `path=${item.target.resolvedPath ?? item.target.path}`,
+          `error=${item.error ?? "unknown"}`,
+        ].join(" / "),
+      )
+      .join("\n"),
+  );
+}
+
+function buildFileRetentionPlans(input: {
+  database: DirongDatabase;
+  storageRoot: string | null;
+  candidates: readonly SessionPurgeCandidate[];
+  retentionPolicy?: RetentionPolicy;
+}): RetentionDeletionPlan[] {
+  return input.candidates.map((candidate) =>
+    buildRetentionDeletionPlan({
+      database: input.database,
+      storageRoot: input.storageRoot,
+      sessionId: candidate.sessionId,
+      policy: input.retentionPolicy ?? DEFAULT_RETENTION_POLICY,
+      reason: "session-purge",
+    }),
+  );
 }
 
 function selectCandidates(input: {

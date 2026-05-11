@@ -6,6 +6,7 @@ import {
 import type { SessionPurgeSelector } from "../storage/session-purge.js";
 
 export type SessionPurgeCliOptions = {
+  operation: "purge-sessions" | "expired-text-artifacts";
   selector: SessionPurgeSelector;
   dryRun: boolean;
   backup: boolean;
@@ -16,6 +17,7 @@ type MutableSessionPurgeCliOptions = {
   sessionIds: string[];
   missingAudio: boolean;
   all: boolean;
+  expiredTextArtifacts: boolean;
   confirm: boolean;
   explicitDryRun: boolean;
   backup: boolean;
@@ -29,6 +31,7 @@ export function parseSessionPurgeArgs(args: string[]): SessionPurgeCliOptions {
       sessionIds: [],
       missingAudio: false,
       all: false,
+      expiredTextArtifacts: false,
       confirm: false,
       explicitDryRun: false,
       backup: true,
@@ -41,9 +44,12 @@ export function parseSessionPurgeArgs(args: string[]): SessionPurgeCliOptions {
   const selectorCount =
     (options.sessionIds.length > 0 ? 1 : 0) +
     (options.missingAudio ? 1 : 0) +
-    (options.all ? 1 : 0);
+    (options.all ? 1 : 0) +
+    (options.expiredTextArtifacts ? 1 : 0);
   if (selectorCount !== 1) {
-    throw new Error("--session, --missing-audio, --all 중 정확히 하나가 필요합니다.");
+    throw new Error(
+      "--session, --missing-audio, --all, --expired-text-artifacts 중 정확히 하나가 필요합니다.",
+    );
   }
 
   const selector: SessionPurgeSelector = options.sessionIds.length > 0
@@ -53,6 +59,9 @@ export function parseSessionPurgeArgs(args: string[]): SessionPurgeCliOptions {
       : { kind: "all" };
 
   return {
+    operation: options.expiredTextArtifacts
+      ? "expired-text-artifacts"
+      : "purge-sessions",
     selector,
     dryRun: options.explicitDryRun || !options.confirm,
     backup: options.backup,
@@ -81,6 +90,12 @@ const SESSION_PURGE_ARG_SPEC: Record<
     kind: "boolean",
     apply: (options) => {
       options.all = true;
+    },
+  },
+  "--expired-text-artifacts": {
+    kind: "boolean",
+    apply: (options) => {
+      options.expiredTextArtifacts = true;
     },
   },
   "--confirm": {

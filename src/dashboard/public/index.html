@@ -1309,8 +1309,11 @@
     }
     function renderSetupPrivacy(setup) {
       const retention = setup.features?.dataRetention;
+      const audioCopy = retention?.deleteAudioAfterNotionUpload === false
+        ? '음성 파일 자동 삭제가 꺼져 있으며 Dirong 실행 PC에 보관됩니다.'
+        : '음성 파일은 Dirong 실행 PC에 저장되며, Notion 업로드 성공 후 즉시 삭제합니다.';
       return '<h3>개인정보와 보관 정책을 확인합니다</h3>' +
-        '<p class="setup-copy">음성 파일은 Dirong 실행 PC에 저장되며, Notion 업로드 성공 후 즉시 삭제합니다. STT 텍스트와 AI draft는 기본 ' +
+        '<p class="setup-copy">' + audioCopy + ' STT 텍스트와 AI draft는 기본 ' +
         escapeHtml(retention?.textDraftRetentionDays ?? 30) + '일 뒤 삭제합니다.</p>' +
         '<label class="setup-guild"><input id="setupPrivacyConfirm" type="checkbox"' + (setupLocalState.privacyDone ? ' checked' : '') + '> 녹음 시작 안내와 기본 보관 정책을 확인했습니다.</label>' +
         '<div class="setup-actions"><button type="button" onclick="setupConfirmPrivacy()">계속</button></div>';

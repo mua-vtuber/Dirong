@@ -4,6 +4,7 @@ import { parseSessionPurgeArgs } from "./session-purge-cli.js";
 
 test("parseSessionPurgeArgs defaults to dry-run for a selected session", () => {
   assert.deepEqual(parseSessionPurgeArgs(["--session", "meeting_1"]), {
+    operation: "purge-sessions",
     selector: { kind: "sessions", sessionIds: ["meeting_1"] },
     dryRun: true,
     backup: true,
@@ -13,6 +14,7 @@ test("parseSessionPurgeArgs defaults to dry-run for a selected session", () => {
 
 test("parseSessionPurgeArgs accepts destructive missing-audio mode only with confirm", () => {
   assert.deepEqual(parseSessionPurgeArgs(["--missing-audio", "--confirm"]), {
+    operation: "purge-sessions",
     selector: { kind: "missing-audio" },
     dryRun: false,
     backup: true,
@@ -24,12 +26,23 @@ test("parseSessionPurgeArgs preserves dry-run when explicitly requested with con
   assert.deepEqual(
     parseSessionPurgeArgs(["--all", "--confirm", "--dry-run", "--no-backup", "--debug"]),
     {
+      operation: "purge-sessions",
       selector: { kind: "all" },
       dryRun: true,
       backup: false,
       debug: true,
     },
   );
+});
+
+test("parseSessionPurgeArgs accepts expired text artifact file-only mode", () => {
+  assert.deepEqual(parseSessionPurgeArgs(["--expired-text-artifacts"]), {
+    operation: "expired-text-artifacts",
+    selector: { kind: "all" },
+    dryRun: true,
+    backup: true,
+    debug: false,
+  });
 });
 
 test("parseSessionPurgeArgs accepts repeated session selectors", () => {
@@ -43,6 +56,10 @@ test("parseSessionPurgeArgs rejects missing, mixed, and unknown selectors", () =
   assert.throws(() => parseSessionPurgeArgs([]), /정확히 하나/);
   assert.throws(
     () => parseSessionPurgeArgs(["--session", "meeting_1", "--all"]),
+    /정확히 하나/,
+  );
+  assert.throws(
+    () => parseSessionPurgeArgs(["--all", "--expired-text-artifacts"]),
     /정확히 하나/,
   );
   assert.throws(

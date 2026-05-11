@@ -8,6 +8,7 @@ import { NotionAutomationService } from "./automation-service.js";
 import { NotionDraftInputReadModel } from "./draft-input-read-model.js";
 import { NOTION_MANAGED_SCHEMA_VERSION } from "./managed-schema.js";
 import { NotionRegistryStore } from "./registry-store.js";
+import type { NotionUploadRetentionHandler } from "./upload-retention.js";
 import {
   DEFAULT_NOTION_PROPERTY_NAMES,
   type NotionRuntimeSettings,
@@ -93,6 +94,28 @@ test("NotionAutomationService uploads one completed valid draft once", async () 
       client.calls.filter((call) => call.method === "createPage").length,
       1,
     );
+  } finally {
+    fixture.close();
+  }
+});
+
+test("NotionAutomationService applies retention only after a successful upload", async () => {
+  const fixture = createFixture();
+  try {
+    const retainedSessionIds: string[] = [];
+    const service = createService(fixture, {
+      client: new FakeNotionClient(),
+      retention: (result) => {
+        retainedSessionIds.push(result.sessionId ?? "");
+      },
+    });
+
+    const first = await service.runOnce();
+    const second = await service.runOnce();
+
+    assert.equal(first.status, "done");
+    assert.equal(second.status, "idle");
+    assert.deepEqual(retainedSessionIds, [fixture.sessionId]);
   } finally {
     fixture.close();
   }
@@ -307,6 +330,7 @@ function createService(
     settings?: NotionRuntimeSettings;
     client?: NotionClient | null;
     registryStore?: NotionRegistryStore | null;
+    retention?: NotionUploadRetentionHandler;
   } = {},
 ): NotionAutomationService {
   return new NotionAutomationService({
@@ -319,6 +343,7 @@ function createService(
     workerId: "notion-auto-test",
     leaseMs: 60000,
     registryStore: options.registryStore,
+    retention: options.retention,
   });
 }
 

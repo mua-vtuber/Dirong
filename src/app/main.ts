@@ -55,6 +55,7 @@ import {
 import { createNotionClient } from "../notion/client.js";
 import { NotionDashboardService } from "../notion/dashboard-service.js";
 import { NotionDraftInputReadModel } from "../notion/draft-input-read-model.js";
+import type { NotionUploadRetentionHandler } from "../notion/upload-retention.js";
 import {
   buildNotionCustomPropertyPrompt,
   NotionCustomPropertyRuleStore,
@@ -63,6 +64,12 @@ import { NotionRegistryStore } from "../notion/registry-store.js";
 import { NotionWriteStore } from "../notion/write-store.js";
 import { RecordingProducer } from "../recording/recording-producer.js";
 import { runStartupRepair } from "../storage/repair-scan.js";
+import {
+  buildRetentionDeletionPlan,
+  executeRetentionDeletionPlan,
+  type RetentionDeletionExecutionResult,
+  type RetentionPolicy,
+} from "../storage/file-retention.js";
 import { SessionStore } from "../storage/session-store.js";
 import { SqlRunner } from "../storage/sql-runner.js";
 import { DirongDatabase } from "../storage/sqlite.js";
@@ -115,11 +122,13 @@ const aiCleanupAutomation = createAiCleanupAutomationService(
   aiCleanupProvider,
   aiLifecycle,
 );
+const notionUploadRetention = createNotionUploadRetentionHandler();
 const notionDashboard = new NotionDashboardService({
   settings: appSettings.notion,
   database,
   config,
   workerId: `phase5-notion-dashboard-${process.pid}`,
+  retention: notionUploadRetention,
 });
 const notionAutomation = createNotionAutomationService(notionSqlRunner);
 const dashboard = new DashboardServer(config, store, producer, {
@@ -549,7 +558,75 @@ function createNotionAutomationService(
     leaseMs: settings.leaseMs || config.sttLeaseMs,
     registryStore: new NotionRegistryStore(runner),
     customPropertyRules: () => notionPropertyRuleStore.listEnabledRules(),
+    retention: notionUploadRetention,
   });
+}
+
+function createNotionUploadRetentionHandler(): NotionUploadRetentionHandler {
+  const policy = currentRetentionPolicy();
+  return (result) => {
+    if (!result.sessionId) {
+      return;
+    }
+    const plan = buildRetentionDeletionPlan({
+      database,
+      storageRoot: config.dataDir,
+      sessionId: result.sessionId,
+      policy,
+      reason: "notion-upload-success",
+    });
+    const execution = executeRetentionDeletionPlan(plan);
+    logRetentionExecution(execution);
+    if (execution.failed > 0) {
+      throw new Error(formatRetentionFailure(execution));
+    }
+  };
+}
+
+function currentRetentionPolicy(): RetentionPolicy {
+  const retention = productRuntime.localSettings.retention;
+  return {
+    deleteAudioAfterNotionUpload:
+      retention.deleteAudioAfterNotionUpload ?? true,
+    textDraftRetentionDays: retention.textDraftRetentionDays ?? 30,
+  };
+}
+
+function logRetentionExecution(
+  execution: RetentionDeletionExecutionResult,
+): void {
+  if (execution.results.length === 0) {
+    return;
+  }
+  for (const result of execution.results) {
+    console.log(
+      [
+        "retention",
+        `session=${result.target.sessionId}`,
+        `source=${result.target.sourceTable}:${result.target.sourceId}`,
+        `kind=${result.target.kind}`,
+        `status=${result.status}`,
+        `path=${result.target.resolvedPath ?? result.target.path}`,
+      ].join(" / "),
+    );
+  }
+}
+
+function formatRetentionFailure(
+  execution: RetentionDeletionExecutionResult,
+): string {
+  return execution.results
+    .filter((result) => result.status === "failed")
+    .map((result) =>
+      [
+        `Failed to delete retention file`,
+        `session=${result.target.sessionId}`,
+        `kind=${result.target.kind}`,
+        `path=${result.target.resolvedPath ?? result.target.path}`,
+        `error=${result.error ?? "unknown"}`,
+      ].join(" / "),
+    )
+    .join("\n");
 }
 
 function startAiPrepareInBackground(): void {

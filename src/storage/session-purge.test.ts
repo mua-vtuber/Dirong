@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -28,6 +34,9 @@ test("purgeSessions dry-run reports session rows without deleting them", () => {
     assert.equal(result.counts.connectionEvents, 1);
     assert.equal(result.counts.repairItems, 1);
     assert.equal(result.counts.notionCustomPropertyRules, 1);
+    assert.equal(result.fileRetentionPlans.length, 1);
+    assert.equal(result.fileRetentionPlans[0]?.targets.length, 2);
+    assert.equal(result.fileRetentionResults.length, 0);
     assert.equal(countRows(fixture, "sessions"), 1);
   } finally {
     fixture.close();
@@ -37,7 +46,7 @@ test("purgeSessions dry-run reports session rows without deleting them", () => {
 test("purgeSessions deletes session data while preserving Notion property rules", () => {
   const fixture = createFixture();
   try {
-    seedSession(fixture, fixture.sessionId, { writeAudioFiles: false });
+    const paths = seedSession(fixture, fixture.sessionId, { writeAudioFiles: true });
     seedNotionPropertyRule(fixture);
 
     const result = purgeSessions({
@@ -49,6 +58,10 @@ test("purgeSessions deletes session data while preserving Notion property rules"
 
     assert.equal(result.dryRun, false);
     assert.equal(result.counts.sessions, 1);
+    assert.equal(result.fileRetentionResults[0]?.deleted, 2);
+    assert.equal(result.fileRetentionResults[0]?.missing, 0);
+    assert.equal(existsSync(paths.rawAudioPath), false);
+    assert.equal(existsSync(paths.sttAudioPath), false);
     assert.equal(countRows(fixture, "sessions"), 0);
     assert.equal(countRows(fixture, "session_speakers"), 0);
     assert.equal(countRows(fixture, "chunks"), 0);
@@ -119,7 +132,7 @@ function seedSession(
   fixture: PurgeFixture,
   sessionId: string,
   options: { writeAudioFiles: boolean },
-): void {
+): { rawAudioPath: string; sttAudioPath: string } {
   const sessionDir = path.join(fixture.dir, sessionId);
   const rawAudioPath = path.join(sessionDir, "chunks", "chunk.ogg");
   const sttAudioPath = path.join(sessionDir, "stt-audio", "chunk.webm");
@@ -187,6 +200,8 @@ function seedSession(
     sttJobId: `stt_${chunkId}`,
     path: rawAudioPath,
   });
+
+  return { rawAudioPath, sttAudioPath };
 }
 
 function seedNotionPropertyRule(fixture: PurgeFixture): void {

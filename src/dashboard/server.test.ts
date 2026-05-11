@@ -283,6 +283,7 @@ test("DashboardServer root serves the dashboard HTML without caching", async () 
     assert.match(html, /dashboard\.db\.customFields\.protectedDelete/);
     assert.doesNotMatch(html, /관리 외 삭제/);
     assert.match(html, /escapeHtml/);
+    assert.match(html, /window\.__DIRONG_DASHBOARD_TOKEN__/);
     assert.match(html, /fetch\('\/api\/state'/);
   } finally {
     await fixture.close();
@@ -314,6 +315,58 @@ test("DashboardServer setup status API returns redacted configuration state", as
   }
 });
 
+test("DashboardServer mutation routes require JSON, same-origin, and dashboard token", async () => {
+  const setupStatus = makeMutableSetupStatusSource();
+  const fixture = await startDashboardFixture({ setupStatus });
+  try {
+    const missingToken = await fetch(`${fixture.baseUrl}/api/settings/language`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ locale: "en" }),
+    });
+    assert.equal(missingToken.status, 403);
+    assert.equal(setupStatus.getLocale?.(), "ko");
+
+    const dashboardToken = await readDashboardToken(fixture.baseUrl);
+    const wrongContentType = await fetch(`${fixture.baseUrl}/api/settings/language`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain",
+        "X-Dirong-Dashboard-Token": dashboardToken,
+      },
+      body: JSON.stringify({ locale: "en" }),
+    });
+    assert.equal(wrongContentType.status, 415);
+    assert.equal(setupStatus.getLocale?.(), "ko");
+
+    const crossOrigin = await fetch(`${fixture.baseUrl}/api/settings/language`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Origin": "http://example.invalid",
+        "X-Dirong-Dashboard-Token": dashboardToken,
+      },
+      body: JSON.stringify({ locale: "en" }),
+    });
+    assert.equal(crossOrigin.status, 403);
+    assert.equal(setupStatus.getLocale?.(), "ko");
+
+    const sameOrigin = await postJson(
+      fixture.baseUrl,
+      "/api/settings/language",
+      { locale: "en" },
+      {
+        Origin: fixture.baseUrl,
+        "Sec-Fetch-Site": "same-origin",
+      },
+    );
+    assert.equal(sameOrigin.status, 200);
+    assert.equal(setupStatus.getLocale?.(), "en");
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("DashboardServer setup wizard routes read state and post actions through the wizard source", async () => {
   const calls: unknown[] = [];
   const fixture = await startDashboardFixture({
@@ -328,11 +381,11 @@ test("DashboardServer setup wizard routes read state and post actions through th
     assert.equal(state.status, 200);
     assert.equal(stateBody.wizard.currentStep, "discordApplication");
 
-    const saved = await fetch(`${fixture.baseUrl}/api/setup/discord/application-id`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ applicationId: "123456789012345678" }),
-    });
+    const saved = await postJson(
+      fixture.baseUrl,
+      "/api/setup/discord/application-id",
+      { applicationId: "123456789012345678" },
+    );
     const savedBody = await saved.json() as {
       ok: boolean;
       messageKey: string;
@@ -368,10 +421,8 @@ test("DashboardServer language API reads and saves app locale", async () => {
     assert.equal(initialBody.notionSchemaLocale, "ko");
     assert.equal(initialBody.messageKey, "settings.language.current.message");
 
-    const saved = await fetch(`${fixture.baseUrl}/api/settings/language`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ locale: "en" }),
+    const saved = await postJson(fixture.baseUrl, "/api/settings/language", {
+      locale: "en",
     });
     const savedBody = await saved.json() as {
       locale: string;
@@ -398,10 +449,8 @@ test("DashboardServer language API rejects unsupported locales", async () => {
   const setupStatus = makeMutableSetupStatusSource();
   const fixture = await startDashboardFixture({ setupStatus });
   try {
-    const response = await fetch(`${fixture.baseUrl}/api/settings/language`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ locale: "jp" }),
+    const response = await postJson(fixture.baseUrl, "/api/settings/language", {
+      locale: "jp",
     });
     const body = await response.json() as {
       locale: string;
@@ -429,10 +478,8 @@ test("DashboardServer theme API reads and saves dashboard theme", async () => {
     assert.equal(initial.status, 200);
     assert.equal(initialBody.theme, "system");
 
-    const saved = await fetch(`${fixture.baseUrl}/api/settings/theme`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ theme: "dark" }),
+    const saved = await postJson(fixture.baseUrl, "/api/settings/theme", {
+      theme: "dark",
     });
     const savedBody = await saved.json() as {
       theme: string;
@@ -548,12 +595,16 @@ test("DashboardServer audio endpoint serves full and ranged raw audio", async ()
     },
   });
   try {
-    const full = await fetch(`${fixture.baseUrl}/audio/chunk_audio_test/raw`);
+    const unsigned = await fetch(`${fixture.baseUrl}/audio/chunk_audio_test/raw`);
+    assert.equal(unsigned.status, 403);
+
+    const rawUrl = await readSignedAudioUrl(fixture.baseUrl, "raw");
+    const full = await fetch(new URL(rawUrl, fixture.baseUrl));
     assert.equal(full.status, 200);
     assert.equal(full.headers.get("content-length"), "10");
     assert.equal(Buffer.from(await full.arrayBuffer()).toString("utf8"), "0123456789");
 
-    const range = await fetch(`${fixture.baseUrl}/audio/chunk_audio_test/raw`, {
+    const range = await fetch(new URL(rawUrl, fixture.baseUrl), {
       headers: { range: "bytes=2-5" },
     });
     assert.equal(range.status, 206);
@@ -575,7 +626,8 @@ test("DashboardServer audio endpoint rejects unsatisfiable ranges", async () => 
     },
   });
   try {
-    const response = await fetch(`${fixture.baseUrl}/audio/chunk_audio_test/raw`, {
+    const rawUrl = await readSignedAudioUrl(fixture.baseUrl, "raw");
+    const response = await fetch(new URL(rawUrl, fixture.baseUrl), {
       headers: { range: "bytes=20-30" },
     });
 
@@ -601,7 +653,8 @@ test("DashboardServer audio endpoint serves STT-safe audio separately", async ()
     },
   });
   try {
-    const response = await fetch(`${fixture.baseUrl}/audio/chunk_audio_test/stt`);
+    const sttUrl = await readSignedAudioUrl(fixture.baseUrl, "stt");
+    const response = await fetch(new URL(sttUrl, fixture.baseUrl));
 
     assert.equal(response.status, 200);
     assert.match(response.headers.get("content-type") ?? "", /audio\/webm/);
@@ -621,10 +674,9 @@ test("DashboardServer Notion send action posts explicit JSON action", async () =
     notion: makeNotionSource(actions),
   });
   try {
-    const response = await fetch(`${fixture.baseUrl}/api/notion/send`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId: "session-1", draftId: "draft-1" }),
+    const response = await postJson(fixture.baseUrl, "/api/notion/send", {
+      sessionId: "session-1",
+      draftId: "draft-1",
     });
     const body = await response.json() as {
       ok: boolean;
@@ -654,10 +706,8 @@ test("DashboardServer Notion retry action forces retry and never returns token",
     notion: makeNotionSource(actions),
   });
   try {
-    const response = await fetch(`${fixture.baseUrl}/api/notion/retry`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId: "session-1" }),
+    const response = await postJson(fixture.baseUrl, "/api/notion/retry", {
+      sessionId: "session-1",
     });
     const text = await response.text();
 
@@ -692,21 +742,17 @@ test("DashboardServer Notion property rules save through dashboard source", asyn
     notion: makeNotionSource([], savedRules),
   });
   try {
-    const response = await fetch(`${fixture.baseUrl}/api/notion/properties`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        rules: [
-          {
-            propertyName: "Discussion",
-            propertyType: "rich_text",
-            valueSource: "ai",
-            enabled: true,
-            promptDescription: "회의 논의 사항 요약",
-            maxLength: 700,
-          },
-        ],
-      }),
+    const response = await postJson(fixture.baseUrl, "/api/notion/properties", {
+      rules: [
+        {
+          propertyName: "Discussion",
+          propertyType: "rich_text",
+          valueSource: "ai",
+          enabled: true,
+          promptDescription: "회의 논의 사항 요약",
+          maxLength: 700,
+        },
+      ],
     });
     const body = await response.json() as { ok: boolean; status: string };
 
@@ -747,14 +793,10 @@ test("DashboardServer Notion schema apply posts safe options", async () => {
     notion: makeNotionSource([], [], schemaApplies),
   });
   try {
-    const response = await fetch(`${fixture.baseUrl}/api/notion/schema/apply`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        updateTypes: true,
-        deleteExtra: true,
-        confirmDeleteExtra: false,
-      }),
+    const response = await postJson(fixture.baseUrl, "/api/notion/schema/apply", {
+      updateTypes: true,
+      deleteExtra: true,
+      confirmDeleteExtra: false,
     });
     const body = await response.json() as { ok: boolean; status: string };
 
@@ -814,6 +856,46 @@ async function startDashboardFixture(
       await dashboard.stop();
     },
   };
+}
+
+async function postJson(
+  baseUrl: string,
+  pathname: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Promise<Response> {
+  return fetch(`${baseUrl}${pathname}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Dirong-Dashboard-Token": await readDashboardToken(baseUrl),
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+async function readDashboardToken(baseUrl: string): Promise<string> {
+  const response = await fetch(`${baseUrl}/`);
+  const html = await response.text();
+  const token = /window\.__DIRONG_DASHBOARD_TOKEN__="([^"]+)"/.exec(html)?.[1];
+  assert.ok(token);
+  return token;
+}
+
+async function readSignedAudioUrl(
+  baseUrl: string,
+  kind: "raw" | "stt",
+): Promise<string> {
+  const response = await fetch(`${baseUrl}/api/state`);
+  const state = await response.json() as {
+    recentChunks?: Array<{
+      audioUrls?: Partial<Record<"raw" | "stt", string>>;
+    }>;
+  };
+  const url = state.recentChunks?.[0]?.audioUrls?.[kind];
+  assert.ok(url);
+  return url;
 }
 
 function makeNotionSource(
@@ -1207,6 +1289,17 @@ function makeStore(audio?: AudioFixture): SessionStore {
     getDashboardState: () => ({
       generatedAt: "2026-05-07T00:00:00.000Z",
       runtime: { isRecording: false },
+      recentChunks: audio
+        ? [
+            {
+              id: audio.chunkId,
+              status: "finalized",
+              raw_byte_size: audio.raw ? 1 : 0,
+              stt_audio_path: audio.stt?.path ?? null,
+              stt_byte_size: audio.stt ? 1 : 0,
+            },
+          ]
+        : [],
     }),
     getAudioPathForChunk: (chunkId: string, kind: "raw" | "stt") => {
       if (audio?.chunkId !== chunkId) {

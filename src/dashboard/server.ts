@@ -31,6 +31,14 @@ import type {
   SetupWizardStateSnapshot,
 } from "../setup/wizard-service.js";
 import {
+  buildDashboardHtml,
+  createDashboardToken,
+  createSignedAudioPath,
+  requireJsonMutationRequest,
+  verifySignedAudioToken,
+  type DashboardAudioKind,
+} from "./security.js";
+import {
   DEFAULT_DIRONG_DASHBOARD_THEME,
   DEFAULT_DIRONG_LOCALE,
   isDirongDashboardTheme,
@@ -112,6 +120,8 @@ export type DashboardRuntimeSources = {
 export class DashboardServer {
   private server: Server | null = null;
   private url: string | null = null;
+  private dashboardToken = createDashboardToken();
+  private audioTokenSecret = createDashboardToken();
 
   constructor(
     private readonly config: Phase1Config,
@@ -125,6 +135,8 @@ export class DashboardServer {
       return this.url;
     }
 
+    this.dashboardToken = createDashboardToken();
+    this.audioTokenSecret = createDashboardToken();
     const server = createServer((request, response) => {
       void this.route(request, response);
     });
@@ -183,6 +195,18 @@ export class DashboardServer {
     response: ServerResponse,
   ): Promise<void> {
     const url = new URL(request.url ?? "/", this.getUrl());
+    if (request.method === "POST") {
+      const security = requireJsonMutationRequest({
+        request,
+        expectedOrigin: this.getUrl(),
+        dashboardToken: this.dashboardToken,
+      });
+      if (!security.ok) {
+        sendText(response, security.statusCode, security.message);
+        return;
+      }
+    }
+
     const languageEndpoint =
       url.pathname === "/api/settings/language" ||
       url.pathname === "/api/setup/language";
@@ -248,13 +272,17 @@ export class DashboardServer {
     }
 
     if (url.pathname === "/") {
-      sendHtml(response, DASHBOARD_INDEX_HTML);
+      sendHtml(response, buildDashboardHtml(DASHBOARD_INDEX_HTML, this.dashboardToken));
       return;
     }
 
     if (url.pathname === "/api/state") {
       const state = this.store.getDashboardState(this.producer.getRuntimeState());
-      sendJson(response, appendDashboardRuntimeSnapshots(state, this.runtimeSources));
+      const withRuntime = appendDashboardRuntimeSnapshots(state, this.runtimeSources);
+      sendJson(
+        response,
+        appendSignedAudioUrlsToDashboardState(withRuntime, this.audioTokenSecret),
+      );
       return;
     }
 
@@ -316,7 +344,18 @@ export class DashboardServer {
     const audioMatch = /^\/audio\/([^/]+)\/(raw|stt)$/.exec(url.pathname);
     if (audioMatch) {
       const chunkId = decodeURIComponent(audioMatch[1] ?? "");
-      const kind = (audioMatch[2] ?? "raw") as "raw" | "stt";
+      const kind = (audioMatch[2] ?? "raw") as DashboardAudioKind;
+      if (
+        !verifySignedAudioToken({
+          chunkId,
+          kind,
+          secret: this.audioTokenSecret,
+          token: url.searchParams.get("token"),
+        })
+      ) {
+        sendText(response, 403, "Forbidden");
+        return;
+      }
       this.serveAudio(request, response, chunkId, kind);
       return;
     }
@@ -883,6 +922,48 @@ export function appendDashboardRuntimeSnapshots(
   };
 }
 
+export function appendSignedAudioUrlsToDashboardState(
+  state: unknown,
+  audioTokenSecret: string,
+): unknown {
+  if (!isRecord(state) || !Array.isArray(state.recentChunks)) {
+    return state;
+  }
+
+  return {
+    ...state,
+    recentChunks: state.recentChunks.map((chunk) => {
+      if (!isRecord(chunk) || typeof chunk.id !== "string") {
+        return chunk;
+      }
+
+      const audioUrls: Partial<Record<DashboardAudioKind, string>> = {};
+      if (hasPositiveNumber(chunk.raw_byte_size) && chunk.status !== "writing") {
+        audioUrls.raw = createSignedAudioPath({
+          chunkId: chunk.id,
+          kind: "raw",
+          secret: audioTokenSecret,
+        });
+      }
+      if (
+        typeof chunk.stt_audio_path === "string" &&
+        hasPositiveNumber(chunk.stt_byte_size) &&
+        chunk.status !== "writing"
+      ) {
+        audioUrls.stt = createSignedAudioPath({
+          chunkId: chunk.id,
+          kind: "stt",
+          secret: audioTokenSecret,
+        });
+      }
+
+      return Object.keys(audioUrls).length > 0
+        ? { ...chunk, audioUrls }
+        : chunk;
+    }),
+  };
+}
+
 const DASHBOARD_INDEX_HTML = readFileSync(new URL("./public/index.html", import.meta.url), "utf8");
 const DASHBOARD_ASSET_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -1116,6 +1197,10 @@ function readStringValue(value: unknown, key: string): string | null {
   }
   const entry = value[key];
   return typeof entry === "string" ? entry : null;
+}
+
+function hasPositiveNumber(value: unknown): boolean {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
 function sendText(response: ServerResponse, statusCode: number, text: string): void {

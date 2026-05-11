@@ -987,6 +987,12 @@
     function i18n(key, params = {}) {
       return escapeHtml(tr(key, params));
     }
+    function dashboardJsonHeaders() {
+      return {
+        'Content-Type': 'application/json',
+        'X-Dirong-Dashboard-Token': window.__DIRONG_DASHBOARD_TOKEN__ ?? ''
+      };
+    }
     function applyStaticI18n() {
       document.querySelectorAll('[data-i18n]').forEach((node) => {
         node.textContent = tr(node.getAttribute('data-i18n'));
@@ -1408,7 +1414,7 @@
       try {
         const res = await fetch(path, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: dashboardJsonHeaders(),
           body: JSON.stringify(body ?? {})
         });
         const result = await res.json();
@@ -1963,7 +1969,7 @@
       try {
         const res = await fetch('/api/settings/theme', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: dashboardJsonHeaders(),
           body: JSON.stringify({ theme })
         });
         const result = await res.json();
@@ -2693,7 +2699,7 @@
       try {
         const res = await fetch('/api/notion/properties/sync', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: dashboardJsonHeaders(),
           body: '{}'
         });
         const result = await res.json();
@@ -2795,7 +2801,7 @@
       try {
         const res = await fetch('/api/notion/properties', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: dashboardJsonHeaders(),
           body: JSON.stringify({ targetDatabaseRole, rules })
         });
         const result = await res.json();
@@ -2820,7 +2826,7 @@
         }
         const res = await fetch('/api/notion/schema/inspect', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: dashboardJsonHeaders(),
           body: '{}'
         });
         notionSchemaResult = await res.json();
@@ -2847,7 +2853,7 @@
         };
         const res = await fetch('/api/notion/schema/apply', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: dashboardJsonHeaders(),
           body: JSON.stringify(body)
         });
         notionSchemaResult = await res.json();
@@ -2871,7 +2877,7 @@
         };
         const res = await fetch('/api/notion/' + action, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: dashboardJsonHeaders(),
           body: JSON.stringify(body)
         });
         const result = await res.json();
@@ -2906,11 +2912,15 @@
       if (!(c.raw_byte_size > 0) || c.status === 'writing') {
         return '<span class="muted">' + i18n('dashboard.audio.playback.pending') + '</span>';
       }
-      const encoded = encodeURIComponent(c.id);
-      const stt = c.stt_audio_path && c.stt_byte_size > 0
-        ? '<div class="label">' + i18n('dashboard.audio.playback.sttSafe') + '</div><audio controls preload="metadata" src="/audio/' + encoded + '/stt"></audio>'
+      const rawUrl = c.audioUrls?.raw;
+      if (!rawUrl) {
+        return '<span class="muted">' + i18n('dashboard.audio.playback.pending') + '</span>';
+      }
+      const sttUrl = c.audioUrls?.stt;
+      const stt = c.stt_audio_path && c.stt_byte_size > 0 && sttUrl
+        ? '<div class="label">' + i18n('dashboard.audio.playback.sttSafe') + '</div><audio controls preload="metadata" src="' + escapeHtml(sttUrl) + '"></audio>'
         : '';
-      return stt + '<div class="label">' + i18n('dashboard.audio.playback.raw') + '</div><audio controls preload="metadata" src="/audio/' + encoded + '/raw"></audio>';
+      return stt + '<div class="label">' + i18n('dashboard.audio.playback.raw') + '</div><audio controls preload="metadata" src="' + escapeHtml(rawUrl) + '"></audio>';
     }
     function shortHash(value) {
       if (!value) return '';

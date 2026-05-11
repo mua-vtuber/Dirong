@@ -8,6 +8,12 @@ import {
 import path from "node:path";
 import type { NotionUploadMode } from "../notion/settings.js";
 import type { SttProviderName } from "./app-settings.js";
+import {
+  isClaudeToolProfile,
+  isLocalWhisperToolProfile,
+  type ClaudeToolProfile,
+  type LocalWhisperToolProfile,
+} from "./tool-profiles.js";
 
 export const DIRONG_LOCALES = ["ko", "en"] as const;
 export type DirongLocale = (typeof DIRONG_LOCALES)[number];
@@ -19,6 +25,7 @@ export type AiProviderName = "claude";
 export type AiProviderMode = "cli" | "api";
 
 export type LocalWhisperLocalSettings = {
+  profile?: LocalWhisperToolProfile;
   command?: string;
   args?: string[];
   model?: string;
@@ -39,6 +46,7 @@ export type AiLocalSettings = {
   provider?: AiProviderName;
   mode?: AiProviderMode;
   model?: string;
+  claudeProfile?: ClaudeToolProfile;
   claudeCommand?: string;
   apiKeySecretRef?: string;
 };
@@ -158,6 +166,9 @@ export function normalizeLocalSettings(value: unknown): DirongLocalSettings {
       provider: readAiProvider(ai.provider),
       mode: readAiMode(ai.mode),
       model: readString(ai.model),
+      claudeProfile: isClaudeToolProfile(ai.claudeProfile)
+        ? ai.claudeProfile
+        : undefined,
       claudeCommand: readString(ai.claudeCommand),
       apiKeySecretRef: readString(ai.apiKeySecretRef),
     },
@@ -192,6 +203,9 @@ function normalizeLocalWhisperSettings(value: unknown): LocalWhisperLocalSetting
     return {};
   }
   return {
+    profile: isLocalWhisperToolProfile(value.profile)
+      ? value.profile
+      : undefined,
     command: readString(value.command),
     args: readStringArray(value.args),
     model: readString(value.model),

@@ -1267,7 +1267,7 @@
         '</div>' +
         '<div class="setup-form">' +
         (mode === 'cli'
-          ? '<label>CLI command<input id="setupClaudeCommand" type="text" value="claude" autocomplete="off"></label>'
+          ? ''
           : '<label>Claude API key<input id="setupClaudeApiKey" type="password" autocomplete="off" placeholder="저장 후 화면에 다시 표시되지 않습니다"></label>') +
         '<label>Model (선택)<input id="setupClaudeModel" type="text" autocomplete="off" placeholder="비워 두면 기본값을 사용합니다"></label>' +
         '</div><div class="setup-actions"><button type="button" onclick="setupSaveClaude()">Claude 설정 저장</button>' +
@@ -1503,11 +1503,10 @@
       const model = setupLocalState.sttModel === 'medium' ? 'medium' : 'small';
       await setupPost('/api/setup/stt', {
         provider: 'local-whisper',
+        profile: 'local-whisper-python-script',
         model,
         device: 'cpu',
         computeType: 'int8',
-        command: 'python',
-        args: ['scripts/local-whisper-json.py'],
         language: 'ko',
         timeoutMs: 120000
       });
@@ -1517,7 +1516,7 @@
       const model = document.getElementById('setupClaudeModel')?.value ?? '';
       await setupPost('/api/setup/ai/claude', mode === 'api'
         ? { mode, apiKey: document.getElementById('setupClaudeApiKey')?.value ?? '', model }
-        : { mode, cliCommand: document.getElementById('setupClaudeCommand')?.value ?? 'claude', model });
+        : { mode, profile: 'claude-cli-default', model });
     }
     async function setupTestClaude() {
       await setupPost('/api/setup/ai/claude/test', {});

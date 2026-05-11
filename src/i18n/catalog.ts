@@ -364,6 +364,10 @@ export const ko = {
             message: "STT 모델명이 올바르지 않습니다.",
             action: "small, medium 또는 사용할 provider의 모델명을 다시 선택해 주세요.",
           },
+          invalidCommand: {
+            message: "허용되지 않는 STT 실행 command입니다.",
+            action: "대시보드에서는 기본 local-whisper profile만 사용할 수 있습니다.",
+          },
         },
       },
     },
@@ -414,6 +418,10 @@ export const ko = {
           apiKeyMissing: {
             message: "Claude API key가 비어 있습니다.",
             action: "Claude API 모드를 쓰려면 API key를 입력해 주세요.",
+          },
+          invalidCommand: {
+            message: "허용되지 않는 Claude CLI command입니다.",
+            action: "대시보드에서는 기본 Claude CLI profile만 사용할 수 있습니다.",
           },
         },
       },
@@ -1325,6 +1333,10 @@ export const en = {
             message: "The STT model name is invalid.",
             action: "Choose small, medium, or a model name supported by the selected provider.",
           },
+          invalidCommand: {
+            message: "The STT command is not allowed.",
+            action: "The dashboard can only use the default local-whisper profile.",
+          },
         },
       },
     },
@@ -1375,6 +1387,10 @@ export const en = {
           apiKeyMissing: {
             message: "Claude API key is empty.",
             action: "Enter an API key to use Claude API mode.",
+          },
+          invalidCommand: {
+            message: "The Claude CLI command is not allowed.",
+            action: "The dashboard can only use the default Claude CLI profile.",
           },
         },
       },

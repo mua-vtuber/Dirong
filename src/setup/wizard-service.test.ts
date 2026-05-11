@@ -127,6 +127,12 @@ test("SetupWizardService saves STT and Claude settings and uses the fake Claude 
     });
     assert.equal(stt.ok, true);
     assert.equal(fixture.settings.read().stt.provider, "local-whisper");
+    assert.equal(
+      fixture.settings.read().stt.localWhisper?.profile,
+      "local-whisper-python-script",
+    );
+    assert.equal(fixture.settings.read().stt.localWhisper?.command, undefined);
+    assert.equal(fixture.settings.read().stt.localWhisper?.args, undefined);
     assert.equal(fixture.settings.read().stt.localWhisper?.model, "small");
 
     const claude = fixture.service.saveClaudeSettings({
@@ -136,10 +142,47 @@ test("SetupWizardService saves STT and Claude settings and uses the fake Claude 
     });
     assert.equal(claude.ok, true);
     assert.equal(fixture.settings.read().ai.mode, "cli");
+    assert.equal(fixture.settings.read().ai.claudeProfile, "claude-cli-default");
+    assert.equal(fixture.settings.read().ai.claudeCommand, undefined);
 
     const tested = await fixture.service.testClaudeConnection();
     assert.equal(tested.ok, true);
     assert.deepEqual(claudeCalls, ["cli"]);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("SetupWizardService rejects unsafe dashboard command inputs", () => {
+  const fixture = createFixture();
+  try {
+    for (const command of [
+      "cmd.exe",
+      "powershell.exe",
+      "pwsh.exe",
+      "tool.cmd",
+      "tool.bat",
+      "script.ps1",
+    ]) {
+      const stt = fixture.service.saveSttSettings({
+        provider: "local-whisper",
+        model: "small",
+        command,
+        args: ["--anything"],
+      });
+      assert.equal(stt.ok, false);
+      assert.equal(stt.messageKey, "setup.stt.settings.error.invalidCommand.message");
+      assert.equal(fixture.settings.read().stt.provider, undefined);
+    }
+
+    const claude = fixture.service.saveClaudeSettings({
+      mode: "cli",
+      cliCommand: "powershell.exe",
+      model: "sonnet",
+    });
+    assert.equal(claude.ok, false);
+    assert.equal(claude.messageKey, "setup.ai.claude.error.invalidCommand.message");
+    assert.equal(fixture.settings.read().ai.mode, undefined);
   } finally {
     fixture.close();
   }

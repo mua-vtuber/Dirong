@@ -80,6 +80,48 @@ test("buildProductSetupStatus reports ready Discord without exposing token value
   }
 });
 
+test("loadProductRuntimeSettings resolves safe tool profiles to command templates", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-product-"));
+  try {
+    const paths = getDirongUserDataPaths(dir);
+    const settingsStore = new LocalSettingsStore(paths.settingsFile);
+    settingsStore.write({
+      schemaVersion: 1,
+      app: { locale: "ko" },
+      discord: {},
+      stt: {
+        provider: "local-whisper",
+        localWhisper: {
+          profile: "local-whisper-python-script",
+          model: "small",
+        },
+      },
+      ai: {
+        provider: "claude",
+        mode: "cli",
+        claudeProfile: "claude-cli-default",
+      },
+      notion: {},
+      recording: { aloneFinalizeEnabled: true, aloneFinalizeGraceMs: 90000 },
+      retention: { deleteAudioAfterNotionUpload: true, textDraftRetentionDays: 30 },
+    });
+
+    const runtime = loadProductRuntimeSettings({ userDataDir: dir });
+
+    assert.equal(runtime.appSettings.stt.provider, "local-whisper");
+    if (runtime.appSettings.stt.provider !== "local-whisper") {
+      throw new Error("expected local-whisper settings");
+    }
+    assert.equal(runtime.appSettings.stt.localWhisper.command, "python");
+    assert.deepEqual(runtime.appSettings.stt.localWhisper.args, [
+      "scripts/local-whisper-json.py",
+    ]);
+    assert.equal(runtime.appSettings.aiCleanup.claudeCommand, "claude");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("buildProductSetupStatus localizes setup messages and exposes locale keys", () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-product-"));
   try {

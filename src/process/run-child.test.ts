@@ -72,3 +72,10 @@ test("resolveShellFalseCommand wraps Windows script commands", () => {
     { command: "tool.exe", args: ["--flag"] },
   );
 });
+
+test("resolveShellFalseCommand does not fall back to cmd.exe for unknown Windows commands", () => {
+  assert.deepEqual(
+    resolveShellFalseCommand("__dirong_missing_command__", ["--flag"], "win32"),
+    { command: "__dirong_missing_command__", args: ["--flag"] },
+  );
+});

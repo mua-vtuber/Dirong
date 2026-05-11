@@ -26,6 +26,7 @@ import type { NotionLocale } from "../notion/schema-presets.js";
 import { parseNotionPageUrl } from "../notion/target.js";
 import type { NotionRegistryStore } from "../notion/registry-store.js";
 import { runChild } from "../process/run-child.js";
+import { validateDashboardCommandInput } from "../process/command-policy.js";
 import type { DirongUserDataPaths } from "../settings/dirong-user-data.js";
 import {
   DEFAULT_DIRONG_LOCALE,
@@ -44,6 +45,17 @@ import {
   buildProductSetupStatus,
   type ProductSetupStatusSnapshot,
 } from "../settings/product-settings.js";
+import {
+  DEFAULT_CLAUDE_TOOL_PROFILE,
+  DEFAULT_LOCAL_WHISPER_TOOL_PROFILE,
+  isClaudeToolProfile,
+  isLocalWhisperToolProfile,
+  matchesClaudeToolProfile,
+  matchesLocalWhisperToolProfile,
+  resolveClaudeToolProfile,
+  type ClaudeToolProfile,
+  type LocalWhisperToolProfile,
+} from "../settings/tool-profiles.js";
 
 export type SetupWizardStepId =
   | "language"
@@ -464,16 +476,17 @@ export class SetupWizardService {
 
     const model = readCleanString(body, ["model"]);
     if (mode === "cli") {
-      const claudeCommand =
-        readCleanString(body, ["claudeCommand", "cliCommand", "command"]) ??
-        "claude";
+      const claudeProfile = readClaudeProfileInput(body);
+      if (!claudeProfile.ok) {
+        return this.result(claudeProfile.error);
+      }
       this.options.settingsStore.update((settings) => ({
         ...settings,
         ai: {
           provider: "claude",
           mode,
           model: model ?? settings.ai.model,
-          claudeCommand,
+          claudeProfile: claudeProfile.profile,
           apiKeySecretRef: settings.ai.apiKeySecretRef,
         },
       }));
@@ -483,7 +496,12 @@ export class SetupWizardService {
         status: "done",
         messageKey: "setup.ai.claude.save.done.message",
         userActionKey: null,
-        ai: { provider: "claude", mode, model: model ?? null, claudeCommand },
+        ai: {
+          provider: "claude",
+          mode,
+          model: model ?? null,
+          claudeProfile: claudeProfile.profile,
+        },
       });
     }
 
@@ -763,7 +781,7 @@ export class SetupWizardService {
   private async testClaudeCli(
     settings: DirongLocalSettings,
   ): Promise<ClaudeSetupTestResult> {
-    const command = settings.ai.claudeCommand;
+    const command = resolveClaudeCommand(settings.ai);
     if (!command) {
       throw new Error("Claude CLI command is missing.");
     }
@@ -1149,14 +1167,19 @@ function buildLocalWhisperSettings(
   model: string | null,
   language: string,
   timeoutMs: number,
-): {
-  ok: true;
-  stt: DirongLocalSettings["stt"];
-  openAiApiKey: null;
-} {
+):
+  | {
+      ok: true;
+      stt: DirongLocalSettings["stt"];
+      openAiApiKey: null;
+    }
+  | { ok: false; error: ResultInput } {
+  const profile = readLocalWhisperProfileInput(body);
+  if (!profile.ok) {
+    return profile;
+  }
   const localWhisper: LocalWhisperLocalSettings = {
-    command: readCleanString(body, ["command"]) ?? "python",
-    args: readStringList(body, "args"),
+    profile: profile.profile,
     model: model ?? "small",
     device: readCleanString(body, ["device"]) ?? "cpu",
     computeType: readCleanString(body, ["computeType"]) ?? "int8",
@@ -1167,15 +1190,96 @@ function buildLocalWhisperSettings(
       provider: "local-whisper",
       language,
       timeoutMs,
-      localWhisper: {
-        ...localWhisper,
-        args:
-          localWhisper.args && localWhisper.args.length > 0
-            ? localWhisper.args
-            : ["scripts/local-whisper-json.py"],
-      },
+      localWhisper,
     },
     openAiApiKey: null,
+  };
+}
+
+function readLocalWhisperProfileInput(body: unknown):
+  | { ok: true; profile: LocalWhisperToolProfile }
+  | { ok: false; error: ResultInput } {
+  const requestedProfile = readCleanString(body, [
+    "profile",
+    "toolProfile",
+    "localWhisperProfile",
+  ]);
+  if (requestedProfile && !isLocalWhisperToolProfile(requestedProfile)) {
+    return { ok: false, error: invalidSttCommandResult() };
+  }
+
+  const command = readCleanString(body, ["command"]);
+  const args = readStringList(body, "args");
+  const policy = validateDashboardCommandInput({ command });
+  if (!policy.ok) {
+    return { ok: false, error: invalidSttCommandResult() };
+  }
+
+  const profile = isLocalWhisperToolProfile(requestedProfile)
+    ? requestedProfile
+    : DEFAULT_LOCAL_WHISPER_TOOL_PROFILE;
+  if (
+    command &&
+    !matchesLocalWhisperToolProfile({ command, args, profile })
+  ) {
+    return { ok: false, error: invalidSttCommandResult() };
+  }
+
+  return { ok: true, profile };
+}
+
+function readClaudeProfileInput(body: unknown):
+  | { ok: true; profile: ClaudeToolProfile }
+  | { ok: false; error: ResultInput } {
+  const requestedProfile = readCleanString(body, [
+    "profile",
+    "toolProfile",
+    "claudeProfile",
+  ]);
+  if (requestedProfile && !isClaudeToolProfile(requestedProfile)) {
+    return { ok: false, error: invalidClaudeCommandResult() };
+  }
+
+  const command = readCleanString(body, ["claudeCommand", "cliCommand", "command"]);
+  const policy = validateDashboardCommandInput({ command });
+  if (!policy.ok) {
+    return { ok: false, error: invalidClaudeCommandResult() };
+  }
+
+  const profile = isClaudeToolProfile(requestedProfile)
+    ? requestedProfile
+    : DEFAULT_CLAUDE_TOOL_PROFILE;
+  if (command && !matchesClaudeToolProfile({ command, profile })) {
+    return { ok: false, error: invalidClaudeCommandResult() };
+  }
+
+  return { ok: true, profile };
+}
+
+function resolveClaudeCommand(settings: DirongLocalSettings["ai"]): string | null {
+  if (settings.claudeProfile) {
+    return resolveClaudeToolProfile(settings.claudeProfile).command;
+  }
+  return settings.claudeCommand ?? null;
+}
+
+function invalidSttCommandResult(): ResultInput {
+  return {
+    ok: false,
+    status: "failed",
+    httpStatus: 400,
+    messageKey: "setup.stt.settings.error.invalidCommand.message",
+    userActionKey: "setup.stt.settings.error.invalidCommand.action",
+  };
+}
+
+function invalidClaudeCommandResult(): ResultInput {
+  return {
+    ok: false,
+    status: "failed",
+    httpStatus: 400,
+    messageKey: "setup.ai.claude.error.invalidCommand.message",
+    userActionKey: "setup.ai.claude.error.invalidCommand.action",
   };
 }
 

@@ -116,10 +116,7 @@ export function resolveShellFalseCommand(
     return { command: resolvedExecutable, args };
   }
 
-  return {
-    command: "cmd.exe",
-    args: ["/C", command, ...args.map(escapeWindowsArg)],
-  };
+  return { command, args };
 }
 
 function resolveWindowsExecutable(command: string): string | null {

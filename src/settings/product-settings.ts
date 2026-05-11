@@ -38,6 +38,12 @@ import {
   LocalSecretStore,
   type SecretPresenceSnapshot,
 } from "./local-secret-store.js";
+import {
+  DEFAULT_CLAUDE_TOOL_PROFILE,
+  DEFAULT_LOCAL_WHISPER_TOOL_PROFILE,
+  resolveClaudeToolProfile,
+  resolveLocalWhisperToolProfile,
+} from "./tool-profiles.js";
 
 export type ProductFeatureStatus =
   | "not_configured"
@@ -238,7 +244,7 @@ export function buildProductAppSettings(
   return {
     stt: buildProductSttSettings(settings.stt, secretStore),
     aiCleanup: {
-      claudeCommand: settings.ai.claudeCommand ?? "claude",
+      claudeCommand: buildProductClaudeCommand(settings.ai),
       claudeModel: settings.ai.model ?? null,
       prepareTimeoutMs: 5000,
       autoCleanupEnabled: isAiConfigured(settings.ai, secretStore),
@@ -376,13 +382,14 @@ function buildProductSttSettings(
     };
   }
 
+  const localWhisper = buildProductLocalWhisperCommand(settings);
   return {
     provider: "local-whisper",
     language,
     timeoutMs,
     localWhisper: {
-      command: settings.localWhisper?.command ?? "python",
-      args: settings.localWhisper?.args ?? ["scripts/local-whisper-json.py"],
+      command: localWhisper.command,
+      args: localWhisper.args,
       model: settings.localWhisper?.model ?? "small",
       device: settings.localWhisper?.device ?? "cpu",
       computeType: settings.localWhisper?.computeType ?? "int8",
@@ -426,7 +433,7 @@ function isAiConfigured(
   if (settings.mode === "api") {
     return secretStore.has(settings.apiKeySecretRef ?? DEFAULT_SECRET_REFS.claudeApiKey);
   }
-  return Boolean(settings.claudeCommand?.trim());
+  return Boolean(settings.claudeProfile || settings.claudeCommand?.trim());
 }
 
 function buildDiscordStatus(
@@ -528,7 +535,11 @@ function buildAiStatus(
     });
   }
 
-  if (settings.ai.mode === "cli" && !settings.ai.claudeCommand) {
+  if (
+    settings.ai.mode === "cli" &&
+    !settings.ai.claudeProfile &&
+    !settings.ai.claudeCommand
+  ) {
     return withLocalizedText(locale, {
       status: "not_configured",
       messageKey: "setup.ai.status.claudeCliCommandMissing.message",
@@ -547,6 +558,36 @@ function buildAiStatus(
     provider: "claude",
     mode: settings.ai.mode,
   });
+}
+
+function buildProductLocalWhisperCommand(settings: SttLocalSettings): {
+  command: string;
+  args: string[];
+} {
+  const localWhisper = settings.localWhisper;
+  if (localWhisper?.profile) {
+    return resolveLocalWhisperToolProfile(localWhisper.profile);
+  }
+  if (localWhisper?.command || localWhisper?.args) {
+    const defaults = resolveLocalWhisperToolProfile(
+      DEFAULT_LOCAL_WHISPER_TOOL_PROFILE,
+    );
+    return {
+      command: localWhisper.command ?? defaults.command,
+      args: localWhisper.args ?? defaults.args,
+    };
+  }
+  return resolveLocalWhisperToolProfile(DEFAULT_LOCAL_WHISPER_TOOL_PROFILE);
+}
+
+function buildProductClaudeCommand(settings: AiLocalSettings): string {
+  if (settings.claudeProfile) {
+    return resolveClaudeToolProfile(settings.claudeProfile).command;
+  }
+  if (settings.claudeCommand) {
+    return settings.claudeCommand;
+  }
+  return resolveClaudeToolProfile(DEFAULT_CLAUDE_TOOL_PROFILE).command;
 }
 
 function buildNotionStatus(

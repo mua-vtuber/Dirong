@@ -1,6 +1,6 @@
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { DirongError, redactSensitiveText } from "../../errors.js";
+import { DirongError, summarizeSafeText } from "../../errors.js";
 import type {
   AiCleanupFailureKind,
   AiCleanupJobRow,
@@ -359,7 +359,7 @@ async function runAiCleanupForSessionCore(
   if (providerResult.exitCode !== 0) {
     const failureKind: AiCleanupFailureKind =
       providerResult.exitCode === null ? "provider_timeout" : "provider_nonzero_exit";
-    const message = redactSensitiveText(
+    const message = summarizeSafeText(
       providerResult.stderrText || `provider exit code: ${providerResult.exitCode}`,
     );
     store.failProcessingAiCleanupJob({
@@ -505,7 +505,7 @@ async function runAiCleanupForSessionCore(
     if (repairResult.exitCode !== 0) {
       const failureKind: AiCleanupFailureKind =
         repairResult.exitCode === null ? "provider_timeout" : "provider_nonzero_exit";
-      const message = redactSensitiveText(
+      const message = summarizeSafeText(
         repairResult.stderrText || `provider repair exit code: ${repairResult.exitCode}`,
       );
       store.failProcessingAiCleanupJob({
@@ -850,7 +850,7 @@ function summarizeSchemaRepairFailure(
   ]
     .filter((line): line is string => line !== null)
     .join(" ");
-  return message.length <= 1000 ? message : `${message.slice(0, 1000)}...`;
+  return summarizeSafeText(message);
 }
 
 function summarizeError(error: unknown): string {
@@ -862,6 +862,5 @@ function summarizeError(error: unknown): string {
         : error instanceof Error
           ? error.message
           : String(error);
-  const redacted = redactSensitiveText(message);
-  return redacted.length <= 1000 ? redacted : `${redacted.slice(0, 1000)}...`;
+  return summarizeSafeText(message);
 }

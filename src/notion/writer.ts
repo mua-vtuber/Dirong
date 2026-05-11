@@ -23,7 +23,6 @@ import {
   validateNotionDataSourceSchemaBySemanticKey,
 } from "./schema.js";
 import type {
-  NotionDataSourceProperties,
   NotionResolvedPropertyIds,
   NotionSemanticResolvedProperties,
   NotionSemanticResolvedProperty,
@@ -43,9 +42,15 @@ import {
   type NotionPropertyMapping,
 } from "./registry-store.js";
 import {
-  hasReadyManagedNotionRegistry,
-  readManagedNotionRegistrySnapshot,
-} from "./managed-registry.js";
+  readDataSourceProperties,
+  readDataSources,
+  readId,
+  readResults,
+} from "./data-source-readers.js";
+import {
+  blockPartialManagedNotionRegistry,
+  hasCompleteManagedNotionUploadRegistry,
+} from "./managed-registry-policy.js";
 import { NotionWriteStore, type NotionWriteRow } from "./write-store.js";
 
 export type NotionDraftSelector =
@@ -365,30 +370,18 @@ async function resolveUploadTarget(input: {
   | { ok: true; target: ResolvedTarget }
   | { ok: false; result: NotionUploadResult }
 > {
-  const registrySnapshot = readManagedNotionRegistrySnapshot(input.registryStore);
-  if (registrySnapshot.status === "partial") {
+  const registryBlock = blockPartialManagedNotionRegistry(input.registryStore, {
+    includeDatabases: true,
+  });
+  if (registryBlock) {
     return {
       ok: false,
       result: {
         ...input.baseResult,
         status: "blocked",
-        message: "Managed Notion registry is incomplete.",
-        userAction:
-          "일부 registry 값이 있어 legacy target으로 전환하지 않았습니다. 기존 DB/필드는 자동 수정하지 않으니 Notion 설정/복구 화면에서 registry 상태를 확인해 주세요.",
-        technicalDetail: JSON.stringify({
-          databaseCount: registrySnapshot.databaseCount,
-          expectedDatabaseCount: registrySnapshot.expectedDatabaseCount,
-          propertyMappingCount: registrySnapshot.propertyMappingCount,
-          expectedPropertyMappingCount:
-            registrySnapshot.expectedPropertyMappingCount,
-          databases: registrySnapshot.databases.map((database) => ({
-            role: database.role,
-            hasDatabase: database.hasDatabase,
-            mappingCount: database.mappingCount,
-            expectedMappingCount: database.expectedMappingCount,
-            missingSemanticKeys: database.missingSemanticKeys,
-          })),
-        }),
+        message: registryBlock.message,
+        userAction: registryBlock.userAction,
+        technicalDetail: registryBlock.technicalDetail,
       },
     };
   }
@@ -589,12 +582,6 @@ function loadManagedUploadRegistryCandidate(
     meetingMappings,
     memberMappings,
   };
-}
-
-export function hasCompleteManagedNotionUploadRegistry(
-  registryStore: NotionRegistryStore | null,
-): boolean {
-  return hasReadyManagedNotionRegistry(registryStore);
 }
 
 function hasRequiredMappings(
@@ -1449,23 +1436,6 @@ function createWriterValidationError(
   });
 }
 
-function readDataSourceProperties(
-  dataSource: Record<string, unknown>,
-): NotionDataSourceProperties {
-  const properties = dataSource.properties;
-  return isRecord(properties) ? properties as NotionDataSourceProperties : {};
-}
-
-function readDataSources(database: Record<string, unknown>): unknown[] {
-  return Array.isArray(database.data_sources) ? database.data_sources : [];
-}
-
-function readResults(response: unknown): unknown[] {
-  return isRecord(response) && Array.isArray(response.results)
-    ? response.results
-    : [];
-}
-
 function readPageRef(value: unknown): { id: string; url: string | null } {
   const id = readId(value);
   if (!id) {
@@ -1475,10 +1445,6 @@ function readPageRef(value: unknown): { id: string; url: string | null } {
     id,
     url: isRecord(value) && typeof value.url === "string" ? value.url : null,
   };
-}
-
-function readId(value: unknown): string | null {
-  return isRecord(value) && typeof value.id === "string" ? value.id : null;
 }
 
 function readTargetName(dataSource: Record<string, unknown>): string {

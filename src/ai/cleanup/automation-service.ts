@@ -1,4 +1,4 @@
-import { redactSensitiveText } from "../../errors.js";
+import { redactSensitiveText, summarizeSafeError } from "../../errors.js";
 import type {
   AiCleanupJobRow,
   AiCleanupLeaseRepairSummary,
@@ -126,7 +126,7 @@ export class AiCleanupAutomationService {
           checkedAt: new Date().toISOString(),
           message: "AI cleanup 자동 실행 확인 중 오류가 발생했습니다.",
           userAction: "녹음/STT는 보존됩니다. 로그와 dashboard 상태를 확인해 주세요.",
-          technicalDetail: summarizeError(error),
+          technicalDetail: summarizeSafeError(error),
           progress: null,
         });
       },
@@ -455,7 +455,7 @@ export class AiCleanupAutomationService {
         userAction: providerFailure
           ? "AI CLI 설치/로그인 상태를 확인해 주세요. 녹음과 STT 결과는 보존됩니다."
           : "로그와 dashboard 상태를 확인한 뒤 필요하면 수동 Phase 4 CLI로 재시도해 주세요.",
-        technicalDetail: summarizeError(error),
+        technicalDetail: summarizeSafeError(error),
         stt,
         job: null,
         repairedExpiredJobs,
@@ -708,10 +708,4 @@ function cloneSnapshot(
     repairedExpiredJobs: { ...snapshot.repairedExpiredJobs },
     warnings: [...snapshot.warnings],
   };
-}
-
-function summarizeError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  const redacted = redactSensitiveText(message);
-  return redacted.length <= 1000 ? redacted : `${redacted.slice(0, 1000)}...`;
 }

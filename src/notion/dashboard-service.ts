@@ -1,5 +1,5 @@
 import type { Phase1Config } from "../config.js";
-import { redactSensitiveText } from "../errors.js";
+import { summarizeSafeError } from "../errors.js";
 import {
   buildHumanStatusDisplay,
   type HumanStatusDisplay,
@@ -13,7 +13,6 @@ import {
 import { NotionDraftInputReadModel } from "./draft-input-read-model.js";
 import type { NotionRuntimeSettings } from "./settings.js";
 import { snapshotNotionRuntimeSettings } from "./settings.js";
-import type { NotionDataSourceProperties } from "./schema.js";
 import {
   buildNotionCustomPropertyPrompt,
   NotionCustomPropertyRuleStore,
@@ -30,10 +29,15 @@ import {
 } from "./schema-manager.js";
 import { parseNotionPageUrl, parseNotionTargetUrl } from "./target.js";
 import {
-  hasCompleteManagedNotionUploadRegistry,
   runNotionUpload,
   type NotionDraftSelector,
 } from "./writer.js";
+import { hasCompleteManagedNotionUploadRegistry } from "./managed-registry-policy.js";
+import {
+  readDataSourceProperties,
+  readDataSources,
+  readId,
+} from "./data-source-readers.js";
 import {
   applyRetentionAfterSuccessfulUpload,
   type NotionUploadRetentionHandler,
@@ -286,7 +290,7 @@ export class NotionDashboardService {
           message: "Notion 업로드 후 보관 정책 적용 중 오류가 발생했습니다.",
           userAction:
             "로컬 파일 경로와 데이터 폴더 설정을 확인한 뒤 다시 시도해 주세요.",
-          technicalDetail: summarizeError(error),
+          technicalDetail: summarizeSafeError(error),
           details: [
             { label: "sessionId", value: result.sessionId },
             { label: "draftId", value: result.draftId },
@@ -297,7 +301,7 @@ export class NotionDashboardService {
             { label: "warnings", value: result.warnings },
           ],
         }),
-        technicalDetail: summarizeError(error),
+        technicalDetail: summarizeSafeError(error),
         pageUrl: result.pageUrl,
       };
     }
@@ -708,25 +712,6 @@ async function resolveDataSourceTarget(
   };
 }
 
-function readDataSourceProperties(
-  dataSource: Record<string, unknown>,
-): NotionDataSourceProperties {
-  const properties = dataSource.properties;
-  return isRecord(properties) ? properties as NotionDataSourceProperties : {};
-}
-
-function readDataSources(database: Record<string, unknown>): unknown[] {
-  return Array.isArray(database.data_sources) ? database.data_sources : [];
-}
-
-function readId(value: unknown): string | null {
-  return isRecord(value) && typeof value.id === "string" ? value.id : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function schemaActionErrorResult(input: {
   status: string;
   message: string;
@@ -815,12 +800,6 @@ function buildNotionUploadActionDisplay(input: {
     technicalDetail: input.technicalDetail,
     details: input.details,
   });
-}
-
-function summarizeError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  const redacted = redactSensitiveText(message);
-  return redacted.length <= 1000 ? redacted : `${redacted.slice(0, 1000)}...`;
 }
 
 function notionDashboardDisplayKeys(

@@ -1,4 +1,4 @@
-import { redactSensitiveText } from "../../errors.js";
+import { redactSensitiveText, summarizeSafeError } from "../../errors.js";
 
 export type AiCleanupProgressPhase =
   | "preparing_input"
@@ -128,7 +128,7 @@ export function safeEmitAiCleanupProgress(
   try {
     observer(buildAiCleanupProgressSnapshot(context, update));
   } catch (error) {
-    console.warn(`AI cleanup progress observer failed: ${summarizeError(error)}`);
+    console.warn(`AI cleanup progress observer failed: ${summarizeSafeError(error, 300)}`);
   }
 }
 
@@ -146,10 +146,4 @@ export function cloneAiCleanupProgressSnapshot(
   snapshot: AiCleanupProgressSnapshot | null,
 ): AiCleanupProgressSnapshot | null {
   return snapshot ? { ...sanitizeAiCleanupProgressSnapshot(snapshot) } : null;
-}
-
-function summarizeError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  const redacted = redactSensitiveText(message);
-  return redacted.length <= 300 ? redacted : `${redacted.slice(0, 300)}...`;
 }

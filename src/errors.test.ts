@@ -5,6 +5,8 @@ import {
   getRegisteredSensitiveValueCount,
   redactSensitiveText,
   registerSensitiveValue,
+  summarizeSafeError,
+  summarizeSafeText,
 } from "./errors.js";
 
 test("registered sensitive values are capped with oldest values evicted", () => {
@@ -22,4 +24,14 @@ test("registered sensitive values are capped with oldest values evicted", () => 
   );
   assert.equal(redactSensitiveText(`leak ${evicted}`), `leak ${evicted}`);
   assert.equal(redactSensitiveText(`leak ${newest}`), "leak [REDACTED_SECRET]");
+});
+
+test("summarizeSafeError redacts and truncates consistently", () => {
+  registerSensitiveValue("registered-summary-secret");
+
+  assert.equal(
+    summarizeSafeError(new Error("failed with registered-summary-secret")),
+    "failed with [REDACTED_SECRET]",
+  );
+  assert.equal(summarizeSafeText("abcdef", 3), "abc...");
 });

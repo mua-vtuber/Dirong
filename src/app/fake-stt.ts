@@ -6,6 +6,7 @@ import {
   type CliArgSpec,
 } from "../cli/arg-parser.js";
 import { printCliError } from "../cli/error-output.js";
+import { formatSttRunSummary } from "../cli/stt-summary.js";
 import { loadPhase1Config } from "../config.js";
 import { runFakeSttBatch } from "../stt/fake-runner.js";
 import { SessionStore } from "../storage/session-store.js";
@@ -52,20 +53,12 @@ try {
     dryRun: options.dryRun,
   });
 
-  console.log("디롱이 Fake STT 결과");
-  console.log(`DB: ${config.dbPath}`);
-  console.log(`mode: ${options.dryRun ? "dry-run" : "write"}`);
-  console.log(`limit: ${result.limit}`);
-  console.log(`session: ${result.sessionId ?? "all"}`);
-  console.log(`expired leases released: ${result.expiredLeasesReleased}`);
-  console.log(`examined: ${result.examined}`);
-  console.log(`done: ${result.done}`);
-  console.log(`missing audio: ${result.missingAudio}`);
-  console.log(`failed: ${result.failed}`);
-  console.log(`more queued jobs hint: ${result.remainingQueuedHint > 0 ? "yes" : "no"}`);
-  console.log("");
-  console.log("samples:");
-  console.log(JSON.stringify(result.samples.slice(0, 10), null, 2));
+  console.log(formatSttRunSummary({
+    title: "디롱이 Fake STT 결과",
+    dbPath: config.dbPath,
+    mode: options.dryRun ? "dry-run" : "write",
+    result,
+  }));
 
   store.close();
 } catch (error) {

@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { redactSensitiveText } from "../errors.js";
+import { summarizeSafeError } from "../errors.js";
 import { sha256File } from "../media.js";
 import type { SessionStore } from "../storage/session-store.js";
 import type { SttProvider } from "./provider.js";
@@ -162,7 +162,7 @@ export async function runSttBatch(
         text: segment.text,
       });
     } catch (error) {
-      const message = summarizeError(error);
+      const message = summarizeSafeError(error);
       store.failProcessingSttJob({
         jobId: job.id,
         error: message,
@@ -198,11 +198,4 @@ function buildTrailingPrompt(texts: string[]): string | null {
   }
 
   return joined.length <= 1200 ? joined : joined.slice(-1200);
-}
-
-function summarizeError(error: unknown): string {
-  const message = redactSensitiveText(
-    error instanceof Error ? error.message : String(error),
-  );
-  return message.length <= 1000 ? message : `${message.slice(0, 1000)}...`;
 }

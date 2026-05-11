@@ -1,4 +1,5 @@
 import type { MeetingNotesDraftV1, TimelineReference } from "./draft.js";
+import { timelineReferenceKey } from "./draft/reference-index.js";
 
 export type MeetingNotesMarkdownRenderOptions = {
   maxLineLength?: number;
@@ -276,7 +277,7 @@ function collectReferences(draft: MeetingNotesDraftV1): TimelineReference[] {
   const byKey = new Map<string, TimelineReference>();
   const add = (references: readonly TimelineReference[]) => {
     for (const reference of references) {
-      byKey.set(referenceKey(reference), reference);
+      byKey.set(timelineReferenceKey(reference), reference);
     }
   };
 
@@ -307,10 +308,6 @@ function collectReferences(draft: MeetingNotesDraftV1): TimelineReference[] {
       left.chunkId.localeCompare(right.chunkId) ||
       left.sttJobId.localeCompare(right.sttJobId),
   );
-}
-
-function referenceKey(reference: TimelineReference): string {
-  return `${reference.chunkId}\u0000${reference.sttJobId}`;
 }
 
 function appendWrappedLine(

@@ -1,5 +1,6 @@
 import process from "node:process";
 import { printCliError } from "../cli/error-output.js";
+import { formatSttRunSummary } from "../cli/stt-summary.js";
 import { loadPhase1Config } from "../config.js";
 import { loadAppSettingsFromEnv } from "../settings/env-settings-loader.js";
 import {
@@ -68,26 +69,21 @@ try {
     contextSegments: 2,
   });
 
-  console.log("디롱이 Real STT 결과");
-  console.log(`DB: ${phase1Config.dbPath}`);
-  console.log(`mode: ${options.dryRun ? "dry-run" : "write"}`);
-  console.log(`provider: ${result.provider}`);
-  console.log(`model: ${result.model}`);
-  console.log(`language: ${result.language ?? "-"}`);
-  console.log(`limit: ${result.limit}`);
-  console.log(`session: ${result.sessionId ?? "all"}`);
-  console.log(`expired leases released: ${result.expiredLeasesReleased}`);
-  console.log(`examined: ${result.examined}`);
-  console.log(`done: ${result.done}`);
-  console.log(`missing audio: ${result.missingAudio}`);
-  console.log(`failed: ${result.failed}`);
-  console.log(`more queued jobs hint: ${result.remainingQueuedHint > 0 ? "yes" : "no"}`);
-  if (options.dryRun && sttSettings.provider !== "openai") {
-    console.log("OPENAI_API_KEY는 없지만 현재 provider dry-run에는 필요하지 않습니다.");
-  }
-  console.log("");
-  console.log("samples:");
-  console.log(JSON.stringify(result.samples.slice(0, 10), null, 2));
+  console.log(formatSttRunSummary({
+    title: "디롱이 Real STT 결과",
+    dbPath: phase1Config.dbPath,
+    mode: options.dryRun ? "dry-run" : "write",
+    detailLines: [
+      `provider: ${result.provider}`,
+      `model: ${result.model}`,
+      `language: ${result.language ?? "-"}`,
+    ],
+    noteLines:
+      options.dryRun && sttSettings.provider !== "openai"
+        ? ["OPENAI_API_KEY는 없지만 현재 provider dry-run에는 필요하지 않습니다."]
+        : [],
+    result,
+  }));
 
   store.close();
 } catch (error) {

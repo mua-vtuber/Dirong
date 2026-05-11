@@ -7,6 +7,10 @@ import type {
   EvidenceBoundPerson,
   TimelineReference,
 } from "./types.js";
+import {
+  getReferencedTimelineEntries,
+  toTimelineReference,
+} from "./reference-index.js";
 
 export function normalizeMeetingNotesDraftShape(
   value: unknown,
@@ -195,45 +199,6 @@ function normalizeDueDateShape(
   return { changed: false };
 }
 
-function getReferencedTimelineEntries(
-  value: unknown,
-  timeline: Phase4TranscriptTimeline,
-): Phase4TranscriptTimelineEntry[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  const index = buildReferenceIndex(timeline);
-  const entries: Phase4TranscriptTimelineEntry[] = [];
-  for (const entry of value) {
-    if (!isRecord(entry)) {
-      continue;
-    }
-    const chunkId = entry.chunkId;
-    const sttJobId = entry.sttJobId;
-    if (typeof chunkId !== "string" || typeof sttJobId !== "string") {
-      continue;
-    }
-    const timelineEntry = index.get(referenceKey(chunkId, sttJobId));
-    if (timelineEntry) {
-      entries.push(timelineEntry);
-    }
-  }
-  return entries;
-}
-
-function toTimelineReference(
-  entry: Phase4TranscriptTimelineEntry,
-): TimelineReference {
-  return {
-    chunkId: entry.chunkId,
-    sttJobId: entry.sttJobId,
-    startMs: entry.startMs,
-    endMs: entry.endMs,
-    speaker: entry.displayNameSnapshot,
-  };
-}
-
 function isUnspecifiedMarker(value: unknown): boolean {
   if (value === null) {
     return true;
@@ -262,20 +227,6 @@ function makeUnspecifiedDueDate(): EvidenceBoundDate {
     isoDate: null,
     evidence: [],
   };
-}
-
-function buildReferenceIndex(
-  timeline: Phase4TranscriptTimeline,
-): Map<string, Phase4TranscriptTimelineEntry> {
-  const index = new Map<string, Phase4TranscriptTimelineEntry>();
-  for (const entry of timeline.entries) {
-    index.set(referenceKey(entry.chunkId, entry.sttJobId), entry);
-  }
-  return index;
-}
-
-function referenceKey(chunkId: string, sttJobId: string): string {
-  return `${chunkId}\u0000${sttJobId}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

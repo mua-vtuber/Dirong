@@ -1,4 +1,4 @@
-import { redactSensitiveText } from "../errors.js";
+import { redactSensitiveText, summarizeSafeError } from "../errors.js";
 import {
   buildHumanStatusDisplay,
   formatHumanStatusDisplayForText,
@@ -76,7 +76,7 @@ export class SttAutomationService {
           checkedAt: new Date().toISOString(),
           message: "STT 자동 실행 중 오류가 발생했습니다.",
           userAction: "녹음 파일은 보존됩니다. STT 설정과 로그를 확인해 주세요.",
-          technicalDetail: summarizeError(error),
+          technicalDetail: summarizeSafeError(error),
         });
       },
     });
@@ -249,12 +249,6 @@ function cloneSnapshot(snapshot: SttAutomationSnapshot): SttAutomationSnapshot {
         }
       : null,
   };
-}
-
-function summarizeError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  const redacted = redactSensitiveText(message);
-  return redacted.length <= 1000 ? redacted : `${redacted.slice(0, 1000)}...`;
 }
 
 function buildSttAutomationDisplay(

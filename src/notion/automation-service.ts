@@ -1,4 +1,4 @@
-import { redactSensitiveText } from "../errors.js";
+import { redactSensitiveText, summarizeSafeError } from "../errors.js";
 import {
   buildHumanStatusDisplay,
   formatHumanStatusDisplayForText,
@@ -17,12 +17,15 @@ import type {
 import type { NotionRuntimeSettings } from "./settings.js";
 import { parseNotionTargetUrl } from "./target.js";
 import {
-  hasCompleteManagedNotionUploadRegistry,
   runNotionUpload,
   type NotionUploadResult,
   type NotionUploadStatus,
 } from "./writer.js";
-import { readManagedNotionRegistrySnapshot } from "./managed-registry.js";
+import {
+  blockPartialManagedNotionRegistry,
+  hasCompleteManagedNotionUploadRegistry,
+} from "./managed-registry-policy.js";
+import { readDataSources, readId } from "./data-source-readers.js";
 import type { NotionWriteStore } from "./write-store.js";
 import {
   applyRetentionAfterSuccessfulUpload,
@@ -110,7 +113,7 @@ export class NotionAutomationService {
           checkedAt: new Date().toISOString(),
           message: "Notion 자동 업로드 확인 중 오류가 발생했습니다.",
           userAction: "local draft는 보존됩니다. Notion 설정과 로그를 확인해 주세요.",
-          technicalDetail: summarizeError(error),
+          technicalDetail: summarizeSafeError(error),
         });
       },
     });
@@ -269,7 +272,7 @@ export class NotionAutomationService {
         message: "Notion 자동 업로드 중 오류가 발생했습니다. local draft는 보존됩니다.",
         userAction:
           "Notion 설정과 dashboard의 최신 Notion write 상태를 확인한 뒤 수동 Retry를 시도해 주세요.",
-        technicalDetail: summarizeError(error),
+        technicalDetail: summarizeSafeError(error),
         repairedExpiredLeases,
       });
     } finally {
@@ -351,21 +354,14 @@ async function resolveAutomationTargetId(
       technicalDetail: string | null;
     }
 > {
-  const registrySnapshot = readManagedNotionRegistrySnapshot(registryStore);
-  if (registrySnapshot.status === "partial") {
+  const registryBlock = blockPartialManagedNotionRegistry(registryStore);
+  if (registryBlock) {
     return {
       ok: false,
       status: "blocked",
-      message: "Managed Notion registry is incomplete.",
-      userAction:
-        "일부 registry 값이 있어 legacy target으로 전환하지 않았습니다. 기존 DB/필드는 자동 수정하지 않으니 Notion 설정/복구 화면에서 registry 상태를 확인해 주세요.",
-      technicalDetail: JSON.stringify({
-        databaseCount: registrySnapshot.databaseCount,
-        expectedDatabaseCount: registrySnapshot.expectedDatabaseCount,
-        propertyMappingCount: registrySnapshot.propertyMappingCount,
-        expectedPropertyMappingCount:
-          registrySnapshot.expectedPropertyMappingCount,
-      }),
+      message: registryBlock.message,
+      userAction: registryBlock.userAction,
+      technicalDetail: registryBlock.technicalDetail,
     };
   }
 
@@ -414,9 +410,7 @@ async function resolveAutomationTargetId(
 
   try {
     const database = await client.retrieveDatabase(parsed.id);
-    const dataSources = Array.isArray(database.data_sources)
-      ? database.data_sources
-      : [];
+    const dataSources = readDataSources(database);
     if (dataSources.length !== 1) {
       return {
         ok: false,
@@ -427,14 +421,7 @@ async function resolveAutomationTargetId(
         technicalDetail: `child data source count: ${dataSources.length}`,
       };
     }
-    const first = dataSources[0];
-    const targetId =
-      typeof first === "object" &&
-      first !== null &&
-      !Array.isArray(first) &&
-      typeof (first as { id?: unknown }).id === "string"
-        ? (first as { id: string }).id
-        : null;
+    const targetId = readId(dataSources[0]);
     if (!targetId) {
       return {
         ok: false,
@@ -703,10 +690,4 @@ function notionAutomationDisplayKeys(
     titleKey: "statusDisplay.notion.idle.title",
     descriptionKey: "statusDisplay.notion.idle.description",
   };
-}
-
-function summarizeError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  const redacted = redactSensitiveText(message);
-  return redacted.length <= 1000 ? redacted : `${redacted.slice(0, 1000)}...`;
 }

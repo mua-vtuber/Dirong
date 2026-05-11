@@ -46,6 +46,19 @@ export function getRegisteredSensitiveValueCount(): number {
   return registeredSensitiveValues.size;
 }
 
+export function summarizeSafeError(error: unknown, maxLength = 1000): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return summarizeSafeText(message, maxLength);
+}
+
+export function summarizeSafeText(value: string, maxLength = 1000): string {
+  const redacted = redactSensitiveText(value);
+  if (redacted.length <= maxLength) {
+    return redacted;
+  }
+  return `${redacted.slice(0, Math.max(0, maxLength))}...`;
+}
+
 export function redactSensitiveText(value: string): string {
   let redacted = value;
   const token = process.env.DISCORD_BOT_TOKEN;

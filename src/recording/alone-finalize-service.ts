@@ -1,5 +1,5 @@
 import type { VoiceState } from "discord.js";
-import { redactSensitiveText } from "../errors.js";
+import { redactSensitiveText, summarizeSafeError } from "../errors.js";
 import {
   buildHumanStatusDisplay,
   formatHumanStatusDisplayForText,
@@ -482,7 +482,7 @@ export class AloneFinalizeService {
         resultStatus: result.status,
       });
     } catch (error) {
-      const detail = summarizeError(error);
+      const detail = summarizeSafeError(error);
       this.options.store.recordConnectionEvent({
         sessionId: countdown.sessionId,
         eventType: "alone_finalize_failed",
@@ -619,12 +619,6 @@ export function formatAloneFinalizeForStatus(
 
 function isFinalStopState(status: SessionStatus): boolean {
   return ["stopping", "finalized", "failed", "needs_repair"].includes(status);
-}
-
-function summarizeError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  const redacted = redactSensitiveText(message);
-  return redacted.length <= 1000 ? redacted : `${redacted.slice(0, 1000)}...`;
 }
 
 function withAloneFinalizeDisplay(

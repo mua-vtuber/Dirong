@@ -20,6 +20,10 @@ import {
 } from "./schema.js";
 import type { MeetingNotesDraftV1 } from "./types.js";
 import { normalizeMeetingNotesDraftShape } from "./normalize.js";
+import {
+  buildTimelineReferenceIndex,
+  timelineReferenceKey,
+} from "./reference-index.js";
 
 export class DraftValidationError extends Error {
   constructor(readonly issues: string[]) {
@@ -42,7 +46,7 @@ export function validateMeetingNotesDraftV1(
   });
   const draft = asRecord(normalizedValue, "draft", issues);
   expectKnownKeys(draft, "draft", TOP_LEVEL_KEYS, issues);
-  const references = buildReferenceIndex(context.timeline);
+  const references = buildTimelineReferenceIndex(context.timeline);
 
   expectEqual(
     draft.schemaVersion,
@@ -158,16 +162,6 @@ export function validateMeetingNotesDraftV1(
   }
 
   return normalizedValue as MeetingNotesDraftV1;
-}
-
-function buildReferenceIndex(
-  timeline: Phase4TranscriptTimeline,
-): Map<string, Phase4TranscriptTimelineEntry> {
-  const index = new Map<string, Phase4TranscriptTimelineEntry>();
-  for (const entry of timeline.entries) {
-    index.set(referenceKey(entry.chunkId, entry.sttJobId), entry);
-  }
-  return index;
 }
 
 function validateReferencedItems(
@@ -296,7 +290,7 @@ function validateReferenceArray(
       return;
     }
 
-    const sourceEntry = references.get(referenceKey(chunkId, sttJobId));
+    const sourceEntry = references.get(timelineReferenceKey(chunkId, sttJobId));
     if (!sourceEntry) {
       issues.push(`${refPath} does not point to a real timeline entry`);
       return;
@@ -486,10 +480,6 @@ function expectKnownKeys(
       issues.push(`${path}.${key} is not allowed`);
     }
   }
-}
-
-function referenceKey(chunkId: string, sttJobId: string): string {
-  return `${chunkId}\u0000${sttJobId}`;
 }
 
 const RELATIVE_DATE_PATTERN =

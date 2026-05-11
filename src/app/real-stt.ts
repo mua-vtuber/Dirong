@@ -1,6 +1,9 @@
 import process from "node:process";
 import { printCliError } from "../cli/error-output.js";
-import { formatSttRunSummary } from "../cli/stt-summary.js";
+import {
+  formatSttRunSummary,
+  printSqliteBackupSummary,
+} from "../cli/stt-summary.js";
 import { loadPhase1Config } from "../config.js";
 import { loadAppSettingsFromEnv } from "../settings/env-settings-loader.js";
 import {
@@ -10,8 +13,8 @@ import {
 import { runSttBatch } from "../stt/runner.js";
 import { SessionStore } from "../storage/session-store.js";
 import { DirongDatabase } from "../storage/sqlite.js";
+import { backupDatabaseSnapshot } from "../storage/sqlite-backup.js";
 import { parsePhase3SttArgs } from "./phase3-stt-cli.js";
-import { backupDatabaseSnapshot } from "./sqlite-backup.js";
 
 try {
   const options = parsePhase3SttArgs(process.argv.slice(2));
@@ -38,16 +41,9 @@ try {
     const backupPaths = backupDatabaseSnapshot(phase1Config.dbPath, {
       busyTimeoutMs: phase1Config.dbBusyTimeoutMs,
     });
-    if (backupPaths.length > 0) {
-      console.log("SQLite snapshot backup 생성:");
-      for (const backupPath of backupPaths) {
-        console.log(`- ${backupPath}`);
-      }
-      console.log("");
-    } else {
-      console.log("SQLite DB 파일이 아직 없어 backup을 만들지 않았습니다.");
-      console.log("");
-    }
+    printSqliteBackupSummary(backupPaths, {
+      missingDatabaseMessage: "SQLite DB 파일이 아직 없어 backup을 만들지 않았습니다.",
+    });
   }
 
   const database = new DirongDatabase(phase1Config.dbPath, phase1Config.dbBusyTimeoutMs);

@@ -1,5 +1,9 @@
 # 디롱이 Phase 1 RecordingProducer 실행 가이드
 
+> [!IMPORTANT]
+> 역사 기록, 현재 실행 경로 아님: 이 문서는 과거 Phase 1 검증을 위한 runbook이며,
+> 현재 실행 기준은 최신 설정 문서와 코드의 CLI/dashboard 경로를 우선합니다.
+
 Phase 1의 목표는 실제 STT, AI 요약, Notion 작성이 아닙니다. 디롱이가
 Discord 음성 채널에 들어가 사람별 오디오 chunk를 저장하고, SQLite에 metadata와
 `queued` STT job을 남기며, dashboard에서 완료 chunk를 재생해 보는 단계입니다.

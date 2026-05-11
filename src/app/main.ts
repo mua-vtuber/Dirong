@@ -79,7 +79,7 @@ import {
 } from "../stt/automation-service.js";
 import { createPhase3SttProvider } from "../stt/provider-factory.js";
 import type { SttProvider } from "../stt/provider.js";
-import { backupDatabaseSnapshot } from "./sqlite-backup.js";
+import { backupDatabaseSnapshot } from "../storage/sqlite-backup.js";
 
 const productRuntime = loadProductRuntimeSettings();
 const config = productRuntime.config;

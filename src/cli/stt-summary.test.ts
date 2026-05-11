@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatSttRunSummary } from "./stt-summary.js";
+import {
+  formatSttRunSummary,
+  printSqliteBackupSummary,
+} from "./stt-summary.js";
 
 test("formatSttRunSummary renders the shared fake STT summary shape", () => {
   const output = formatSttRunSummary({
@@ -48,4 +51,33 @@ test("formatSttRunSummary preserves provider-specific detail and note lines", ()
   assert.match(output, /mode: write\nprovider: openai\nmodel: whisper-1\nlanguage: ko\nlimit: 1/);
   assert.match(output, /more queued jobs hint: yes/);
   assert.match(output, /OPENAI_API_KEY/);
+});
+
+test("printSqliteBackupSummary writes backup paths", () => {
+  const lines: string[] = [];
+
+  printSqliteBackupSummary(["a.sqlite", "b.sqlite"], {
+    writeLine: (line) => lines.push(line),
+  });
+
+  assert.deepEqual(lines, [
+    "SQLite snapshot backup 생성:",
+    "- a.sqlite",
+    "- b.sqlite",
+    "",
+  ]);
+});
+
+test("printSqliteBackupSummary can explain missing database", () => {
+  const lines: string[] = [];
+
+  printSqliteBackupSummary([], {
+    missingDatabaseMessage: "SQLite DB 파일이 아직 없어 backup을 만들지 않았습니다.",
+    writeLine: (line) => lines.push(line),
+  });
+
+  assert.deepEqual(lines, [
+    "SQLite DB 파일이 아직 없어 backup을 만들지 않았습니다.",
+    "",
+  ]);
 });

@@ -18,7 +18,7 @@ import {
   parsePhase4AiCleanupArgs,
   type Phase4AiCleanupCliOptions,
 } from "./phase4-ai-cleanup-cli.js";
-import { backupDatabaseSnapshot } from "./sqlite-backup.js";
+import { backupDatabaseSnapshot } from "../storage/sqlite-backup.js";
 
 let store: SessionStore | null = null;
 

@@ -43,3 +43,29 @@ export function formatSttRunSummary(input: SttRunSummaryInput): string {
   ];
   return lines.join("\n");
 }
+
+export type SqliteBackupPrintOptions = {
+  missingDatabaseMessage?: string;
+  writeLine?: (line: string) => void;
+};
+
+export function printSqliteBackupSummary(
+  backupPaths: readonly string[],
+  options: SqliteBackupPrintOptions = {},
+): void {
+  const writeLine = options.writeLine ?? ((line: string) => console.log(line));
+
+  if (backupPaths.length > 0) {
+    writeLine("SQLite snapshot backup 생성:");
+    for (const backupPath of backupPaths) {
+      writeLine(`- ${backupPath}`);
+    }
+    writeLine("");
+    return;
+  }
+
+  if (options.missingDatabaseMessage) {
+    writeLine(options.missingDatabaseMessage);
+    writeLine("");
+  }
+}

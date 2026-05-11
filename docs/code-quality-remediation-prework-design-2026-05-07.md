@@ -1,5 +1,9 @@
 # Code Quality Remediation Prework Design
 
+> [!IMPORTANT]
+> 역사 기록, 현재 실행 경로 아님: 이 문서는 2026-05-07 기준의 사전 정리 기록이며,
+> 현재 구현 기준은 최신 설계 문서와 코드 상태를 우선합니다.
+
 작성일: 2026-05-07
 
 이 문서는 `docs/code-quality-audit-2026-05-07.md`를 다시 코드 기준으로

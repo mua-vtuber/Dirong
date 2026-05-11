@@ -6,12 +6,15 @@ import {
   type CliArgSpec,
 } from "../cli/arg-parser.js";
 import { printCliError } from "../cli/error-output.js";
-import { formatSttRunSummary } from "../cli/stt-summary.js";
+import {
+  formatSttRunSummary,
+  printSqliteBackupSummary,
+} from "../cli/stt-summary.js";
 import { loadPhase1Config } from "../config.js";
 import { runFakeSttBatch } from "../stt/fake-runner.js";
 import { SessionStore } from "../storage/session-store.js";
 import { DirongDatabase } from "../storage/sqlite.js";
-import { backupDatabaseSnapshot } from "./sqlite-backup.js";
+import { backupDatabaseSnapshot } from "../storage/sqlite-backup.js";
 
 type CliOptions = {
   limit: number;
@@ -30,13 +33,7 @@ try {
     const backupPaths = backupDatabaseSnapshot(config.dbPath, {
       busyTimeoutMs: config.dbBusyTimeoutMs,
     });
-    if (backupPaths.length > 0) {
-      console.log("SQLite snapshot backup 생성:");
-      for (const backupPath of backupPaths) {
-        console.log(`- ${backupPath}`);
-      }
-      console.log("");
-    }
+    printSqliteBackupSummary(backupPaths);
   }
 
   const database = new DirongDatabase(config.dbPath, config.dbBusyTimeoutMs);

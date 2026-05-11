@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { SessionStore } from "../storage/session-store.js";
 import { DirongDatabase } from "../storage/sqlite.js";
-import { backupDatabaseSnapshot } from "./sqlite-backup.js";
+import { backupDatabaseSnapshot } from "../storage/sqlite-backup.js";
 
 test("backupDatabaseSnapshot creates a single sqlite snapshot", () => {
   const fixture = createQueuedJobFixture();

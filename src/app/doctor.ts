@@ -3,8 +3,25 @@ import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
 import { printCliError } from "../cli/error-output.js";
 import { loadPhase1Config } from "../config.js";
+import { redactSensitiveText, summarizeSafeError } from "../errors.js";
 import { runHealthCheck, type HealthCheck } from "../health.js";
-import { loadAppSettingsFromEnv } from "../settings/env-settings-loader.js";
+import { createNotionClient } from "../notion/client.js";
+import {
+  readManagedNotionRegistrySnapshot,
+  type ManagedNotionRegistrySnapshot,
+} from "../notion/managed-registry.js";
+import {
+  ManagedNotionSchemaStatusService,
+  type ManagedNotionSchemaCheckStatus,
+  type ManagedNotionSchemaStatusSnapshot,
+} from "../notion/managed-schema-status.js";
+import { NotionRegistryStore } from "../notion/registry-store.js";
+import { SqlRunner } from "../storage/sql-runner.js";
+import { DirongDatabase } from "../storage/sqlite.js";
+import {
+  loadNotionSettingsFromEnv,
+  loadSttSettingsFromEnv,
+} from "../settings/env-settings-loader.js";
 import {
   assertPhase3SttProviderReady,
   createPhase3SttProvider,
@@ -23,12 +40,47 @@ type DbSummary = {
   openRepairItems: number;
 };
 
+type DoctorOptions = {
+  notionRemote: boolean;
+};
+
+type NotionRegistryDiagnostics =
+  | {
+      exists: false;
+    }
+  | {
+      exists: true;
+      available: false;
+      missingTables: string[];
+    }
+  | {
+      exists: true;
+      available: true;
+      snapshot: ManagedNotionRegistrySnapshot;
+      latestCheckRecord: NotionManagedSchemaCheckRecord | null;
+    };
+
+type NotionManagedSchemaCheckRecord = {
+  status: string;
+  severity: string;
+  updatedAt: string;
+  summary: string | null;
+};
+
 try {
+  const options = parseDoctorOptions(process.argv.slice(2));
   const config = loadPhase1Config({ requireDiscordConfig: false });
   const health = await runHealthCheck();
   const appHealthChecks = adaptHealthChecksForRecordingSttDoctor(health.checks);
   const sttChecks = await runSttReadinessChecks();
   const dbSummary = readDbSummary(config.dbPath, config.dbBusyTimeoutMs);
+  const notionRegistry = readNotionRegistryDiagnostics(
+    config.dbPath,
+    config.dbBusyTimeoutMs,
+  );
+  const notionRemoteChecks = options.notionRemote
+    ? await runNotionRemoteChecks(config.dbPath, config.dbBusyTimeoutMs)
+    : [];
 
   console.log("디롱이 Recording + STT doctor 결과");
   console.log(`생성 시각: ${health.generatedAt}`);
@@ -41,12 +93,16 @@ try {
   printChecks("기본 실행 환경", appHealthChecks);
   printChecks("STT provider", sttChecks);
   printDbSummary(dbSummary);
+  printNotionRegistryDiagnostics(notionRegistry);
+  if (options.notionRemote) {
+    printChecks("Notion remote managed schema", notionRemoteChecks);
+  }
 
   console.log("");
   console.log("이 doctor는 read-only입니다. DB repair가 필요하면 npm run repair를 실행해 주세요.");
   console.log("Discord 토큰과 API key 값은 출력하지 않았습니다.");
 
-  const failed = [...appHealthChecks, ...sttChecks].filter(
+  const failed = [...appHealthChecks, ...sttChecks, ...notionRemoteChecks].filter(
     (check) => check.status === "fail",
   );
   if (failed.length > 0) {
@@ -57,6 +113,12 @@ try {
 } catch (error) {
   printCliError(error);
   process.exit(1);
+}
+
+function parseDoctorOptions(args: string[]): DoctorOptions {
+  return {
+    notionRemote: args.includes("--notion-remote"),
+  };
 }
 
 function adaptHealthChecksForRecordingSttDoctor(
@@ -87,8 +149,8 @@ function adaptHealthChecksForRecordingSttDoctor(
 }
 
 async function runSttReadinessChecks(): Promise<HealthCheck[]> {
-  const appSettings = loadAppSettingsFromEnv();
-  const { provider, settings } = createPhase3SttProvider(appSettings.stt);
+  const sttSettings = loadSttSettingsFromEnv(process.env);
+  const { provider, settings } = createPhase3SttProvider(sttSettings);
 
   if (settings.provider === "openai") {
     return [
@@ -144,6 +206,84 @@ async function runSttReadinessChecks(): Promise<HealthCheck[]> {
   }
 }
 
+async function runNotionRemoteChecks(
+  dbPath: string,
+  busyTimeoutMs: number,
+): Promise<HealthCheck[]> {
+  const diagnostics = readNotionRegistryDiagnostics(dbPath, busyTimeoutMs);
+  if (!diagnostics.exists) {
+    return [
+      {
+        name: "managed registry",
+        status: "fail",
+        message: "SQLite DB가 없어 Notion managed DB를 확인할 수 없습니다.",
+      },
+    ];
+  }
+  if (!diagnostics.available) {
+    return [
+      {
+        name: "managed registry",
+        status: "fail",
+        message: `Notion registry table이 없습니다: ${diagnostics.missingTables.join(", ")}`,
+      },
+    ];
+  }
+
+  let notionSettings: ReturnType<typeof loadNotionSettingsFromEnv>;
+  try {
+    notionSettings = loadNotionSettingsFromEnv(process.env, {
+      allowTestNotionBaseUrl: true,
+    });
+  } catch (error) {
+    return [
+      {
+        name: "Notion runtime settings",
+        status: "fail",
+        message: summarizeSafeError(error),
+        action: "NOTION_API_KEY, NOTION_API_VERSION, NOTION_BASE_URL 설정을 확인해 주세요.",
+      },
+    ];
+  }
+
+  if (!notionSettings.apiKey) {
+    return [
+      {
+        name: "Notion API key",
+        status: "fail",
+        message: "NOTION_API_KEY가 설정되지 않아 remote check를 실행하지 않았습니다.",
+      },
+    ];
+  }
+
+  const database = new DirongDatabase(dbPath, busyTimeoutMs, { readOnly: true });
+  try {
+    const registryStore = new NotionRegistryStore(new SqlRunner(database));
+    const service = new ManagedNotionSchemaStatusService({
+      registryStore,
+      client: createNotionClient({
+        apiKey: notionSettings.apiKey,
+        apiVersion: notionSettings.apiVersion,
+        baseUrl: notionSettings.baseUrl,
+        requestTimeoutMs: notionSettings.requestTimeoutMs,
+      }),
+    });
+    const snapshot = await service.checkAll();
+    return managedSchemaSnapshotToHealthChecks(snapshot);
+  } catch (error) {
+    return [
+      {
+        name: "Notion remote check",
+        status: "fail",
+        message: summarizeSafeError(error),
+        action: "네트워크, Notion token, parent page 공유 권한을 확인해 주세요.",
+      },
+    ];
+  } finally {
+    database.close();
+  }
+}
+
 function printChecks(title: string, checks: HealthCheck[]): void {
   console.log(`[${title}]`);
   for (const check of checks) {
@@ -153,6 +293,157 @@ function printChecks(title: string, checks: HealthCheck[]): void {
       console.log(`     조치: ${check.action}`);
     }
   }
+  console.log("");
+}
+
+function readNotionRegistryDiagnostics(
+  dbPath: string,
+  busyTimeoutMs: number,
+): NotionRegistryDiagnostics {
+  if (!existsSync(dbPath)) {
+    return { exists: false };
+  }
+
+  const rawDb = new DatabaseSync(dbPath, { readOnly: true });
+  try {
+    rawDb.exec(`PRAGMA busy_timeout = ${Math.trunc(busyTimeoutMs)};`);
+    const requiredTables = [
+      "notion_workspace_settings",
+      "notion_managed_databases",
+      "notion_property_mappings",
+    ];
+    const missingTables = requiredTables.filter(
+      (tableName) => !tableExists(rawDb, tableName),
+    );
+    if (missingTables.length > 0) {
+      return {
+        exists: true,
+        available: false,
+        missingTables,
+      };
+    }
+    const latestCheckRecord = readLatestNotionManagedSchemaCheckRecord(rawDb);
+
+    const database = new DirongDatabase(dbPath, busyTimeoutMs, { readOnly: true });
+    try {
+      const registryStore = new NotionRegistryStore(new SqlRunner(database));
+      return {
+        exists: true,
+        available: true,
+        snapshot: readManagedNotionRegistrySnapshot(registryStore),
+        latestCheckRecord,
+      };
+    } finally {
+      database.close();
+    }
+  } finally {
+    rawDb.close();
+  }
+}
+
+function readLatestNotionManagedSchemaCheckRecord(
+  db: DatabaseSync,
+): NotionManagedSchemaCheckRecord | null {
+  if (!tableExists(db, "repair_items")) {
+    return null;
+  }
+  const requiredColumns = [
+    "id",
+    "item_type",
+    "status",
+    "severity",
+    "details_json",
+    "updated_at",
+  ];
+  if (
+    requiredColumns.some(
+      (columnName) => !tableColumnExists(db, "repair_items", columnName),
+    )
+  ) {
+    return null;
+  }
+  const row = db.prepare(
+    `SELECT status, severity, details_json, updated_at
+     FROM repair_items
+     WHERE item_type = 'notion_managed_schema'
+     ORDER BY updated_at DESC, id DESC
+     LIMIT 1`,
+  ).get() as
+    | {
+        status: string;
+        severity: string;
+        details_json: string | null;
+        updated_at: string;
+      }
+    | undefined;
+  if (!row) {
+    return null;
+  }
+  return {
+    status: row.status,
+    severity: row.severity,
+    updatedAt: row.updated_at,
+    summary: summarizeNotionManagedSchemaDetails(row.details_json),
+  };
+}
+
+function printNotionRegistryDiagnostics(
+  diagnostics: NotionRegistryDiagnostics,
+): void {
+  console.log("[Notion managed registry]");
+  if (!diagnostics.exists) {
+    console.log("[WARN] SQLite DB가 없어 managed registry를 확인할 수 없습니다.");
+    console.log("     remote check는 --notion-remote 옵션을 줄 때만 Notion API를 호출합니다.");
+    console.log("");
+    return;
+  }
+  if (!diagnostics.available) {
+    console.log(
+      `[WARN] managed registry table 없음: ${diagnostics.missingTables.join(", ")}`,
+    );
+    console.log("     setup wizard에서 Notion managed DB를 생성하면 registry가 저장됩니다.");
+    console.log("     remote check는 --notion-remote 옵션을 줄 때만 Notion API를 호출합니다.");
+    console.log("");
+    return;
+  }
+
+  const { snapshot } = diagnostics;
+  const statusLabel = snapshot.status === "ready" ? "OK" : "WARN";
+  console.log(
+    `[${statusLabel}] registry: ${snapshot.status}, DB=${snapshot.databaseCount}/${snapshot.expectedDatabaseCount}, mappings=${snapshot.propertyMappingCount}/${snapshot.expectedPropertyMappingCount}`,
+  );
+  if (snapshot.workspace) {
+    console.log(
+      `[OK] workspace: locale=${snapshot.workspace.locale}, parentPage=stored`,
+    );
+  }
+  for (const database of snapshot.databases) {
+    const databaseStatus = database.ready ? "OK" : "WARN";
+    console.log(
+      `[${databaseStatus}] ${database.role}: ${database.name ?? database.expectedName}, mappings=${database.mappingCount}/${database.expectedMappingCount}, schema=${database.schemaVersion ?? "missing"}`,
+    );
+    if (database.missingSemanticKeys.length > 0) {
+      console.log(
+        `     missing: ${database.missingSemanticKeys.join(", ")}`,
+      );
+    }
+  }
+  if (snapshot.actionItemUpload.status === "implemented") {
+    console.log(`[OK] action item upload: ${snapshot.actionItemUpload.message}`);
+  }
+
+  if (diagnostics.latestCheckRecord) {
+    const record = diagnostics.latestCheckRecord;
+    console.log(
+      `[${record.status === "open" ? "WARN" : "OK"}] latest managed schema check record: status=${record.status}, severity=${record.severity}, updated=${record.updatedAt}`,
+    );
+    if (record.summary) {
+      console.log(`     ${record.summary}`);
+    }
+  } else {
+    console.log("[OK] latest managed schema check record: local 기록 없음");
+  }
+  console.log("     remote check는 --notion-remote 옵션을 줄 때만 Notion API를 호출합니다.");
   console.log("");
 }
 
@@ -213,6 +504,82 @@ function printDbSummary(summary: DbSummary): void {
   console.log(`[OK] transcript segments: ${summary.transcriptSegments}개, no_speech=${summary.noSpeechSegments}개`);
   console.log(`[${summary.openRepairItems > 0 ? "WARN" : "OK"}] open repair items: ${summary.openRepairItems}개`);
   console.log("");
+}
+
+function managedSchemaSnapshotToHealthChecks(
+  snapshot: ManagedNotionSchemaStatusSnapshot,
+): HealthCheck[] {
+  const checks: HealthCheck[] = [
+    {
+      name: "managed schema aggregate",
+      status: managedSchemaStatusToHealthStatus(snapshot.status),
+      message: `status=${snapshot.status}, checkedAt=${snapshot.checkedAt}`,
+      action:
+        snapshot.status === "healthy"
+          ? undefined
+          : "DB 설정 화면에서 복구 계획을 확인해 주세요.",
+    },
+  ];
+
+  for (const database of snapshot.databases) {
+    checks.push({
+      name: `${database.role} data source`,
+      status: managedSchemaStatusToHealthStatus(database.remote.status),
+      message: [
+        `status=${database.remote.status}`,
+        database.remote.error ? `error=${redactSensitiveText(database.remote.error)}` : null,
+        database.remote.warnings.length > 0
+          ? `warnings=${database.remote.warnings.length}`
+          : null,
+      ]
+        .filter((item): item is string => item !== null)
+        .join(", "),
+      action:
+        database.remote.status === "healthy"
+          ? undefined
+          : "Notion 권한과 필수 필드/관계 상태를 확인해 주세요.",
+    });
+  }
+
+  return checks;
+}
+
+function managedSchemaStatusToHealthStatus(
+  status: ManagedNotionSchemaCheckStatus,
+): HealthCheck["status"] {
+  if (status === "healthy") {
+    return "ok";
+  }
+  if (status === "unchecked" || status === "checking") {
+    return "warn";
+  }
+  return "fail";
+}
+
+function summarizeNotionManagedSchemaDetails(
+  detailsJson: string | null,
+): string | null {
+  if (!detailsJson) {
+    return null;
+  }
+  try {
+    const details = JSON.parse(detailsJson) as Record<string, unknown>;
+    const role = typeof details.role === "string" ? details.role : null;
+    const status = typeof details.status === "string" ? details.status : null;
+    const operationCount =
+      Array.isArray(details.operations) ? details.operations.length : null;
+    const error = typeof details.error === "string" ? details.error : null;
+    return [
+      role ? `role=${role}` : null,
+      status ? `remoteStatus=${status}` : null,
+      operationCount !== null ? `operations=${operationCount}` : null,
+      error ? `error=${redactSensitiveText(error)}` : null,
+    ]
+      .filter((item): item is string => item !== null)
+      .join(", ") || redactSensitiveText(detailsJson).slice(0, 240);
+  } catch {
+    return redactSensitiveText(detailsJson).slice(0, 240);
+  }
 }
 
 function countRows(db: DatabaseSync, tableName: string): number {

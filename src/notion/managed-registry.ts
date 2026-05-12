@@ -47,7 +47,7 @@ export type ManagedNotionRegistrySnapshot = {
   databases: ManagedNotionRegistryDatabaseSnapshot[];
   remoteCheck: ManagedNotionSchemaStatusSnapshot | null;
   actionItemUpload: {
-    status: "not_implemented";
+    status: "implemented";
     message: string;
   };
 };
@@ -81,8 +81,8 @@ export function readManagedNotionRegistrySnapshot(
     databases,
     remoteCheck: options.remoteCheck ?? null,
     actionItemUpload: {
-      status: "not_implemented",
-      message: "액션 아이템 DB는 생성되지만, 액션 아이템 개별 업로드는 후속 Phase입니다.",
+      status: "implemented",
+      message: "액션 아이템 DB가 준비되면 업로드 시 작업 page를 생성하거나 갱신합니다.",
     },
   };
 }

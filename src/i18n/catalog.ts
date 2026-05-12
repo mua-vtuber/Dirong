@@ -673,7 +673,7 @@ export const ko = {
         missing: "아직 Notion DB 연결 정보가 없습니다.",
         summary: "Notion DB {databaseCount}/{expectedDatabaseCount}개 · 필드 연결 {mappingCount}/{expectedMappingCount}개",
         parentPage: "상위 Notion 페이지",
-        actionItemsReady: "액션 아이템 DB가 준비되어 있습니다. 액션 아이템 업로드는 후속 단계에서 연결됩니다.",
+        actionItemsReady: "액션 아이템 DB가 준비되면 업로드 시 작업 page를 생성하거나 갱신합니다.",
         fieldMappings: "필드 연결",
       },
       requiredFields: {
@@ -1716,7 +1716,7 @@ export const en = {
         missing: "No Notion DB connection has been created yet.",
         summary: "{databaseCount}/{expectedDatabaseCount} Notion DBs · {mappingCount}/{expectedMappingCount} field links",
         parentPage: "Parent Notion page",
-        actionItemsReady: "The Action Items DB is ready. Action item upload will be connected in a later step.",
+        actionItemsReady: "When the Action Items DB is ready, uploads create or update task pages.",
         fieldMappings: "Field links",
       },
       requiredFields: {

@@ -533,7 +533,9 @@ function createAiCleanupAutomationService(
       timeoutMs: appSettings.aiCleanup.timeoutMs,
       maxOutputBytes: appSettings.aiCleanup.maxOutputBytes,
       customNotionPropertyPrompt: () =>
-        buildNotionCustomPropertyPrompt(notionPropertyRuleStore.listEnabledRules()),
+        buildNotionCustomPropertyPrompt(
+          notionPropertyRuleStore.listEnabledRules("meeting"),
+        ),
       backup: () =>
         backupDatabaseSnapshot(config.dbPath, {
           busyTimeoutMs: config.dbBusyTimeoutMs,
@@ -558,7 +560,7 @@ function createNotionAutomationService(
     workerId: `phase5-notion-auto-${process.pid}`,
     leaseMs: settings.leaseMs || config.sttLeaseMs,
     registryStore: new NotionRegistryStore(runner),
-    customPropertyRules: () => notionPropertyRuleStore.listEnabledRules(),
+    customPropertyRules: () => notionPropertyRuleStore.listEnabledRules("meeting"),
     retention: notionUploadRetention,
   });
 }

@@ -1,6 +1,6 @@
 import type { SqlRunner } from "../storage/sql-runner.js";
 import type { NotionDataSourceProperties } from "./schema.js";
-import type { NotionPropertyNames } from "./settings.js";
+import type { NotionDatabaseRole } from "./schema-presets.js";
 import { normalizeNotionId, parseNotionPageUrl } from "./target.js";
 
 export type NotionCustomPropertyType =
@@ -14,6 +14,7 @@ export type NotionCustomPropertyType =
 export type NotionCustomPropertyValueSource = "ai" | "participants";
 
 export type NotionCustomPropertyRule = {
+  databaseRole?: NotionDatabaseRole;
   propertyName: string;
   propertyId: string | null;
   propertyType: string;
@@ -51,6 +52,7 @@ export type NotionCustomPropertyRuleInput = {
 };
 
 type NotionCustomPropertyRuleRow = {
+  database_role: string;
   property_name: string;
   property_id: string | null;
   property_type: string;
@@ -105,22 +107,25 @@ export function withDefaultNotionMemberRelationRule(
 export class NotionCustomPropertyRuleStore {
   constructor(private readonly runner: SqlRunner) {}
 
-  listRules(): NotionCustomPropertyRule[] {
+  listRules(databaseRole: NotionDatabaseRole): NotionCustomPropertyRule[] {
     return this.runner
       .all<NotionCustomPropertyRuleRow>(
         `SELECT *
          FROM notion_custom_property_rules
+         WHERE database_role = ?
          ORDER BY property_name COLLATE NOCASE ASC`,
+        databaseRole,
       )
       .map(rowToRule);
   }
 
-  listEnabledRules(): NotionCustomPropertyRule[] {
+  listEnabledRules(databaseRole: NotionDatabaseRole): NotionCustomPropertyRule[] {
     return this.runner
       .all<NotionCustomPropertyRuleRow>(
         `SELECT *
          FROM notion_custom_property_rules
-         WHERE enabled = 1
+         WHERE database_role = ?
+           AND enabled = 1
            AND (
              value_source = 'participants'
              OR length(trim(prompt_description)) > 0
@@ -130,13 +135,15 @@ export class NotionCustomPropertyRuleStore {
              )
            )
          ORDER BY property_name COLLATE NOCASE ASC`,
+        databaseRole,
       )
       .map(rowToRule);
   }
 
   syncDataSourceProperties(input: {
+    databaseRole: NotionDatabaseRole;
     properties: NotionDataSourceProperties;
-    requiredPropertyNames: NotionPropertyNames;
+    requiredPropertyNames: readonly string[];
     nowIso: string;
   }): { discovered: number; custom: number } {
     const requiredNames = buildRequiredNameSet(input.requiredPropertyNames);
@@ -153,19 +160,19 @@ export class NotionCustomPropertyRuleStore {
         const propertyType = cleanInline(property.type ?? "unknown") || "unknown";
         const propertyId = cleanInline(property.id ?? "") || null;
         const relationConfig = readRelationConfig(property);
-        const valueSource = isProtectedNotionCustomPropertyName(propertyName)
+        const valueSource = isProtectedRuleName(input.databaseRole, propertyName)
           ? "participants"
           : "ai";
         custom += 1;
         this.runner.run(
           `INSERT INTO notion_custom_property_rules (
-             property_name, property_id, property_type, enabled,
+             database_role, property_name, property_id, property_type, enabled,
              value_source, prompt_description, max_length, relation_target_url,
              relation_data_source_id, relation_target_page_url,
              relation_target_page_id, relation_match_property_name,
              relation_auto_create, last_seen_at, created_at, updated_at
-           ) VALUES (?, ?, ?, 0, ?, '', ?, ?, ?, NULL, NULL, ?, 0, ?, ?, ?)
-           ON CONFLICT(property_name) DO UPDATE SET
+           ) VALUES (?, ?, ?, ?, 0, ?, '', ?, ?, ?, NULL, NULL, ?, 0, ?, ?, ?)
+           ON CONFLICT(database_role, property_name) DO UPDATE SET
              property_id = excluded.property_id,
              property_type = excluded.property_type,
              value_source = notion_custom_property_rules.value_source,
@@ -185,6 +192,7 @@ export class NotionCustomPropertyRuleStore {
              ),
              last_seen_at = excluded.last_seen_at,
              updated_at = excluded.updated_at`,
+          input.databaseRole,
           propertyName,
           propertyId,
           propertyType,
@@ -204,8 +212,9 @@ export class NotionCustomPropertyRuleStore {
   }
 
   saveRules(input: {
+    databaseRole: NotionDatabaseRole;
     rules: readonly NotionCustomPropertyRuleInput[];
-    requiredPropertyNames: NotionPropertyNames;
+    requiredPropertyNames: readonly string[];
     nowIso: string;
   }): { saved: number; deleted: number; ignored: number; warnings: string[] } {
     const requiredNames = buildRequiredNameSet(input.requiredPropertyNames);
@@ -224,7 +233,7 @@ export class NotionCustomPropertyRuleStore {
             ignored += 1;
             continue;
           }
-          if (isProtectedNotionCustomPropertyName(deleteTarget)) {
+          if (isProtectedRuleName(input.databaseRole, deleteTarget)) {
             ignored += 1;
             warnings.push(
               `${DEFAULT_NOTION_MEMBER_RELATION_PROPERTY_NAME}: 기본 참가자 relation 규칙은 삭제할 수 없습니다.`,
@@ -236,7 +245,10 @@ export class NotionCustomPropertyRuleStore {
             continue;
           }
           this.runner.run(
-            "DELETE FROM notion_custom_property_rules WHERE property_name = ?",
+            `DELETE FROM notion_custom_property_rules
+             WHERE database_role = ?
+               AND property_name = ?`,
+            input.databaseRole,
             deleteTarget,
           );
           deleted += 1;
@@ -254,8 +266,8 @@ export class NotionCustomPropertyRuleStore {
 
         if (
           originalPropertyName &&
-          isProtectedNotionCustomPropertyName(originalPropertyName) &&
-          !isProtectedNotionCustomPropertyName(propertyName)
+          isProtectedRuleName(input.databaseRole, originalPropertyName) &&
+          !isProtectedRuleName(input.databaseRole, propertyName)
         ) {
           warnings.push(
             `${DEFAULT_NOTION_MEMBER_RELATION_PROPERTY_NAME}: 기본 참가자 relation 규칙 이름은 바꿀 수 없습니다.`,
@@ -269,7 +281,10 @@ export class NotionCustomPropertyRuleStore {
           !requiredNames.has(normalizePropertyNameKey(originalPropertyName))
         ) {
           this.runner.run(
-            "DELETE FROM notion_custom_property_rules WHERE property_name = ?",
+            `DELETE FROM notion_custom_property_rules
+             WHERE database_role = ?
+               AND property_name = ?`,
+            input.databaseRole,
             originalPropertyName,
           );
         }
@@ -281,7 +296,9 @@ export class NotionCustomPropertyRuleStore {
         const existing = this.runner.get<NotionCustomPropertyRuleRow>(
           `SELECT *
            FROM notion_custom_property_rules
-           WHERE property_name = ?`,
+           WHERE database_role = ?
+             AND property_name = ?`,
+          input.databaseRole,
           propertyName,
         );
         const requestedType = cleanInline(rawRule.propertyType ?? "");
@@ -294,7 +311,7 @@ export class NotionCustomPropertyRuleStore {
           );
         }
         if (
-          isProtectedNotionCustomPropertyName(propertyName) &&
+          isProtectedRuleName(input.databaseRole, propertyName) &&
           propertyType !== "relation"
         ) {
           warnings.push(
@@ -306,7 +323,7 @@ export class NotionCustomPropertyRuleStore {
           readSupportedValueSource(rawRule.valueSource) ??
           readSupportedValueSource(existing?.value_source) ??
           "ai";
-        if (isProtectedNotionCustomPropertyName(propertyName)) {
+        if (isProtectedRuleName(input.databaseRole, propertyName)) {
           valueSource = "participants";
         }
         if (valueSource === "participants" && propertyType !== "relation") {
@@ -346,13 +363,13 @@ export class NotionCustomPropertyRuleStore {
 
         this.runner.run(
           `INSERT INTO notion_custom_property_rules (
-             property_name, property_id, property_type, enabled,
+             database_role, property_name, property_id, property_type, enabled,
              value_source, prompt_description, max_length, relation_target_url,
              relation_data_source_id, relation_target_page_url,
              relation_target_page_id, relation_match_property_name,
              relation_auto_create, last_seen_at, created_at, updated_at
-           ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
-           ON CONFLICT(property_name) DO UPDATE SET
+           ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+           ON CONFLICT(database_role, property_name) DO UPDATE SET
              property_type = excluded.property_type,
              value_source = excluded.value_source,
              enabled = excluded.enabled,
@@ -365,6 +382,7 @@ export class NotionCustomPropertyRuleStore {
              relation_match_property_name = excluded.relation_match_property_name,
              relation_auto_create = excluded.relation_auto_create,
              updated_at = excluded.updated_at`,
+          input.databaseRole,
           propertyName,
           propertyType,
           enabled ? 1 : 0,
@@ -452,6 +470,7 @@ function readSupportedValueSource(
 
 function rowToRule(row: NotionCustomPropertyRuleRow): NotionCustomPropertyRule {
   return markProtectedRule({
+    databaseRole: readDatabaseRole(row.database_role),
     propertyName: row.property_name,
     propertyId: row.property_id,
     propertyType: row.property_type,
@@ -473,6 +492,7 @@ function rowToRule(row: NotionCustomPropertyRuleRow): NotionCustomPropertyRule {
 
 function makeDefaultNotionMemberRelationRule(): NotionCustomPropertyRule {
   return {
+    databaseRole: "meeting",
     propertyName: DEFAULT_NOTION_MEMBER_RELATION_PROPERTY_NAME,
     propertyId: null,
     propertyType: "relation",
@@ -496,9 +516,17 @@ function makeDefaultNotionMemberRelationRule(): NotionCustomPropertyRule {
 function markProtectedRule(
   rule: NotionCustomPropertyRule,
 ): NotionCustomPropertyRule {
-  return isProtectedNotionCustomPropertyName(rule.propertyName)
+  return isProtectedRuleName(rule.databaseRole ?? "meeting", rule.propertyName)
     ? { ...rule, protected: true }
     : { ...rule, protected: false };
+}
+
+function isProtectedRuleName(
+  databaseRole: NotionDatabaseRole,
+  propertyName: string,
+): boolean {
+  return databaseRole === "meeting" &&
+    isProtectedNotionCustomPropertyName(propertyName);
 }
 
 function isProtectedNotionCustomPropertyName(value: string): boolean {
@@ -524,9 +552,13 @@ function readRelationConfig(property: NotionDataSourceProperties[string]): {
 }
 
 function buildRequiredNameSet(
-  propertyNames: NotionPropertyNames,
+  propertyNames: readonly string[],
 ): Set<string> {
-  return new Set(Object.values(propertyNames).map(normalizePropertyNameKey));
+  return new Set(propertyNames.map(normalizePropertyNameKey));
+}
+
+function readDatabaseRole(value: string): NotionDatabaseRole {
+  return value === "member" || value === "task" ? value : "meeting";
 }
 
 function normalizePropertyNameKey(value: string): string {

@@ -4,13 +4,18 @@ document.addEventListener('change', onNotionPropertyChange);
 
 function renderNotionPropertyRules(state, role = 'meeting') {
       const notion = state.notion;
-      const custom = notion?.customProperties;
+      const customRoot = notion?.customProperties;
+      const custom = customRoot?.roles?.[role] ?? customRoot;
       const target = tr('dashboard.db.customFields.target.' + role);
       if (!custom) {
         return '<div class="metric"><div class="label">' + i18n('dashboard.db.customFields.unavailable.label') + '</div>' +
           '<div class="value">' + i18n('dashboard.db.customFields.unavailable.body') + '</div></div>';
       }
       const disabled = notion.status !== 'ready';
+      const schemaDisabled = disabled || role !== 'meeting';
+      const roleSchemaNotice = role === 'meeting'
+        ? ''
+        : '<div class="muted">' + i18n('dashboard.db.customFields.roleSchemaNotice') + '</div>';
       const rows = (custom.rules ?? []).map((rule) => renderNotionPropertyRuleRow(rule, custom));
       const ruleTable = '<table id="notionPropertyRulesTable" data-target-db-role="' + escapeHtml(role) + '"><thead><tr>' +
         [
@@ -39,15 +44,16 @@ function renderNotionPropertyRules(state, role = 'meeting') {
         '<div class="value">' + escapeHtml(custom.message) + '</div>' +
         '<div class="muted">' + i18n('dashboard.db.customFields.meetingScopeNotice') + '<br>' +
         i18n('dashboard.db.customFields.unmanagedNotice') + '</div>' +
+        roleSchemaNotice +
         action +
         '<div class="toolbar">' +
         '<button type="button" data-notion-action="sync"' + (disabled ? ' disabled' : '') + '>' +
         i18n('dashboard.db.customFields.actions.refresh') + '</button>' +
         '<button type="button" data-notion-action="add">' + i18n('dashboard.db.customFields.actions.add') + '</button>' +
         '<button type="button" data-notion-action="save">' + i18n('dashboard.db.customFields.actions.save') + '</button>' +
-        '<button type="button" data-notion-action="inspect"' + (disabled ? ' disabled' : '') + '>' +
+        '<button type="button" data-notion-action="inspect"' + (schemaDisabled ? ' disabled' : '') + '>' +
         i18n('dashboard.db.customFields.actions.inspect') + '</button>' +
-        '<button type="button" data-notion-action="apply"' + (disabled ? ' disabled' : '') + '>' +
+        '<button type="button" data-notion-action="apply"' + (schemaDisabled ? ' disabled' : '') + '>' +
         i18n('dashboard.db.customFields.actions.apply') + '</button>' +
         '<label class="muted"><input type="checkbox" id="notionSchemaUpdateTypes"> ' +
         i18n('dashboard.db.customFields.actions.updateTypes') + '</label>' +
@@ -232,7 +238,9 @@ function renderNotionPropertyRules(state, role = 'meeting') {
         const res = await fetch('/api/notion/properties/sync', {
           method: 'POST',
           headers: dashboardJsonHeaders(),
-          body: '{}'
+          body: JSON.stringify({
+            targetDatabaseRole: document.getElementById('notionPropertyTargetRole')?.value ?? 'meeting'
+          })
         });
         const result = await res.json();
         notionRulesDirty = false;

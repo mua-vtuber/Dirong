@@ -18,19 +18,20 @@ test("NotionCustomPropertyRuleStore syncs user properties and keeps required pro
     const store = new NotionCustomPropertyRuleStore(fixture.runner);
 
     const result = store.syncDataSourceProperties({
+      databaseRole: "meeting",
       properties: {
         Name: { id: "title", type: "title" },
         Date: { id: "date", type: "date" },
         Discussion: { id: "discussion", type: "rich_text" },
         planner_action: { id: "planner", type: "rich_text" },
       },
-      requiredPropertyNames: DEFAULT_NOTION_PROPERTY_NAMES,
+      requiredPropertyNames: Object.values(DEFAULT_NOTION_PROPERTY_NAMES),
       nowIso: "2026-05-08T00:00:00.000Z",
     });
 
     assert.deepEqual(result, { discovered: 4, custom: 2 });
     assert.deepEqual(
-      store.listRules().map((rule) => ({
+      store.listRules("meeting").map((rule) => ({
         propertyName: rule.propertyName,
         propertyType: rule.propertyType,
         enabled: rule.enabled,
@@ -54,14 +55,16 @@ test("NotionCustomPropertyRuleStore saves bounded prompt descriptions", () => {
   try {
     const store = new NotionCustomPropertyRuleStore(fixture.runner);
     store.syncDataSourceProperties({
+      databaseRole: "meeting",
       properties: {
         Discussion: { id: "discussion", type: "rich_text" },
       },
-      requiredPropertyNames: DEFAULT_NOTION_PROPERTY_NAMES,
+      requiredPropertyNames: Object.values(DEFAULT_NOTION_PROPERTY_NAMES),
       nowIso: "2026-05-08T00:00:00.000Z",
     });
 
     const saveResult = store.saveRules({
+      databaseRole: "meeting",
       rules: [
         {
           propertyName: "Discussion",
@@ -71,16 +74,16 @@ test("NotionCustomPropertyRuleStore saves bounded prompt descriptions", () => {
           maxLength: 5000,
         },
       ],
-      requiredPropertyNames: DEFAULT_NOTION_PROPERTY_NAMES,
+      requiredPropertyNames: Object.values(DEFAULT_NOTION_PROPERTY_NAMES),
       nowIso: "2026-05-08T00:01:00.000Z",
     });
 
     assert.deepEqual(saveResult, { saved: 1, deleted: 0, ignored: 0, warnings: [] });
-    const [rule] = store.listEnabledRules();
+    const [rule] = store.listEnabledRules("meeting");
     assert.equal(rule?.propertyName, "Discussion");
     assert.equal(rule?.maxLength, 2000);
     assert.match(
-      buildNotionCustomPropertyPrompt(store.listEnabledRules()),
+      buildNotionCustomPropertyPrompt(store.listEnabledRules("meeting")),
       /"Discussion" \(rich_text, max 2000 chars\): 회의 논의 사항/,
     );
   } finally {
@@ -95,6 +98,7 @@ test("NotionCustomPropertyRuleStore creates and deletes Korean local rules", () 
 
     assert.deepEqual(
       store.saveRules({
+        databaseRole: "meeting",
         rules: [
           {
             propertyName: "프로그래머 할 일",
@@ -104,15 +108,19 @@ test("NotionCustomPropertyRuleStore creates and deletes Korean local rules", () 
             maxLength: 1200,
           },
         ],
-        requiredPropertyNames: DEFAULT_NOTION_PROPERTY_NAMES,
+        requiredPropertyNames: Object.values(DEFAULT_NOTION_PROPERTY_NAMES),
         nowIso: "2026-05-08T00:00:00.000Z",
       }),
       { saved: 1, deleted: 0, ignored: 0, warnings: [] },
     );
-    assert.equal(store.listEnabledRules()[0]?.propertyName, "프로그래머 할 일");
+    assert.equal(
+      store.listEnabledRules("meeting")[0]?.propertyName,
+      "프로그래머 할 일",
+    );
 
     assert.deepEqual(
       store.saveRules({
+        databaseRole: "meeting",
         rules: [
           {
             originalPropertyName: "프로그래머 할 일",
@@ -123,12 +131,12 @@ test("NotionCustomPropertyRuleStore creates and deletes Korean local rules", () 
             deleted: true,
           },
         ],
-        requiredPropertyNames: DEFAULT_NOTION_PROPERTY_NAMES,
+        requiredPropertyNames: Object.values(DEFAULT_NOTION_PROPERTY_NAMES),
         nowIso: "2026-05-08T00:01:00.000Z",
       }),
       { saved: 0, deleted: 1, ignored: 0, warnings: [] },
     );
-    assert.deepEqual(store.listRules(), []);
+    assert.deepEqual(store.listRules("meeting"), []);
   } finally {
     fixture.close();
   }
@@ -140,6 +148,7 @@ test("NotionCustomPropertyRuleStore saves relation settings", () => {
     const store = new NotionCustomPropertyRuleStore(fixture.runner);
 
     const result = store.saveRules({
+      databaseRole: "meeting",
       rules: [
         {
           propertyName: "프로젝트",
@@ -153,12 +162,12 @@ test("NotionCustomPropertyRuleStore saves relation settings", () => {
           relationAutoCreate: true,
         },
       ],
-      requiredPropertyNames: DEFAULT_NOTION_PROPERTY_NAMES,
+      requiredPropertyNames: Object.values(DEFAULT_NOTION_PROPERTY_NAMES),
       nowIso: "2026-05-08T00:00:00.000Z",
     });
 
     assert.deepEqual(result, { saved: 1, deleted: 0, ignored: 0, warnings: [] });
-    const [rule] = store.listEnabledRules();
+    const [rule] = store.listEnabledRules("meeting");
     assert.equal(rule?.propertyType, "relation");
     assert.equal(rule?.relationTargetUrl, "https://www.notion.so/example?v=123");
     assert.equal(
@@ -168,7 +177,7 @@ test("NotionCustomPropertyRuleStore saves relation settings", () => {
     assert.equal(rule?.relationMatchPropertyName, "Name");
     assert.equal(rule?.relationAutoCreate, true);
     assert.equal(
-      buildNotionCustomPropertyPrompt(store.listEnabledRules()),
+      buildNotionCustomPropertyPrompt(store.listEnabledRules("meeting")),
       "",
     );
   } finally {
@@ -182,6 +191,7 @@ test("NotionCustomPropertyRuleStore enables fixed relation page rules without a 
     const store = new NotionCustomPropertyRuleStore(fixture.runner);
 
     const result = store.saveRules({
+      databaseRole: "meeting",
       rules: [
         {
           propertyName: "프로젝트",
@@ -192,19 +202,19 @@ test("NotionCustomPropertyRuleStore enables fixed relation page rules without a 
             "https://www.notion.so/workspace/Project-Moonfall-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         },
       ],
-      requiredPropertyNames: DEFAULT_NOTION_PROPERTY_NAMES,
+      requiredPropertyNames: Object.values(DEFAULT_NOTION_PROPERTY_NAMES),
       nowIso: "2026-05-08T00:00:00.000Z",
     });
 
     assert.deepEqual(result, { saved: 1, deleted: 0, ignored: 0, warnings: [] });
-    const [rule] = store.listEnabledRules();
+    const [rule] = store.listEnabledRules("meeting");
     assert.equal(rule?.propertyName, "프로젝트");
     assert.equal(
       rule?.relationTargetPageId,
       "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
     );
     assert.match(
-      buildNotionCustomPropertyPrompt(store.listEnabledRules()),
+      buildNotionCustomPropertyPrompt(store.listEnabledRules("meeting")),
       /^$/,
     );
   } finally {
@@ -218,6 +228,7 @@ test("NotionCustomPropertyRuleStore enables participant-sourced relation rules w
     const store = new NotionCustomPropertyRuleStore(fixture.runner);
 
     const result = store.saveRules({
+      databaseRole: "meeting",
       rules: [
         {
           propertyName: "Members",
@@ -230,16 +241,16 @@ test("NotionCustomPropertyRuleStore enables participant-sourced relation rules w
           relationAutoCreate: true,
         },
       ],
-      requiredPropertyNames: DEFAULT_NOTION_PROPERTY_NAMES,
+      requiredPropertyNames: Object.values(DEFAULT_NOTION_PROPERTY_NAMES),
       nowIso: "2026-05-08T00:00:00.000Z",
     });
 
     assert.deepEqual(result, { saved: 1, deleted: 0, ignored: 0, warnings: [] });
-    const [rule] = store.listEnabledRules();
+    const [rule] = store.listEnabledRules("meeting");
     assert.equal(rule?.propertyName, "Members");
     assert.equal(rule?.valueSource, "participants");
     assert.equal(
-      buildNotionCustomPropertyPrompt(store.listEnabledRules()),
+      buildNotionCustomPropertyPrompt(store.listEnabledRules("meeting")),
       "",
     );
   } finally {
@@ -263,6 +274,7 @@ test("NotionCustomPropertyRuleStore protects Members relation from delete and re
     const store = new NotionCustomPropertyRuleStore(fixture.runner);
 
     store.saveRules({
+      databaseRole: "meeting",
       rules: [
         {
           propertyName: "Members",
@@ -273,11 +285,12 @@ test("NotionCustomPropertyRuleStore protects Members relation from delete and re
           relationTargetUrl: "https://www.notion.so/members",
         },
       ],
-      requiredPropertyNames: DEFAULT_NOTION_PROPERTY_NAMES,
+      requiredPropertyNames: Object.values(DEFAULT_NOTION_PROPERTY_NAMES),
       nowIso: "2026-05-08T00:00:00.000Z",
     });
 
     const renamed = store.saveRules({
+      databaseRole: "meeting",
       rules: [
         {
           originalPropertyName: "Members",
@@ -288,15 +301,16 @@ test("NotionCustomPropertyRuleStore protects Members relation from delete and re
           promptDescription: "ignored",
         },
       ],
-      requiredPropertyNames: DEFAULT_NOTION_PROPERTY_NAMES,
+      requiredPropertyNames: Object.values(DEFAULT_NOTION_PROPERTY_NAMES),
       nowIso: "2026-05-08T00:01:00.000Z",
     });
     assert.match(renamed.warnings.join("\n"), /이름은 바꿀 수 없습니다/);
-    assert.equal(store.listRules()[0]?.propertyName, "Members");
-    assert.equal(store.listRules()[0]?.propertyType, "relation");
-    assert.equal(store.listRules()[0]?.valueSource, "participants");
+    assert.equal(store.listRules("meeting")[0]?.propertyName, "Members");
+    assert.equal(store.listRules("meeting")[0]?.propertyType, "relation");
+    assert.equal(store.listRules("meeting")[0]?.valueSource, "participants");
 
     const deleted = store.saveRules({
+      databaseRole: "meeting",
       rules: [
         {
           originalPropertyName: "Members",
@@ -307,14 +321,14 @@ test("NotionCustomPropertyRuleStore protects Members relation from delete and re
           deleted: true,
         },
       ],
-      requiredPropertyNames: DEFAULT_NOTION_PROPERTY_NAMES,
+      requiredPropertyNames: Object.values(DEFAULT_NOTION_PROPERTY_NAMES),
       nowIso: "2026-05-08T00:02:00.000Z",
     });
 
     assert.equal(deleted.deleted, 0);
     assert.equal(deleted.ignored, 1);
     assert.match(deleted.warnings.join("\n"), /삭제할 수 없습니다/);
-    assert.equal(store.listRules().length, 1);
+    assert.equal(store.listRules("meeting").length, 1);
   } finally {
     fixture.close();
   }
@@ -326,6 +340,7 @@ test("NotionCustomPropertyRuleStore syncs Members relation as participant source
     const store = new NotionCustomPropertyRuleStore(fixture.runner);
 
     store.syncDataSourceProperties({
+      databaseRole: "meeting",
       properties: {
         Members: {
           id: "members-id",
@@ -333,15 +348,98 @@ test("NotionCustomPropertyRuleStore syncs Members relation as participant source
           relation: { data_source_id: "member-data-source" },
         },
       },
-      requiredPropertyNames: DEFAULT_NOTION_PROPERTY_NAMES,
+      requiredPropertyNames: Object.values(DEFAULT_NOTION_PROPERTY_NAMES),
       nowIso: "2026-05-08T00:00:00.000Z",
     });
 
-    const [rule] = store.listRules();
+    const [rule] = store.listRules("meeting");
     assert.equal(rule?.propertyName, "Members");
     assert.equal(rule?.valueSource, "participants");
     assert.equal(rule?.protected, true);
     assert.equal(rule?.relationDataSourceId, "member-data-source");
+  } finally {
+    fixture.close();
+  }
+});
+
+test("NotionCustomPropertyRuleStore keeps role-specific rules isolated", () => {
+  const fixture = createFixture();
+  try {
+    const store = new NotionCustomPropertyRuleStore(fixture.runner);
+
+    store.saveRules({
+      databaseRole: "meeting",
+      rules: [
+        {
+          propertyName: "Discussion",
+          propertyType: "rich_text",
+          enabled: true,
+          promptDescription: "회의 논의 요약",
+        },
+      ],
+      requiredPropertyNames: Object.values(DEFAULT_NOTION_PROPERTY_NAMES),
+      nowIso: "2026-05-08T00:00:00.000Z",
+    });
+    store.saveRules({
+      databaseRole: "member",
+      rules: [
+        {
+          propertyName: "Members",
+          propertyType: "rich_text",
+          enabled: true,
+          promptDescription: "작업자 메모",
+        },
+      ],
+      requiredPropertyNames: ["디스코드 닉네임", "노션 연결"],
+      nowIso: "2026-05-08T00:01:00.000Z",
+    });
+    store.syncDataSourceProperties({
+      databaseRole: "task",
+      properties: {
+        작업: { id: "title", type: "title" },
+        "작업 메모": { id: "task-note", type: "rich_text" },
+      },
+      requiredPropertyNames: ["작업"],
+      nowIso: "2026-05-08T00:02:00.000Z",
+    });
+
+    assert.deepEqual(
+      store.listRules("meeting").map((rule) => rule.propertyName),
+      ["Discussion"],
+    );
+    assert.deepEqual(
+      store.listRules("member").map((rule) => ({
+        propertyName: rule.propertyName,
+        protected: rule.protected,
+      })),
+      [{ propertyName: "Members", protected: false }],
+    );
+    assert.deepEqual(
+      store.listRules("task").map((rule) => rule.propertyName),
+      ["작업 메모"],
+    );
+    assert.doesNotMatch(
+      buildNotionCustomPropertyPrompt(store.listEnabledRules("meeting")),
+      /작업자 메모/,
+    );
+
+    const deleted = store.saveRules({
+      databaseRole: "member",
+      rules: [
+        {
+          originalPropertyName: "Members",
+          propertyName: "Members",
+          propertyType: "rich_text",
+          enabled: true,
+          promptDescription: "",
+          deleted: true,
+        },
+      ],
+      requiredPropertyNames: ["디스코드 닉네임", "노션 연결"],
+      nowIso: "2026-05-08T00:03:00.000Z",
+    });
+    assert.equal(deleted.deleted, 1);
+    assert.deepEqual(store.listRules("member"), []);
   } finally {
     fixture.close();
   }

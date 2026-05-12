@@ -37,6 +37,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     id: "007_notion_registry",
     apply: migrateNotionRegistry,
   },
+  {
+    id: "008_notion_custom_property_rule_roles",
+    apply: migrateNotionCustomPropertyRuleRoles,
+  },
 ];
 
 export function listPendingSchemaMigrationIds(db: DatabaseSync): string[] {
@@ -198,4 +202,71 @@ function migrateNotionCustomPropertyValueSource(db: DatabaseSync): void {
 
 function migrateNotionRegistry(db: DatabaseSync): void {
   db.exec(NOTION_REGISTRY_SCHEMA_SQL);
+}
+
+function migrateNotionCustomPropertyRuleRoles(db: DatabaseSync): void {
+  if (!tableExists(db, "notion_custom_property_rules")) {
+    db.exec(NOTION_CUSTOM_PROPERTY_RULES_SCHEMA_SQL);
+    return;
+  }
+
+  const columns = new Set(
+    (
+      db.prepare("PRAGMA table_info(notion_custom_property_rules);").all() as Array<{
+        name: string;
+      }>
+    ).map((column) => column.name),
+  );
+  if (columns.has("database_role")) {
+    db.exec(`
+DROP INDEX IF EXISTS idx_notion_custom_property_rules_enabled;
+CREATE INDEX IF NOT EXISTS idx_notion_custom_property_rules_enabled
+  ON notion_custom_property_rules(database_role, enabled, property_name);
+`);
+    return;
+  }
+
+  db.exec(`
+CREATE TABLE notion_custom_property_rules_new (
+  database_role TEXT NOT NULL DEFAULT 'meeting',
+  property_name TEXT NOT NULL,
+  property_id TEXT,
+  property_type TEXT NOT NULL,
+  value_source TEXT NOT NULL DEFAULT 'ai',
+  enabled INTEGER NOT NULL DEFAULT 0,
+  prompt_description TEXT NOT NULL DEFAULT '',
+  max_length INTEGER NOT NULL DEFAULT 1000,
+  relation_target_url TEXT,
+  relation_data_source_id TEXT,
+  relation_target_page_url TEXT,
+  relation_target_page_id TEXT,
+  relation_match_property_name TEXT NOT NULL DEFAULT 'Name',
+  relation_auto_create INTEGER NOT NULL DEFAULT 0,
+  last_seen_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (database_role, property_name)
+);
+
+INSERT INTO notion_custom_property_rules_new (
+  database_role, property_name, property_id, property_type, value_source,
+  enabled, prompt_description, max_length, relation_target_url,
+  relation_data_source_id, relation_target_page_url, relation_target_page_id,
+  relation_match_property_name, relation_auto_create, last_seen_at,
+  created_at, updated_at
+)
+SELECT
+  'meeting', property_name, property_id, property_type, value_source,
+  enabled, prompt_description, max_length, relation_target_url,
+  relation_data_source_id, relation_target_page_url, relation_target_page_id,
+  relation_match_property_name, relation_auto_create, last_seen_at,
+  created_at, updated_at
+FROM notion_custom_property_rules;
+
+DROP TABLE notion_custom_property_rules;
+ALTER TABLE notion_custom_property_rules_new RENAME TO notion_custom_property_rules;
+
+CREATE INDEX idx_notion_custom_property_rules_enabled
+  ON notion_custom_property_rules(database_role, enabled, property_name);
+`);
 }

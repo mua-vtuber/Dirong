@@ -42,7 +42,8 @@ try {
     readModel: new NotionDraftInputReadModel(runner),
     writeStore: options.dryRun ? null : new NotionWriteStore(runner),
     registryStore: new NotionRegistryStore(runner),
-    customPropertyRules: new NotionCustomPropertyRuleStore(runner).listEnabledRules(),
+    customPropertyRules: new NotionCustomPropertyRuleStore(runner)
+      .listEnabledRules("meeting"),
   });
 
   printResult(config.dbPath, result, options.debug);

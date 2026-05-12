@@ -314,12 +314,6 @@ async function refresh() {
       const intro = '<div style="margin-top:12px"><div class="section-heading"><h2>' +
         i18n('dashboard.db.customFields.scopedTitle', { database: target }) + '</h2></div>' +
         '<p class="muted">' + i18n('dashboard.db.customFields.scopeHelp', { database: target }) + '</p>';
-      if (role !== 'meeting') {
-        return intro + '<div class="metric"><div class="label">' +
-          i18n('dashboard.db.customFields.targetLabel') + ' · ' + escapeHtml(target) + '</div>' +
-          '<div class="value">' + i18n('dashboard.db.customFields.roleComingSoon.title') + '</div>' +
-          '<div class="muted">' + i18n('dashboard.db.customFields.roleComingSoon.body') + '</div></div></div>';
-      }
       return intro + renderNotionPropertyRules(state, role) + '</div>';
     }
     function renderSettingsPanel(state, setup) {

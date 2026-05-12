@@ -14,6 +14,7 @@ import type {
   NotionDashboardSnapshot,
 } from "../notion/dashboard-service.js";
 import type { NotionCustomPropertyRuleInput } from "../notion/property-rules.js";
+import type { NotionDatabaseRole } from "../notion/schema-presets.js";
 import type { NotionSchemaApplyOptions } from "../notion/schema-manager.js";
 import type { AloneFinalizeSnapshot } from "../recording/alone-finalize-service.js";
 import type { RecordingProducer } from "../recording/recording-producer.js";
@@ -56,10 +57,13 @@ export type DashboardNotionSource = {
     draftId: string | null;
     force: boolean;
   }): Promise<NotionDashboardActionResult>;
-  syncCustomProperties(): Promise<NotionDashboardCustomPropertyActionResult>;
-  saveCustomPropertyRules(
-    rules: readonly NotionCustomPropertyRuleInput[],
-  ): NotionDashboardCustomPropertyActionResult;
+  syncCustomProperties(input: {
+    role: NotionDatabaseRole;
+  }): Promise<NotionDashboardCustomPropertyActionResult>;
+  saveCustomPropertyRules(input: {
+    role: NotionDatabaseRole;
+    rules: readonly NotionCustomPropertyRuleInput[];
+  }): NotionDashboardCustomPropertyActionResult;
   inspectSchema(): Promise<NotionDashboardSchemaActionResult>;
   applySchema(input: NotionSchemaApplyOptions): Promise<NotionDashboardSchemaActionResult>;
   checkManagedSchemaWithPlans(): Promise<NotionDashboardManagedSchemaCheckResult>;

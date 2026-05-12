@@ -751,6 +751,7 @@ export const ko = {
           title: "이 DB의 사용자 필드 관리는 준비 중입니다.",
           body: "필수 필드와 DB 상태는 확인할 수 있지만, 이 DB에 새 사용자 필드를 저장하는 기능은 후속 단계에서 연결됩니다.",
         },
+        roleSchemaNotice: "이 DB의 사용자 필드는 저장/동기화할 수 있습니다. Notion 필드 생성 적용은 회의록 DB에서 먼저 제공합니다.",
         unmanagedNotice: "Notion에 등록되지 않은 필드는 삭제하지 않습니다. 필요하면 Notion에서 직접 정리해 주세요.",
         unavailable: {
           label: "사용자 필드",
@@ -1763,6 +1764,7 @@ export const en = {
           title: "Custom field management for this DB is coming soon.",
           body: "You can check required fields and DB status now, but saving new custom fields for this DB will be connected in a later step.",
         },
+        roleSchemaNotice: "Custom fields for this DB can be saved and synced. Applying new Notion fields is available on the Meeting DB first.",
         unmanagedNotice: "Dirong does not delete unmanaged Notion fields. Remove them directly in Notion if needed.",
         unavailable: {
           label: "Custom Fields",

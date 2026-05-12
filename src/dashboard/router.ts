@@ -121,7 +121,12 @@ export async function routeDashboardRequest(
     request.method === "POST" &&
     url.pathname === "/api/notion/properties/sync"
   ) {
-    await handleNotionPropertiesSync(response, context.runtimeSources, locale);
+    await handleNotionPropertiesSync(
+      request,
+      response,
+      context.runtimeSources,
+      locale,
+    );
     return;
   }
 

@@ -21,6 +21,7 @@ const EXPECTED_MIGRATION_IDS = [
   "005_notion_relation_target_pages",
   "006_notion_custom_property_value_source",
   "007_notion_registry",
+  "008_notion_custom_property_rule_roles",
 ];
 
 test("DirongDatabase upgrades legacy transcript_segments speech_status", () => {
@@ -153,6 +154,11 @@ test("DirongDatabase records migrations on a fresh baseline schema", () => {
         ),
       );
       assert.ok(
+        getColumnNames(database.db, "notion_custom_property_rules").includes(
+          "database_role",
+        ),
+      );
+      assert.ok(
         getColumnNames(database.db, "notion_workspace_settings").includes(
           "parent_page_id",
         ),
@@ -200,6 +206,32 @@ test("DirongDatabase adds Notion registry tables to pre-Phase-2 databases", () =
       assert.equal(tableExists(database.db, "notion_workspace_settings"), true);
       assert.equal(tableExists(database.db, "notion_managed_databases"), true);
       assert.equal(tableExists(database.db, "notion_property_mappings"), true);
+      assert.deepEqual(readMigrationIds(database.db), EXPECTED_MIGRATION_IDS);
+    } finally {
+      database.close();
+    }
+  } finally {
+    fixture.close();
+  }
+});
+
+test("DirongDatabase migrates custom property rules into meeting role", () => {
+  const fixture = createPreRoleCustomPropertyRulesFixture();
+  try {
+    const database = new DirongDatabase(fixture.dbPath, 1000);
+    try {
+      assert.ok(
+        getColumnNames(database.db, "notion_custom_property_rules").includes(
+          "database_role",
+        ),
+      );
+      assert.deepEqual(readCustomPropertyRuleRoles(database.db), [
+        {
+          database_role: "meeting",
+          property_name: "Discussion",
+          property_type: "rich_text",
+        },
+      ]);
       assert.deepEqual(readMigrationIds(database.db), EXPECTED_MIGRATION_IDS);
     } finally {
       database.close();
@@ -394,6 +426,65 @@ VALUES
   return fixture;
 }
 
+function createPreRoleCustomPropertyRulesFixture(): {
+  dir: string;
+  dbPath: string;
+  close: () => void;
+} {
+  const fixture = createEmptyFixture();
+  const db = new DatabaseSync(fixture.dbPath);
+  try {
+    db.exec(`
+CREATE TABLE dirong_migrations (
+  id TEXT PRIMARY KEY,
+  applied_at TEXT NOT NULL
+);
+
+INSERT INTO dirong_migrations (id, applied_at)
+VALUES
+  ('001_transcript_segments_speech_status', '2026-05-10T00:00:00.000Z'),
+  ('002_notion_writes', '2026-05-10T00:00:00.000Z'),
+  ('003_notion_custom_property_rules', '2026-05-10T00:00:00.000Z'),
+  ('004_notion_relation_property_rules', '2026-05-10T00:00:00.000Z'),
+  ('005_notion_relation_target_pages', '2026-05-10T00:00:00.000Z'),
+  ('006_notion_custom_property_value_source', '2026-05-10T00:00:00.000Z'),
+  ('007_notion_registry', '2026-05-10T00:00:00.000Z');
+
+CREATE TABLE notion_custom_property_rules (
+  property_name TEXT PRIMARY KEY,
+  property_id TEXT,
+  property_type TEXT NOT NULL,
+  value_source TEXT NOT NULL DEFAULT 'ai',
+  enabled INTEGER NOT NULL DEFAULT 0,
+  prompt_description TEXT NOT NULL DEFAULT '',
+  max_length INTEGER NOT NULL DEFAULT 1000,
+  relation_target_url TEXT,
+  relation_data_source_id TEXT,
+  relation_target_page_url TEXT,
+  relation_target_page_id TEXT,
+  relation_match_property_name TEXT NOT NULL DEFAULT 'Name',
+  relation_auto_create INTEGER NOT NULL DEFAULT 0,
+  last_seen_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+INSERT INTO notion_custom_property_rules (
+  property_name, property_id, property_type, value_source, enabled,
+  prompt_description, max_length, relation_match_property_name,
+  relation_auto_create, created_at, updated_at
+) VALUES (
+  'Discussion', 'discussion-id', 'rich_text', 'ai', 1,
+  '회의 논의 요약', 1000, 'Name', 0,
+  '2026-05-10T00:00:00.000Z', '2026-05-10T00:00:00.000Z'
+);
+`);
+  } finally {
+    db.close();
+  }
+  return fixture;
+}
+
 function getColumnNames(db: DatabaseSync, tableName: string): string[] {
   return (
     db.prepare(`PRAGMA table_info(${tableName});`).all() as Array<{
@@ -408,6 +499,28 @@ function readMigrationIds(db: DatabaseSync): string[] {
       id: string;
     }>
   ).map((row) => row.id);
+}
+
+function readCustomPropertyRuleRoles(
+  db: DatabaseSync,
+): Array<{
+  database_role: string;
+  property_name: string;
+  property_type: string;
+}> {
+  return (db.prepare(
+    `SELECT database_role, property_name, property_type
+     FROM notion_custom_property_rules
+     ORDER BY database_role, property_name;`,
+  ).all() as Array<{
+    database_role: string;
+    property_name: string;
+    property_type: string;
+  }>).map((row) => ({
+    database_role: row.database_role,
+    property_name: row.property_name,
+    property_type: row.property_type,
+  }));
 }
 
 function findSingleBackupPath(dir: string): string {

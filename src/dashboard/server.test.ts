@@ -812,6 +812,7 @@ test("DashboardServer Notion retry action forces retry and never returns token",
 
 test("DashboardServer Notion property rules save through dashboard source", async () => {
   const savedRules: Array<{
+    databaseRole?: string;
     originalPropertyName?: string | null;
     propertyName: string;
     propertyType?: string | null;
@@ -832,6 +833,7 @@ test("DashboardServer Notion property rules save through dashboard source", asyn
   });
   try {
     const response = await postJson(fixture.baseUrl, "/api/notion/properties", {
+      targetDatabaseRole: "member",
       rules: [
         {
           propertyName: "Discussion",
@@ -850,6 +852,7 @@ test("DashboardServer Notion property rules save through dashboard source", asyn
     assert.equal(body.status, "done");
     assert.deepEqual(savedRules, [
       {
+        databaseRole: "member",
         originalPropertyName: null,
         propertyName: "Discussion",
         propertyType: "rich_text",
@@ -1043,6 +1046,7 @@ function makeNotionSource(
     force: boolean;
   }> = [],
   savedRules: Array<{
+    databaseRole?: string;
     originalPropertyName?: string | null;
     propertyName: string;
     propertyType?: string | null;
@@ -1146,6 +1150,46 @@ function makeNotionSource(
         promptPreview: "",
         message: "사용자 속성 1개 중 0개가 켜져 있습니다.",
         userAction: null,
+        roles: {
+          meeting: {
+            supportedTypes: ["rich_text", "select", "multi_select", "checkbox", "date"],
+            requiredPropertyNames: [
+              "Name",
+              "Date",
+              "Meeting Time",
+              "Channel",
+              "Participants",
+              "Status",
+              "Session ID",
+              "Draft ID",
+              "Dirong Content Hash",
+              "Local Status",
+            ],
+            rules: [],
+            enabledCount: 0,
+            promptPreview: "",
+            message: "사용자 속성 0개 중 0개가 켜져 있습니다.",
+            userAction: null,
+          },
+          member: {
+            supportedTypes: ["rich_text", "select", "multi_select", "checkbox", "date"],
+            requiredPropertyNames: ["디스코드 닉네임", "노션 연결"],
+            rules: [],
+            enabledCount: 0,
+            promptPreview: "",
+            message: "사용자 속성 0개 중 0개가 켜져 있습니다.",
+            userAction: null,
+          },
+          task: {
+            supportedTypes: ["rich_text", "select", "multi_select", "checkbox", "date"],
+            requiredPropertyNames: ["작업", "회의록"],
+            rules: [],
+            enabledCount: 0,
+            promptPreview: "",
+            message: "사용자 속성 0개 중 0개가 켜져 있습니다.",
+            userAction: null,
+          },
+        },
       },
     }),
     runManualUpload: async (input) => {
@@ -1158,7 +1202,7 @@ function makeNotionSource(
         pageUrl: "https://notion.so/page",
       };
     },
-    syncCustomProperties: async () => ({
+    syncCustomProperties: async (_input) => ({
       ok: true,
       status: "done",
       message: "synced",
@@ -1166,8 +1210,13 @@ function makeNotionSource(
       warnings: [],
       customProperties: makeNotionSource().getSnapshot().customProperties,
     }),
-    saveCustomPropertyRules: (rules) => {
-      savedRules.push(...rules);
+    saveCustomPropertyRules: (input) => {
+      savedRules.push(
+        ...input.rules.map((rule) => ({
+          ...rule,
+          databaseRole: input.role,
+        })),
+      );
       return {
         ok: true,
         status: "done",

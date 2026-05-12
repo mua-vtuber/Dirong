@@ -57,7 +57,9 @@ try {
       options.maxOutputBytes ??
       aiCleanupSettings.maxOutputBytes,
     customNotionPropertyPrompt: () =>
-      buildNotionCustomPropertyPrompt(notionPropertyRuleStore.listEnabledRules()),
+      buildNotionCustomPropertyPrompt(
+        notionPropertyRuleStore.listEnabledRules("meeting"),
+      ),
     includeFakeStt: options.includeFakeStt,
     backup:
       !options.dryRun && options.backup

@@ -59,6 +59,7 @@ export async function handleNotionAction(
 }
 
 export async function handleNotionPropertiesSync(
+  request: IncomingMessage,
   response: ServerResponse,
   sources: DashboardRuntimeSources,
   locale: DirongLocale,
@@ -75,8 +76,27 @@ export async function handleNotionPropertiesSync(
     return;
   }
 
-  const result = await sources.notion.syncCustomProperties();
-  sendJson(response, result);
+  try {
+    const body = await readJsonBody(request);
+    const result = await sources.notion.syncCustomProperties({
+      role: readOptionalNotionDatabaseRole(body, "targetDatabaseRole"),
+    });
+    sendJson(response, result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const localized = withMessageKeys(locale, {
+      messageKey: "error.dashboard.requestInvalid.message",
+      userActionKey: "action.request.retry",
+      status: "failed",
+      technicalDetail: message,
+    });
+    sendJson(response, {
+      ok: false,
+      warnings: [],
+      customProperties: null,
+      ...localized,
+    }, 400);
+  }
 }
 
 export async function handleNotionPropertiesSave(
@@ -99,9 +119,10 @@ export async function handleNotionPropertiesSave(
 
   try {
     const body = await readJsonBody(request);
-    const result = sources.notion.saveCustomPropertyRules(
-      readCustomPropertyRuleInputs(body),
-    );
+    const result = sources.notion.saveCustomPropertyRules({
+      role: readOptionalNotionDatabaseRole(body, "targetDatabaseRole"),
+      rules: readCustomPropertyRuleInputs(body),
+    });
     sendJson(response, result);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -350,6 +371,19 @@ function readNotionDatabaseRole(body: unknown): NotionDatabaseRole {
     return body.role as NotionDatabaseRole;
   }
   throw new Error(`Invalid Notion database role: ${body.role}`);
+}
+
+function readOptionalNotionDatabaseRole(
+  body: unknown,
+  key: string,
+): NotionDatabaseRole {
+  if (!isRecord(body) || typeof body[key] !== "string") {
+    return "meeting";
+  }
+  if ((NOTION_DATABASE_ROLES as readonly string[]).includes(body[key])) {
+    return body[key] as NotionDatabaseRole;
+  }
+  throw new Error(`Invalid Notion database role: ${body[key]}`);
 }
 
 function readRequiredBodyString(body: unknown, key: string): string {

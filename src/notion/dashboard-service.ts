@@ -60,13 +60,17 @@ import {
   type ManagedSchemaRepairPlan,
   type ManagedSchemaRepairResult,
 } from "./managed-schema-repair.js";
-import type { NotionDatabaseRole } from "./schema-presets.js";
+import {
+  KOREAN_NOTION_SCHEMA_PRESET,
+  NOTION_DATABASE_ROLES,
+  type NotionDatabaseRole,
+} from "./schema-presets.js";
 import { NotionRegistryStore } from "./registry-store.js";
 import { NotionWriteStore } from "./write-store.js";
 import { SqlRunner } from "../storage/sql-runner.js";
 import type { DirongDatabase } from "../storage/sqlite.js";
 
-export type NotionCustomPropertiesDashboardSnapshot = {
+export type NotionCustomPropertiesRoleSnapshot = {
   supportedTypes: readonly string[];
   requiredPropertyNames: string[];
   rules: NotionCustomPropertyRule[];
@@ -75,6 +79,11 @@ export type NotionCustomPropertiesDashboardSnapshot = {
   message: string;
   userAction: string | null;
 };
+
+export type NotionCustomPropertiesDashboardSnapshot =
+  NotionCustomPropertiesRoleSnapshot & {
+    roles: Record<NotionDatabaseRole, NotionCustomPropertiesRoleSnapshot>;
+  };
 
 export type NotionDashboardSnapshot = {
   enabled: boolean;
@@ -450,7 +459,7 @@ export class NotionDashboardService {
       readModel: new NotionDraftInputReadModel(this.runner),
       writeStore: new NotionWriteStore(this.runner),
       registryStore: this.registryStore,
-      customPropertyRules: this.propertyRuleStore.listEnabledRules(),
+      customPropertyRules: this.propertyRuleStore.listEnabledRules("meeting"),
     });
     try {
       await applyRetentionAfterSuccessfulUpload(this.input.retention, result);
@@ -507,14 +516,16 @@ export class NotionDashboardService {
     };
   }
 
-  async syncCustomProperties(): Promise<NotionDashboardCustomPropertyActionResult> {
+  async syncCustomProperties(input: {
+    role: NotionDatabaseRole;
+  }): Promise<NotionDashboardCustomPropertyActionResult> {
     const settings = this.getSettings();
-    if (!settings.enabled || !settings.apiKey || !settings.targetUrl) {
+    if (!settings.enabled || !settings.apiKey) {
       return this.customPropertyActionResult({
         ok: false,
         status: "not_configured",
         message: "Notion 설정이 완료된 뒤 속성 스키마를 불러올 수 있습니다.",
-        userAction: "NOTION_API_KEY와 NOTION_TARGET_URL을 확인해 주세요.",
+        userAction: "Notion token과 managed DB 설정을 확인해 주세요.",
       });
     }
 
@@ -524,21 +535,28 @@ export class NotionDashboardService {
       baseUrl: settings.baseUrl,
       requestTimeoutMs: settings.requestTimeoutMs,
     });
-    const parsedTarget = parseNotionTargetUrl(settings.targetUrl);
-    if (parsedTarget.kind === "invalid") {
+    const target = await this.loadCustomPropertyDataSource({
+      client,
+      settings,
+      role: input.role,
+    });
+    if (!target.ok) {
       return this.customPropertyActionResult({
         ok: false,
         status: "not_configured",
-        message: "Notion target URL is invalid.",
-        userAction: "Notion 데이터베이스 또는 data source URL을 다시 복사해 붙여넣어 주세요.",
+        message: target.message,
+        userAction: target.userAction,
       });
     }
 
     try {
-      const dataSource = await resolveDataSource(client, parsedTarget);
       const syncResult = this.propertyRuleStore.syncDataSourceProperties({
-        properties: readDataSourceProperties(dataSource),
-        requiredPropertyNames: settings.propertyNames,
+        databaseRole: input.role,
+        properties: readDataSourceProperties(target.dataSource),
+        requiredPropertyNames: this.requiredCustomPropertyNamesForRole(
+          input.role,
+          settings,
+        ),
         nowIso: new Date().toISOString(),
       });
       return this.customPropertyActionResult({
@@ -561,11 +579,18 @@ export class NotionDashboardService {
   }
 
   saveCustomPropertyRules(
-    rules: readonly NotionCustomPropertyRuleInput[],
+    input: {
+      role: NotionDatabaseRole;
+      rules: readonly NotionCustomPropertyRuleInput[];
+    },
   ): NotionDashboardCustomPropertyActionResult {
     const result = this.propertyRuleStore.saveRules({
-      rules,
-      requiredPropertyNames: this.getSettings().propertyNames,
+      databaseRole: input.role,
+      rules: input.rules,
+      requiredPropertyNames: this.requiredCustomPropertyNamesForRole(
+        input.role,
+        this.getSettings(),
+      ),
       nowIso: new Date().toISOString(),
     });
     return this.customPropertyActionResult({
@@ -628,8 +653,12 @@ export class NotionDashboardService {
       const properties = readDataSourceProperties(updated);
       if (Object.keys(properties).length > 0) {
         this.propertyRuleStore.syncDataSourceProperties({
+          databaseRole: "meeting",
           properties,
-          requiredPropertyNames: context.settings.propertyNames,
+          requiredPropertyNames: this.requiredCustomPropertyNamesForRole(
+            "meeting",
+            context.settings,
+          ),
           nowIso: new Date().toISOString(),
         });
       }
@@ -640,7 +669,7 @@ export class NotionDashboardService {
             customRules: (
               await resolveRelationRuleTargets(
                 context.client,
-                this.propertyRuleStore.listRules(),
+                this.propertyRuleStore.listRules("meeting"),
               )
             ).rules,
           })
@@ -688,26 +717,112 @@ export class NotionDashboardService {
   }
 
   private getCustomPropertiesSnapshot(): NotionCustomPropertiesDashboardSnapshot {
-    const storedRules = this.propertyRuleStore.listRules();
-    const rules = withDefaultNotionMemberRelationRule(storedRules);
+    const roles = Object.fromEntries(
+      NOTION_DATABASE_ROLES.map((role) => [
+        role,
+        this.getCustomPropertiesRoleSnapshot(role),
+      ]),
+    ) as Record<NotionDatabaseRole, NotionCustomPropertiesRoleSnapshot>;
+    return {
+      ...roles.meeting,
+      roles,
+    };
+  }
+
+  private getCustomPropertiesRoleSnapshot(
+    role: NotionDatabaseRole,
+  ): NotionCustomPropertiesRoleSnapshot {
+    const storedRules = this.propertyRuleStore.listRules(role);
+    const rules = role === "meeting"
+      ? withDefaultNotionMemberRelationRule(storedRules)
+      : storedRules;
     const enabledCount = rules.filter(
       (rule) => rule.enabled && ruleHasOutput(rule),
     ).length;
-    const promptPreview = buildNotionCustomPropertyPrompt(rules);
+    const promptPreview = role === "meeting"
+      ? buildNotionCustomPropertyPrompt(rules)
+      : "";
     return {
       supportedTypes: SUPPORTED_NOTION_CUSTOM_PROPERTY_TYPES,
-      requiredPropertyNames: Object.values(this.getSettings().propertyNames),
+      requiredPropertyNames: this.requiredCustomPropertyNamesForRole(
+        role,
+        this.getSettings(),
+      ),
       rules,
       enabledCount,
       promptPreview,
       message:
         storedRules.length === 0
-          ? "기본 Members relation 규칙이 준비되어 있습니다. 대상 DB URL을 입력해 주세요."
+          ? role === "meeting"
+            ? "기본 Members relation 규칙이 준비되어 있습니다. 대상 DB URL을 입력해 주세요."
+            : "이 DB의 사용자 속성 규칙은 아직 없습니다."
           : `사용자 속성 ${rules.length}개 중 ${enabledCount}개가 켜져 있습니다.`,
       userAction:
-        storedRules.length === 0
+        role === "meeting" && storedRules.length === 0
           ? "Members DB를 만들고 대상 DB/data source URL을 입력한 뒤 저장해 주세요."
           : null,
+    };
+  }
+
+  private requiredCustomPropertyNamesForRole(
+    role: NotionDatabaseRole,
+    settings: NotionRuntimeSettings,
+  ): string[] {
+    if (role === "meeting" && !this.registryStore.getManagedDatabase("meeting")) {
+      return Object.values(settings.propertyNames);
+    }
+    const names = new Set<string>();
+    for (const mapping of this.registryStore.listPropertyMappings(role)) {
+      names.add(mapping.propertyName);
+    }
+    for (const property of KOREAN_NOTION_SCHEMA_PRESET.databases[role].properties) {
+      names.add(property.name);
+    }
+    return [...names];
+  }
+
+  private async loadCustomPropertyDataSource(input: {
+    client: NotionClient;
+    settings: NotionRuntimeSettings;
+    role: NotionDatabaseRole;
+  }): Promise<
+    | { ok: true; dataSource: Record<string, unknown> }
+    | { ok: false; message: string; userAction: string }
+  > {
+    const managedDatabase = this.registryStore.getManagedDatabase(input.role);
+    if (managedDatabase) {
+      return {
+        ok: true,
+        dataSource: await input.client.retrieveDataSource(
+          managedDatabase.dataSourceId,
+        ),
+      };
+    }
+    if (input.role !== "meeting") {
+      return {
+        ok: false,
+        message: "선택한 managed DB 연결 정보가 없습니다.",
+        userAction: "Notion 설정에서 managed DB 세트를 먼저 생성해 주세요.",
+      };
+    }
+    if (!input.settings.targetUrl) {
+      return {
+        ok: false,
+        message: "Notion target URL is missing.",
+        userAction: "Notion target URL 또는 managed DB 설정을 확인해 주세요.",
+      };
+    }
+    const parsedTarget = parseNotionTargetUrl(input.settings.targetUrl);
+    if (parsedTarget.kind === "invalid") {
+      return {
+        ok: false,
+        message: "Notion target URL is invalid.",
+        userAction: "Notion 데이터베이스 또는 data source URL을 다시 복사해 붙여넣어 주세요.",
+      };
+    }
+    return {
+      ok: true,
+      dataSource: await resolveDataSource(input.client, parsedTarget),
     };
   }
 
@@ -756,7 +871,7 @@ export class NotionDashboardService {
       const target = await resolveDataSourceTarget(client, parsedTarget);
       const relationResolution = await resolveRelationRuleTargets(
         client,
-        this.propertyRuleStore.listRules(),
+        this.propertyRuleStore.listRules("meeting"),
       );
       const diff = buildNotionSchemaDiff({
         properties: readDataSourceProperties(target.dataSource),

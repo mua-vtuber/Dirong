@@ -6,6 +6,13 @@ dist/
 .venv-whisper/
 data/
 
+# AI
+.claude/
+.codex/
+CLAUDE.md
+AGENTS.md
+.agestra
+
 # Local planning docs are intentionally not committed.
 docs/
 

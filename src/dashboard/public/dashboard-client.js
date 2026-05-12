@@ -300,70 +300,13 @@ async function refresh() {
       if (!role) {
         return renderCustomDatabasePlaceholder();
       }
-      const registry = state.notion?.managedRegistry ?? setup?.features?.notion?.managedRegistry ?? null;
-      return renderDatabaseStatus(registry, role) + renderRequiredFields(registry, role);
+      return renderManagedDbPanel(state, setup, role);
     }
     function renderCustomDatabasePlaceholder() {
       return '<div class="section-heading"><h2>' + i18n('dashboard.db.customDb.title') + '</h2></div>' +
         '<div class="metric"><div class="label">' + i18n('dashboard.db.customDb.label') + '</div>' +
         '<div class="value">' + i18n('dashboard.db.customDb.body') + '</div>' +
         '<div class="muted">' + i18n('dashboard.db.customDb.notice') + '</div></div>';
-    }
-    function renderDatabaseStatus(registry, role) {
-      if (!registry) {
-        return '<div class="metric"><div class="label">' + i18n('dashboard.db.status.title') + '</div>' +
-          '<div class="value">' + i18n('dashboard.db.registry.missing') + '</div></div>';
-      }
-      const database = (registry.databases ?? []).find((db) => db.role === role);
-      const databaseName = database?.expectedName ?? tr('dashboard.db.customFields.target.' + role);
-      const status = database
-        ? statusLabel(database.ready ? 'ready' : database.hasDatabase ? 'partial' : 'missing')
-        : statusLabel('missing');
-      const parent = registry.workspace?.parentPageUrl
-        ? '<div class="muted">' + i18n('dashboard.db.registry.parentPage') + ': <a href="' +
-          escapeHtml(registry.workspace.parentPageUrl) + '" target="_blank" rel="noreferrer">' +
-          i18n('dashboard.common.openNotion') + '</a></div>'
-        : '';
-      const notionLink = database?.url
-        ? '<div class="value"><a href="' + escapeHtml(database.url) + '" target="_blank" rel="noreferrer">' +
-          i18n('dashboard.common.openNotion') + '</a></div>'
-        : '';
-      return '<div class="metric"><div class="label">' + i18n('dashboard.db.status.title') +
-        ' · ' + escapeHtml(databaseName) + '</div>' +
-        '<div class="value ' + runtimeValueClass(database?.ready ? 'ready' : 'partial') + '">' +
-        escapeHtml(status) + '</div>' +
-        '<div class="muted">' + i18n('dashboard.db.registry.summary', {
-          databaseCount: registry.databaseCount ?? 0,
-          expectedDatabaseCount: registry.expectedDatabaseCount ?? 3,
-          mappingCount: database?.mappingCount ?? 0,
-          expectedMappingCount: database?.expectedMappingCount ?? 0
-        }) + '</div>' + parent + notionLink + '</div>';
-    }
-    function renderRequiredFields(registry, role) {
-      const database = (registry?.databases ?? []).find((db) => db.role === role);
-      if (!database) {
-        return '<div class="metric"><div class="label">' + i18n('dashboard.db.registry.title') + '</div>' +
-          '<div class="value">' + i18n('dashboard.db.registry.missing') + '</div></div>';
-      }
-      const missing = new Set(database.missingSemanticKeys ?? []);
-      const keys = requiredKeysForRole(role);
-      return '<div style="margin-top:12px"><div class="section-heading"><h2>' +
-        i18n('dashboard.db.requiredFields.title') + '</h2></div>' +
-        '<p class="muted">' + i18n('dashboard.db.requiredFields.info') + '</p>' +
-        '<div class="required-field-grid">' + keys.map((key) => {
-          const isMissing = missing.has(key);
-          return '<div class="required-field' + (isMissing ? ' is-missing' : '') + '">' +
-            '<div class="value">' + escapeHtml(propertyLabel(key)) + '</div><div class="muted">' +
-            i18n('dashboard.db.requiredFields.locked') + ' · ' +
-            (isMissing ? i18n('dashboard.db.requiredFields.missing') : i18n('dashboard.db.requiredFields.normal')) +
-            '</div></div>';
-        }).join('') + '</div>' +
-        (missing.size > 0 ? '<div class="setup-notice">' +
-          '<strong>' + i18n('dashboard.db.requiredFields.missingSummary', { count: missing.size }) + '</strong><br>' +
-          i18n('dashboard.db.requiredFields.repairComingSoon') +
-          '<div class="toolbar"><button type="button" disabled>' +
-          i18n('dashboard.db.requiredFields.repairAction') + '</button></div></div>' : '') +
-        '</div>';
     }
     function renderDbCustomFieldsSection(state, role) {
       if (!role) return '';

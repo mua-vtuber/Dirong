@@ -288,6 +288,7 @@ test("DashboardServer root serves the dashboard HTML without caching", async () 
     assert.match(html, /\/dashboard\/api-client\.js/);
     assert.match(html, /\/dashboard\/setup-wizard\.js/);
     assert.match(html, /\/dashboard\/notion-properties\.js/);
+    assert.match(html, /\/dashboard\/notion-managed-db\.js/);
     assert.match(html, /\/dashboard\/dashboard-client\.js/);
     assert.doesNotMatch(html, /function refresh/);
   } finally {
@@ -580,25 +581,37 @@ test("DashboardServer serves split dashboard client scripts", async () => {
     const api = await fetch(`${fixture.baseUrl}/dashboard/api-client.js`);
     const setup = await fetch(`${fixture.baseUrl}/dashboard/setup-wizard.js`);
     const notion = await fetch(`${fixture.baseUrl}/dashboard/notion-properties.js`);
+    const managedDb = await fetch(`${fixture.baseUrl}/dashboard/notion-managed-db.js`);
     const dashboard = await fetch(`${fixture.baseUrl}/dashboard/dashboard-client.js`);
     const apiText = await api.text();
     const setupText = await setup.text();
     const notionText = await notion.text();
+    const managedDbText = await managedDb.text();
     const dashboardText = await dashboard.text();
 
     assert.equal(api.status, 200);
     assert.equal(setup.status, 200);
     assert.equal(notion.status, 200);
+    assert.equal(managedDb.status, 200);
     assert.equal(dashboard.status, 200);
     assert.match(api.headers.get("content-type") ?? "", /text\/javascript/);
     assert.equal(api.headers.get("cache-control"), "no-store");
     assert.match(apiText, /dashboardJsonHeaders/);
     assert.match(setupText, /setupCreateManagedDatabases/);
     assert.match(notionText, /data-notion-action/);
+    assert.match(managedDbText, /data-managed-db-action="check"/);
+    assert.match(managedDbText, /data-managed-db-action="repair"/);
+    assert.match(managedDbText, /remote_missing: 'dashboard\.db\.requiredFields\.issue\.remoteMissing'/);
+    assert.match(managedDbText, /name_drift: 'dashboard\.db\.requiredFields\.issue\.nameDrift'/);
+    assert.match(managedDbText, /relation_target_mismatch: 'dashboard\.db\.requiredFields\.issue\.relationTarget'/);
+    assert.doesNotMatch(managedDbText, /technicalDetail/);
     assert.match(dashboardText, /fetch\('\/api\/state'/);
     assert.doesNotMatch(notionText, /onclick=/);
     assert.doesNotMatch(notionText, /onchange=/);
     assert.doesNotMatch(notionText, /oninput=/);
+    assert.doesNotMatch(managedDbText, /onclick=/);
+    assert.doesNotMatch(managedDbText, /onchange=/);
+    assert.doesNotMatch(managedDbText, /oninput=/);
   } finally {
     await fixture.close();
   }

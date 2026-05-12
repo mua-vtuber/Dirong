@@ -43,6 +43,9 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
       if (activeDbTab !== normalized) {
         notionRulesDirty = false;
         notionSchemaResult = null;
+        if (typeof clearManagedDbCheckResult === 'function') {
+          clearManagedDbCheckResult();
+        }
       }
       activeDbTab = normalized;
       window.localStorage.setItem('dirong.dashboard.dbTab', normalized);

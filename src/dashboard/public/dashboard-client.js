@@ -462,6 +462,12 @@ async function refresh() {
         not_synced: 'dashboard.status.value.notConfigured',
         idle: 'dashboard.status.value.idle',
         recording: 'dashboard.status.value.recording',
+        active: 'dashboard.status.value.recording',
+        created: 'dashboard.status.value.idle',
+        reconnecting: 'dashboard.status.value.checking',
+        stopping: 'dashboard.status.value.processing',
+        finalized: 'dashboard.status.value.done',
+        needs_repair: 'dashboard.status.value.warning',
         done: 'dashboard.status.value.done',
         failed: 'dashboard.status.value.failed',
         failed_missing_file: 'dashboard.status.value.failed',
@@ -747,8 +753,10 @@ async function refresh() {
     function renderPipelineSummary(state) {
       const session = state.currentSession;
       if (!session) {
-        return '<div class="metric"><div class="label">current session · idle</div>' +
-          '<div class="value">최근 세션 없음</div><div class="muted">녹음이 시작되면 여기에 진행 상태가 표시됩니다.</div></div>';
+        return '<div class="metric"><div class="label">' + i18n('dashboard.pipeline.currentSession') +
+          ' · ' + escapeHtml(statusLabel('idle')) + '</div>' +
+          '<div class="value">' + i18n('dashboard.pipeline.noRecentSession') + '</div><div class="muted">' +
+          i18n('dashboard.pipeline.startsAfterRecording') + '</div></div>';
       }
       const sttCounts = countStatuses(state.recentSttJobs ?? []);
       const latestAiJob = (state.recentAiCleanupJobs ?? [])[0];
@@ -758,95 +766,107 @@ async function refresh() {
       const failedStt =
         (sttCounts.get('failed') ?? 0) + (sttCounts.get('failed_missing_file') ?? 0);
       let status = 'recording';
-      let message = '녹음 중';
+      let message = tr('dashboard.pipeline.recording');
       if (draft) {
         status = 'done';
-        message = '회의록 draft 생성 완료';
+        message = tr('dashboard.pipeline.draftDone');
       } else if (latestAiJob?.status === 'processing') {
         status = 'running';
-        message = '회의록 생성 중';
+        message = tr('dashboard.pipeline.aiRunning');
       } else if (latestAiJob?.status === 'queued') {
         status = 'queued';
-        message = 'AI cleanup job 대기 중';
+        message = tr('dashboard.pipeline.aiQueued');
       } else if (latestAiJob?.status === 'failed' || latestAiJob?.status === 'blocked') {
         status = latestAiJob.status;
-        message = latestAiJob.status === 'blocked' ? '회의록 생성 보류' : '회의록 생성 실패';
+        message = latestAiJob.status === 'blocked' ? tr('dashboard.pipeline.aiBlocked') : tr('dashboard.pipeline.aiFailed');
       } else if (queuedOrProcessingStt > 0) {
         status = 'stt';
-        message = 'STT 처리 중';
+        message = tr('dashboard.pipeline.sttRunning');
       } else if (session.status === 'finalized') {
         status = 'waiting_ai';
-        message = failedStt > 0 ? 'STT 확인 필요' : 'AI cleanup 대기 중';
+        message = failedStt > 0 ? tr('dashboard.pipeline.sttNeedsAttention') : tr('dashboard.pipeline.aiWaiting');
       }
       const aiJob = latestAiJob
-        ? '<br>AI job: ' + escapeHtml(latestAiJob.status) + ' / ' + escapeHtml(latestAiJob.provider) +
+        ? '<br>' + i18n('dashboard.pipeline.aiJob') + ': ' + escapeHtml(statusLabel(latestAiJob.status)) +
+          ' (' + escapeHtml(latestAiJob.status) + ') / ' + escapeHtml(latestAiJob.provider) +
           ' / ' + escapeHtml(latestAiJob.model)
         : '';
-      return '<div class="metric"><div class="label">current session · ' + escapeHtml(status) +
+      return '<div class="metric"><div class="label">' + i18n('dashboard.pipeline.currentSession') +
+        ' · ' + escapeHtml(statusLabel(status)) + ' (' + escapeHtml(status) + ')' +
         '</div><div class="value ' + runtimeValueClass(status) + '">' + escapeHtml(message) + '</div>' +
         '<div class="muted"><code>' + escapeHtml(session.id) + '</code><br>' +
-        'session: ' + escapeHtml(session.status) +
-        '<br>STT: queued ' + escapeHtml(sttCounts.get('queued') ?? 0) +
-        ' / processing ' + escapeHtml(sttCounts.get('processing') ?? 0) +
-        ' / done ' + escapeHtml(sttCounts.get('done') ?? 0) +
-        ' / failed ' + escapeHtml(failedStt) + aiJob + '</div></div>';
+        i18n('dashboard.pipeline.sessionStatus') + ': ' + escapeHtml(statusLabel(session.status)) +
+        ' (' + escapeHtml(session.status) + ')' +
+        '<br>' + i18n('dashboard.pipeline.sttCounts') + ': ' +
+        escapeHtml(statusLabel('queued')) + ' ' + escapeHtml(sttCounts.get('queued') ?? 0) +
+        ' / ' + escapeHtml(statusLabel('processing')) + ' ' + escapeHtml(sttCounts.get('processing') ?? 0) +
+        ' / ' + escapeHtml(statusLabel('done')) + ' ' + escapeHtml(sttCounts.get('done') ?? 0) +
+        ' / ' + escapeHtml(statusLabel('failed')) + ' ' + escapeHtml(failedStt) + aiJob + '</div></div>';
     }
     function renderAiReadiness(readiness) {
       if (!readiness) {
-        return '<div class="muted">AI readiness snapshot이 아직 없습니다.</div>';
+        return '<div class="muted">' + i18n('dashboard.automation.aiReadinessMissing') + '</div>';
       }
       return '<div class="metric" style="margin-bottom:10px">' +
         '<div class="label">' + escapeHtml(readiness.provider) + ' / ' + escapeHtml(readiness.model) +
-        ' · ' + escapeHtml(readiness.status) + ' · ' + escapeHtml(readiness.checkedAt ?? 'not checked') +
+        ' · ' + escapeHtml(statusLabel(readiness.status)) + ' (' + escapeHtml(readiness.status) + ')' +
+        ' · ' + i18n('dashboard.automation.checkedAt') + ': ' +
+        escapeHtml(readiness.checkedAt ?? tr('dashboard.automation.notChecked')) +
         '</div>' + renderHumanDisplay(readiness) + '</div>';
     }
     function renderSttAutomation(automation) {
       if (!automation) {
-        return '<div class="metric"><div class="label">STT automation · unavailable</div>' +
-          '<div class="value">STT 자동화 snapshot이 아직 없습니다.</div></div>';
+        return '<div class="metric"><div class="label">STT automation · ' + i18n('dashboard.automation.unavailable') + '</div>' +
+          '<div class="value">' + i18n('dashboard.automation.sttMissing') + '</div></div>';
       }
       const run = automation.lastRun
-        ? '<div class="muted">examined ' + escapeHtml(automation.lastRun.examined) +
-          ' / done ' + escapeHtml(automation.lastRun.done) +
-          ' / missing ' + escapeHtml(automation.lastRun.missingAudio) +
-          ' / failed ' + escapeHtml(automation.lastRun.failed) +
-          ' / more ' + escapeHtml(automation.lastRun.remainingQueuedHint > 0 ? 'yes' : 'no') + '</div>'
+        ? '<div class="muted">' + i18n('dashboard.automation.runStats') + ': ' +
+          i18n('dashboard.automation.examined') + ' ' + escapeHtml(automation.lastRun.examined) +
+          ' / ' + i18n('dashboard.automation.done') + ' ' + escapeHtml(automation.lastRun.done) +
+          ' / ' + i18n('dashboard.automation.missing') + ' ' + escapeHtml(automation.lastRun.missingAudio) +
+          ' / ' + i18n('dashboard.automation.failed') + ' ' + escapeHtml(automation.lastRun.failed) +
+          ' / ' + i18n('dashboard.automation.more') + ' ' +
+          escapeHtml(automation.lastRun.remainingQueuedHint > 0 ? tr('dashboard.automation.yes') : tr('dashboard.automation.no')) + '</div>'
         : '';
       return '<div class="metric" style="margin-bottom:10px">' +
         '<div class="label">' + escapeHtml(automation.provider) + ' / ' + escapeHtml(automation.model) +
-        ' · ' + escapeHtml(automation.status) + ' · ' + escapeHtml(automation.checkedAt ?? 'not checked') +
+        ' · ' + escapeHtml(statusLabel(automation.status)) + ' (' + escapeHtml(automation.status) + ')' +
+        ' · ' + i18n('dashboard.automation.checkedAt') + ': ' +
+        escapeHtml(automation.checkedAt ?? tr('dashboard.automation.notChecked')) +
         '</div>' + renderHumanDisplay(automation) + run + '</div>';
     }
     function renderAiCleanupAutomation(automation) {
       if (!automation) {
-        return '<div class="muted">AI cleanup 자동화 snapshot이 아직 없습니다.</div>';
+        return '<div class="muted">' + i18n('dashboard.automation.aiCleanupMissing') + '</div>';
       }
       const action = automation.userAction
         ? '<div class="value">' + escapeHtml(automation.userAction) + '</div>'
         : '';
       const stt = automation.stt
-        ? '<div class="muted">STT done ' + escapeHtml(automation.stt.sttDoneCount) +
-          ' / failed ' + escapeHtml(automation.stt.sttFailedCount) +
-          ' / missing file ' + escapeHtml(automation.stt.sttFailedMissingFileCount) +
-          ' / real transcript ' + escapeHtml(automation.stt.realTranscriptEntryCount) + '</div>'
+        ? '<div class="muted">' + i18n('dashboard.automation.sttDone') + ' ' + escapeHtml(automation.stt.sttDoneCount) +
+          ' / ' + i18n('dashboard.automation.sttFailed') + ' ' + escapeHtml(automation.stt.sttFailedCount) +
+          ' / ' + i18n('dashboard.automation.sttMissingFile') + ' ' + escapeHtml(automation.stt.sttFailedMissingFileCount) +
+          ' / ' + i18n('dashboard.automation.realTranscript') + ' ' + escapeHtml(automation.stt.realTranscriptEntryCount) + '</div>'
         : '';
       const warnings = automation.warnings?.length
         ? '<div class="warn">' + automation.warnings.map(escapeHtml).join(', ') + '</div>'
         : '';
       const progress = automation.progress
-        ? '<div class="muted">progress ' + escapeHtml(automation.progress.phase) +
-          ' · elapsed ' + escapeHtml(automation.progress.elapsedMs) + 'ms' +
-          ' · lines ' + escapeHtml(automation.progress.streamLineCount) +
-          ' · bytes ' + escapeHtml(automation.progress.stdoutBytes) +
-          ' · last ' + escapeHtml(automation.progress.lastEventType ?? '-') +
-          (automation.progress.repairAttempt ? ' · repair' : '') + '</div>'
+        ? '<div class="muted">' + i18n('dashboard.automation.progress') + ' ' + escapeHtml(automation.progress.phase) +
+          ' · ' + i18n('dashboard.automation.elapsed') + ' ' + escapeHtml(automation.progress.elapsedMs) + 'ms' +
+          ' · ' + i18n('dashboard.automation.lines') + ' ' + escapeHtml(automation.progress.streamLineCount) +
+          ' · ' + i18n('dashboard.automation.bytes') + ' ' + escapeHtml(automation.progress.stdoutBytes) +
+          ' · ' + i18n('dashboard.automation.last') + ' ' + escapeHtml(automation.progress.lastEventType ?? '-') +
+          (automation.progress.repairAttempt ? ' · ' + i18n('dashboard.automation.repair') : '') + '</div>'
         : '';
       const technical = automation.technicalDetail
-        ? '<details><summary class="muted">자동화 세부정보</summary><pre>' + escapeHtml(automation.technicalDetail) + '</pre></details>'
+        ? '<details><summary class="muted">' + i18n('dashboard.automation.details') + '</summary><pre>' + escapeHtml(automation.technicalDetail) + '</pre></details>'
         : '';
       return '<div class="metric" style="margin-bottom:10px">' +
         '<div class="label">' + escapeHtml(automation.provider) + ' / ' + escapeHtml(automation.model) +
-        ' · ' + escapeHtml(automation.status) + ' · ' + escapeHtml(automation.checkedAt ?? 'not checked') +
+        ' · ' + escapeHtml(statusLabel(automation.status)) + ' (' + escapeHtml(automation.status) + ')' +
+        ' · ' + i18n('dashboard.automation.checkedAt') + ': ' +
+        escapeHtml(automation.checkedAt ?? tr('dashboard.automation.notChecked')) +
         '</div><div class="value ' + runtimeValueClass(automation.status) + '">' + escapeHtml(automation.message) + '</div>' +
         stt + progress + warnings + action + technical + '</div>';
     }
@@ -854,21 +874,23 @@ async function refresh() {
       const notion = state.notion;
       const latest = state.latestNotionWrite;
       if (!notion) {
-        return '<div class="metric"><div class="label">notion · unavailable</div>' +
-          '<div class="value">Notion 상태를 아직 불러오지 못했습니다.</div></div>';
+        return '<div class="metric"><div class="label">notion · ' + i18n('dashboard.automation.unavailable') + '</div>' +
+          '<div class="value">' + i18n('dashboard.notionUploadPanel.unavailable') + '</div></div>';
       }
       const page = latest?.notion_page_url
-        ? '<div class="value"><a href="' + escapeHtml(latest.notion_page_url) + '" target="_blank" rel="noreferrer">Open Notion page</a></div>'
+        ? '<div class="value"><a href="' + escapeHtml(latest.notion_page_url) + '" target="_blank" rel="noreferrer">' + i18n('dashboard.notionUploadPanel.openPage') + '</a></div>'
         : '';
       const error = latest?.last_error
-        ? '<details><summary class="muted">last error</summary><pre>' + escapeHtml(latest.last_error) + '</pre></details>'
+        ? '<details><summary class="muted">' + i18n('dashboard.notionUploadPanel.lastError') + '</summary><pre>' + escapeHtml(latest.last_error) + '</pre></details>'
         : '';
       const automation = state.notionAutomation
-        ? '<div style="margin-top:10px"><div class="label">automation · ' + escapeHtml(state.notionAutomation.status) + '</div>' +
+        ? '<div style="margin-top:10px"><div class="label">' + i18n('dashboard.notionUploadPanel.automation') +
+          ' · ' + escapeHtml(statusLabel(state.notionAutomation.status)) +
+          ' (' + escapeHtml(state.notionAutomation.status) + ')</div>' +
           renderHumanDisplay(state.notionAutomation) + '</div>'
         : '';
       const latestDetails = latest
-        ? '<details><summary class="muted">최근 Notion write 자세히 보기</summary><pre>' + escapeHtml(JSON.stringify({
+        ? '<details><summary class="muted">' + i18n('dashboard.notionUploadPanel.latestDetails') + '</summary><pre>' + escapeHtml(JSON.stringify({
             target: notion.targetUrl ?? null,
             writeId: latest.id ?? null,
             draftId: latest.draft_id ?? state.latestMeetingNotesDraft?.id ?? null,
@@ -879,7 +901,8 @@ async function refresh() {
       const buttons = renderNotionButtons(state);
       const managedRegistry = renderManagedRegistryDetails(notion.managedRegistry);
       return '<div class="metric">' +
-        '<div class="label">notion · ' + escapeHtml(notion.status) + ' · ' + escapeHtml(notion.uploadMode) + '</div>' +
+        '<div class="label">notion · ' + escapeHtml(statusLabel(notion.status)) +
+        ' (' + escapeHtml(notion.status) + ') · ' + escapeHtml(notion.uploadMode) + '</div>' +
         renderHumanDisplay(notion, { status: latest?.status ?? notion.status }) +
         managedRegistry + page + automation + latestDetails + buttons + error + '</div>';
     }
@@ -924,7 +947,8 @@ async function refresh() {
       const latest = state.latestNotionWrite;
       if (latest) {
         const auto = state.notionAutomation?.status ? ' / auto ' + state.notionAutomation.status : '';
-        return latest.status + (latest.notion_page_url ? ' / page ready' : '') + auto;
+        return statusLabel(latest.status) + ' (' + latest.status + ')' +
+          (latest.notion_page_url ? ' / ' + tr('dashboard.notionUploadPanel.pageReady') : '') + auto;
       }
       return displayTitle(state.notionAutomation, displayTitle(state.notion));
     }
@@ -934,8 +958,8 @@ async function refresh() {
       const disabled = (!draftId && !sessionId) || state.notion?.status !== 'ready';
       const disabledAttr = disabled ? ' disabled' : '';
       return '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">' +
-        '<button type="button"' + disabledAttr + ' onclick="postNotionAction(\'send\')">Send to Notion</button>' +
-        '<button type="button"' + disabledAttr + ' onclick="postNotionAction(\'retry\')">Retry</button>' +
+        '<button type="button"' + disabledAttr + ' onclick="postNotionAction(\'send\')">' + i18n('dashboard.notionUploadPanel.send') + '</button>' +
+        '<button type="button"' + disabledAttr + ' onclick="postNotionAction(\'retry\')">' + i18n('dashboard.notionUploadPanel.retry') + '</button>' +
         '<span class="muted" id="notionActionStatus"></span>' +
         '</div>';
     }

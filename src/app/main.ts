@@ -16,6 +16,7 @@ import {
   snapshotPhase1Config,
 } from "../config.js";
 import { createAppLocaleResolver } from "../i18n/app-locale.js";
+import { formatLocaleText, t, type LocaleKey } from "../i18n/catalog.js";
 import {
   canStartAiAutomation,
   canStartDiscordRuntime,
@@ -38,10 +39,11 @@ import { wrapAiCleanupProviderWithLifecycle } from "../ai/cleanup/provider-lifec
 import { DashboardServer } from "../dashboard/server.js";
 import { phase1GuildCommandPayloads } from "../discord/commands.js";
 import { createProductSetupWizardService } from "../setup/wizard-service.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 import {
   redactForJson,
   safeErrorInfo,
-  toKoreanErrorMessage,
+  toLocalizedErrorMessage,
 } from "../errors.js";
 import { printCliError } from "../cli/error-output.js";
 import {
@@ -287,9 +289,10 @@ async function registerCommands(): Promise<void> {
 async function handleDirongCommand(
   interaction: ChatInputCommandInteraction,
 ): Promise<void> {
+  const locale = resolveAppLocale();
   if (!interaction.guildId) {
     await interaction.reply({
-      content: "Dirong은 Discord 서버 안에서만 사용할 수 있습니다.",
+      content: t(locale, "discordRuntime.serverOnly"),
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -297,7 +300,7 @@ async function handleDirongCommand(
 
   if (!config.guildIds.includes(interaction.guildId)) {
     await interaction.reply({
-      content: "이 Dirong 앱은 대시보드 설정에서 선택된 Discord 서버에서만 사용할 수 있습니다.",
+      content: t(locale, "discordRuntime.guildNotAllowed"),
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -317,7 +320,7 @@ async function handleDirongCommand(
       const voiceChannel = member.voice.channel;
       if (!voiceChannel) {
         await interaction.editReply(
-          "먼저 녹음할 Discord 음성 채널에 들어간 뒤 /dirong start를 실행해 주세요.",
+          t(locale, "discordRuntime.noVoiceChannel"),
         );
         return;
       }
@@ -331,20 +334,30 @@ async function handleDirongCommand(
       });
 
       await sendPublicNotice(interaction, [
-        "디롱이가 이 음성 채널 녹음을 시작했습니다.",
-        "음성 파일은 Dirong 실행 PC에 저장되며, Notion 업로드 완료 후 바로 삭제됩니다.",
-        "텍스트 처리 결과는 기본 30일 뒤 자동 삭제됩니다.",
-        "참여를 원하지 않으면 음성 채널에서 나가 주세요.",
-        `시작자: ${displayNameForMember(member)}`,
-        `세션 ID: ${result.sessionId}`,
+        t(locale, "discordRuntime.startPublicTitle"),
+        t(locale, "discordRuntime.privacyAudioLocalDeleteAfterNotion"),
+        t(locale, "discordRuntime.textRetentionDefault"),
+        t(locale, "discordRuntime.optOut"),
+        formatLocaleText(locale, "discordRuntime.startedBy", {
+          name: displayNameForMember(member),
+        }),
+        formatLocaleText(locale, "discordRuntime.sessionId", {
+          sessionId: result.sessionId,
+        }),
       ].join("\n"), { attachDirongImage: true });
 
       await interaction.editReply(
         [
-          "녹음을 시작했습니다.",
-          `세션: ${result.sessionId}`,
-          `음성 채널: ${voiceChannel.name}`,
-          `Dashboard: ${dashboard.getUrl()}`,
+          t(locale, "discordRuntime.startConfirmation"),
+          formatLocaleText(locale, "discordRuntime.session", {
+            sessionId: result.sessionId,
+          }),
+          formatLocaleText(locale, "discordRuntime.voiceChannel", {
+            channel: voiceChannel.name,
+          }),
+          formatLocaleText(locale, "discordRuntime.dashboard", {
+            url: dashboard.getUrl(),
+          }),
         ].join("\n"),
       );
       return;
@@ -364,30 +377,40 @@ async function handleDirongCommand(
       });
 
       await sendPublicNotice(interaction, [
-        "디롱이가 녹음을 종료했습니다.",
-        `세션 ID: ${result.sessionId}`,
-        `상태: ${result.status}`,
+        t(locale, "discordRuntime.stopPublicTitle"),
+        formatLocaleText(locale, "discordRuntime.sessionId", {
+          sessionId: result.sessionId,
+        }),
+        formatLocaleText(locale, "discordRuntime.status", {
+          status: formatDiscordSessionStatus(locale, result.status),
+        }),
       ].join("\n"));
 
       await interaction.editReply(
         [
-          "녹음을 종료했습니다.",
-          `세션: ${result.sessionId}`,
-          `상태: ${result.status}`,
-          `Dashboard: ${dashboard.getUrl()}`,
+          t(locale, "discordRuntime.stopConfirmation"),
+          formatLocaleText(locale, "discordRuntime.session", {
+            sessionId: result.sessionId,
+          }),
+          formatLocaleText(locale, "discordRuntime.status", {
+            status: formatDiscordSessionStatus(locale, result.status),
+          }),
+          formatLocaleText(locale, "discordRuntime.dashboard", {
+            url: dashboard.getUrl(),
+          }),
         ].join("\n"),
       );
       return;
     }
 
     if (subcommand === "status") {
-      await interaction.editReply(statusTextWithAiReadiness());
+      await interaction.editReply(statusTextWithAiReadiness(locale));
       return;
     }
 
-    await interaction.editReply("알 수 없는 하위 명령입니다.");
+    await interaction.editReply(t(locale, "discordRuntime.unknownSubcommand"));
   } catch (error) {
-    await interaction.editReply(toKoreanErrorMessage(error));
+    await interaction.editReply(toLocalizedErrorMessage(error, locale));
     printCliError(error, { prefix: "slash command 처리 실패" });
   }
 }
@@ -712,20 +735,49 @@ function startAloneFinalizeService(): void {
   console.log(`혼자 남음 자동 종료 대기 시작: non-bot 0명 상태가 ${config.aloneFinalizeGraceMs}ms 지속되면 finalize합니다.`);
 }
 
-function statusTextWithAiReadiness(): string {
+function statusTextWithAiReadiness(locale = resolveAppLocale()): string {
   return [
-    store.statusText(producer.getRuntimeState(), dashboard.getUrl()),
+    store.statusText(producer.getRuntimeState(), dashboard.getUrl(), locale),
     "",
-    formatAloneFinalizeForStatus(aloneFinalize.getSnapshot()),
+    formatAloneFinalizeForStatus(aloneFinalize.getSnapshot(locale), locale),
     "",
-    formatSttAutomationForStatus(sttAutomation.getSnapshot()),
+    formatSttAutomationForStatus(sttAutomation.getSnapshot(locale), locale),
     "",
-    formatAiReadinessForStatus(aiLifecycle.getSnapshot()),
+    formatAiReadinessForStatus(aiLifecycle.getSnapshot(locale), locale),
     "",
-    formatAiCleanupAutomationForStatus(aiCleanupAutomation.getSnapshot()),
+    formatAiCleanupAutomationForStatus(aiCleanupAutomation.getSnapshot(locale), locale),
     "",
-    formatNotionAutomationForStatus(notionAutomation.getSnapshot()),
+    formatNotionAutomationForStatus(notionAutomation.getSnapshot(locale), locale),
   ].join("\n");
+}
+
+function formatDiscordSessionStatus(locale: DirongLocale, status: string): string {
+  return `${t(locale, sessionStatusKey(status))} (${status})`;
+}
+
+function sessionStatusKey(status: string): LocaleKey {
+  if (status === "created") {
+    return "runtimeStatus.recordingStatus.sessionStatus.created";
+  }
+  if (status === "active") {
+    return "runtimeStatus.recordingStatus.sessionStatus.active";
+  }
+  if (status === "reconnecting") {
+    return "runtimeStatus.recordingStatus.sessionStatus.reconnecting";
+  }
+  if (status === "stopping") {
+    return "runtimeStatus.recordingStatus.sessionStatus.stopping";
+  }
+  if (status === "finalized") {
+    return "runtimeStatus.recordingStatus.sessionStatus.finalized";
+  }
+  if (status === "failed") {
+    return "runtimeStatus.recordingStatus.sessionStatus.failed";
+  }
+  if (status === "needs_repair") {
+    return "runtimeStatus.recordingStatus.sessionStatus.needsRepair";
+  }
+  return "runtimeStatus.recordingStatus.sessionStatus.unknown";
 }
 
 async function countNonBotVoiceMembers(

@@ -52,12 +52,12 @@ export type DashboardSttAutomationSource = {
 };
 
 export type DashboardNotionSource = {
-  getSnapshot(): NotionDashboardSnapshot;
+  getSnapshot(locale?: DirongLocale): NotionDashboardSnapshot;
   runManualUpload(input: {
     sessionId: string | null;
     draftId: string | null;
     force: boolean;
-  }): Promise<NotionDashboardActionResult>;
+  }, locale?: DirongLocale): Promise<NotionDashboardActionResult>;
   syncCustomProperties(input: {
     role: NotionDatabaseRole;
   }): Promise<NotionDashboardCustomPropertyActionResult>;

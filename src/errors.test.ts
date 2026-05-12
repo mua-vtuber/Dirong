@@ -8,6 +8,7 @@ import {
   registerSensitiveValue,
   summarizeSafeError,
   summarizeSafeText,
+  toLocalizedErrorMessage,
 } from "./errors.js";
 
 test("registered sensitive values are capped with oldest values evicted", () => {
@@ -65,5 +66,16 @@ test("redaction keeps instructional token wording and safe secret snapshots", ()
       },
       token: "[REDACTED]",
     },
+  );
+});
+
+test("localized error messages keep technical details out of the primary Discord text", () => {
+  assert.match(
+    toLocalizedErrorMessage(new Error("Discord request timed out"), "en"),
+    /Discord voice connection was not ready/,
+  );
+  assert.match(
+    toLocalizedErrorMessage(new Error("Discord request timed out"), "ko"),
+    /Discord 음성 연결이 제한 시간 안에 준비되지 않았습니다/,
   );
 });

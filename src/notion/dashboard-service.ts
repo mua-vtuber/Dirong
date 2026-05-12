@@ -78,6 +78,8 @@ import { NotionRegistryStore } from "./registry-store.js";
 import { NotionWriteStore } from "./write-store.js";
 import { SqlRunner } from "../storage/sql-runner.js";
 import type { DirongDatabase } from "../storage/sqlite.js";
+import { resolveAppLocale } from "../i18n/app-locale.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 
 export type NotionCustomPropertiesRoleSnapshot = {
   supportedTypes: readonly string[];
@@ -243,7 +245,8 @@ export class NotionDashboardService {
     );
   }
 
-  getSnapshot(): NotionDashboardSnapshot {
+  getSnapshot(locale?: DirongLocale): NotionDashboardSnapshot {
+    const resolvedLocale = resolveAppLocale({ locale });
     const settings = this.getSettings();
     const managedRegistry = readManagedNotionRegistrySnapshot(this.registryStore, {
       remoteCheck: this.lastManagedSchemaCheck,
@@ -256,23 +259,20 @@ export class NotionDashboardService {
     );
     const customProperties = this.getCustomPropertiesSnapshot();
     if (!settings.enabled) {
-      const message = "Notion upload is disabled.";
-      const userAction = "NOTION_EXPORT_ENABLED=true로 켤 수 있습니다.";
+      const display = buildNotionDashboardDisplay(resolvedLocale, {
+        status: "disabled",
+        uploadMode: settings.uploadMode,
+        targetUrl: settings.targetUrl,
+      });
       return {
         enabled: false,
         configured,
         status: "disabled",
         uploadMode: settings.uploadMode,
         targetUrl: settings.targetUrl,
-        message,
-        userAction,
-        display: buildNotionDashboardDisplay({
-          status: "disabled",
-          message,
-          userAction,
-          uploadMode: settings.uploadMode,
-          targetUrl: settings.targetUrl,
-        }),
+        message: display.description,
+        userAction: display.nextAction,
+        display,
         managedRegistry,
         memberRoster,
         settings: snapshotNotionRuntimeSettings(settings),
@@ -280,25 +280,21 @@ export class NotionDashboardService {
       };
     }
     if (managedRegistry.status === "partial") {
-      const message = "Notion managed DB registry가 일부만 저장되어 업로드를 막았습니다.";
-      const userAction =
-        "기존 DB/필드를 자동 수정하지 않습니다. Notion 설정/복구 화면에서 registry 상태를 확인해 주세요.";
+      const display = buildNotionDashboardDisplay(resolvedLocale, {
+        status: "blocked",
+        uploadMode: settings.uploadMode,
+        targetUrl: settings.targetUrl,
+        managedRegistry,
+      });
       return {
         enabled: true,
         configured: false,
         status: "blocked",
         uploadMode: settings.uploadMode,
         targetUrl: settings.targetUrl,
-        message,
-        userAction,
-        display: buildNotionDashboardDisplay({
-          status: "blocked",
-          message,
-          userAction,
-          uploadMode: settings.uploadMode,
-          targetUrl: settings.targetUrl,
-          managedRegistry,
-        }),
+        message: display.description,
+        userAction: display.nextAction,
+        display,
         managedRegistry,
         memberRoster,
         settings: snapshotNotionRuntimeSettings(settings),
@@ -306,48 +302,42 @@ export class NotionDashboardService {
       };
     }
     if (!configured) {
-      const message = "Notion upload settings are incomplete.";
-      const userAction =
-        "Notion token과 parent page URL을 저장한 뒤 managed DB 세트를 생성해 주세요.";
+      const display = buildNotionDashboardDisplay(resolvedLocale, {
+        status: "not_configured",
+        uploadMode: settings.uploadMode,
+        targetUrl: settings.targetUrl,
+        managedRegistry,
+      });
       return {
         enabled: true,
         configured: false,
         status: "not_configured",
         uploadMode: settings.uploadMode,
         targetUrl: settings.targetUrl,
-        message,
-        userAction,
-        display: buildNotionDashboardDisplay({
-          status: "not_configured",
-          message,
-          userAction,
-          uploadMode: settings.uploadMode,
-          targetUrl: settings.targetUrl,
-          managedRegistry,
-        }),
+        message: display.description,
+        userAction: display.nextAction,
+        display,
         managedRegistry,
         memberRoster,
         settings: snapshotNotionRuntimeSettings(settings),
         customProperties,
       };
     }
-    const message = "Notion upload is configured.";
+    const display = buildNotionDashboardDisplay(resolvedLocale, {
+      status: "ready",
+      uploadMode: settings.uploadMode,
+      targetUrl: settings.targetUrl,
+      managedRegistry,
+    });
     return {
       enabled: true,
       configured: true,
       status: "ready",
       uploadMode: settings.uploadMode,
       targetUrl: settings.targetUrl,
-      message,
-      userAction: null,
-      display: buildNotionDashboardDisplay({
-        status: "ready",
-        message,
-        userAction: null,
-        uploadMode: settings.uploadMode,
-        targetUrl: settings.targetUrl,
-        managedRegistry,
-      }),
+      message: display.description,
+      userAction: display.nextAction,
+      display,
       managedRegistry,
       memberRoster,
       settings: snapshotNotionRuntimeSettings(settings),
@@ -455,14 +445,27 @@ export class NotionDashboardService {
 
   async runManualUpload(
     action: NotionDashboardActionInput,
+    locale?: DirongLocale,
   ): Promise<NotionDashboardActionResult> {
+    const resolvedLocale = resolveAppLocale({ locale });
     const selector = selectorFromAction(action);
     if (!selector) {
+      const display = buildNotionUploadActionDisplay(resolvedLocale, {
+        status: "draft_not_found",
+        message: "missing_selector",
+        userAction: "provide_session_or_draft",
+        technicalDetail: null,
+        details: [
+          { label: "sessionId", value: action.sessionId },
+          { label: "draftId", value: action.draftId },
+        ],
+      });
       return {
         ok: false,
-        status: "failed",
-        message: "sessionId 또는 draftId가 필요합니다.",
-        userAction: "회의 세션이나 draft가 생긴 뒤 다시 시도해 주세요.",
+        status: "draft_not_found",
+        message: display.description,
+        userAction: display.nextAction,
+        display,
         pageUrl: null,
       };
     }
@@ -486,43 +489,11 @@ export class NotionDashboardService {
     try {
       await applyRetentionAfterSuccessfulUpload(this.input.retention, result);
     } catch (error) {
-      return {
-        ok: false,
+      const display = buildNotionUploadActionDisplay(resolvedLocale, {
         status: "failed",
-        message: "Notion 업로드 후 보관 정책 적용 중 오류가 발생했습니다.",
-        userAction:
-          "로컬 파일 경로와 데이터 폴더 설정을 확인한 뒤 다시 시도해 주세요.",
-        display: buildNotionUploadActionDisplay({
-          status: "failed",
-          message: "Notion 업로드 후 보관 정책 적용 중 오류가 발생했습니다.",
-          userAction:
-            "로컬 파일 경로와 데이터 폴더 설정을 확인한 뒤 다시 시도해 주세요.",
-          technicalDetail: summarizeSafeError(error),
-          details: [
-            { label: "sessionId", value: result.sessionId },
-            { label: "draftId", value: result.draftId },
-            { label: "targetId", value: result.targetId },
-            { label: "writeId", value: result.writeId },
-            { label: "pageId", value: result.pageId },
-            { label: "contentHash", value: result.contentHash },
-            { label: "warnings", value: result.warnings },
-          ],
-        }),
+        message: "retention_policy_failed",
+        userAction: "check_local_storage_paths",
         technicalDetail: summarizeSafeError(error),
-        pageUrl: result.pageUrl,
-      };
-    }
-
-    return {
-      ok: ["done", "retry_wait", "not_claimed"].includes(result.status),
-      status: result.status,
-      message: result.message,
-      userAction: result.userAction,
-      display: buildNotionUploadActionDisplay({
-        status: result.status,
-        message: result.message,
-        userAction: result.userAction,
-        technicalDetail: result.technicalDetail,
         details: [
           { label: "sessionId", value: result.sessionId },
           { label: "draftId", value: result.draftId },
@@ -532,7 +503,39 @@ export class NotionDashboardService {
           { label: "contentHash", value: result.contentHash },
           { label: "warnings", value: result.warnings },
         ],
-      }),
+      });
+      return {
+        ok: false,
+        status: "failed",
+        message: display.description,
+        userAction: display.nextAction,
+        display,
+        technicalDetail: summarizeSafeError(error),
+        pageUrl: result.pageUrl,
+      };
+    }
+
+    const display = buildNotionUploadActionDisplay(resolvedLocale, {
+      status: result.status,
+      message: result.message,
+      userAction: result.userAction,
+      technicalDetail: result.technicalDetail,
+      details: [
+        { label: "sessionId", value: result.sessionId },
+        { label: "draftId", value: result.draftId },
+        { label: "targetId", value: result.targetId },
+        { label: "writeId", value: result.writeId },
+        { label: "pageId", value: result.pageId },
+        { label: "contentHash", value: result.contentHash },
+        { label: "warnings", value: result.warnings },
+      ],
+    });
+    return {
+      ok: ["done", "retry_wait", "not_claimed"].includes(result.status),
+      status: result.status,
+      message: display.description,
+      userAction: display.nextAction,
+      display,
       technicalDetail: result.technicalDetail,
       pageUrl: result.pageUrl,
     };
@@ -1259,19 +1262,15 @@ function countRosterRoles(
   return roles.size;
 }
 
-function buildNotionDashboardDisplay(input: {
+function buildNotionDashboardDisplay(locale: DirongLocale, input: {
   status: NotionDashboardSnapshot["status"];
-  message: string;
-  userAction: string | null;
   uploadMode: string;
   targetUrl: string | null;
   managedRegistry?: ManagedNotionRegistrySnapshot;
 }): HumanStatusDisplay {
-  return buildHumanStatusDisplay(undefined, {
+  return buildHumanStatusDisplay(locale, {
     ...notionDashboardDisplayKeys(input.status),
     status: input.status,
-    message: input.message,
-    userAction: input.userAction,
     details: [
       { label: "uploadMode", value: input.uploadMode },
       { label: "targetUrl", value: input.targetUrl },
@@ -1280,14 +1279,14 @@ function buildNotionDashboardDisplay(input: {
   });
 }
 
-function buildNotionUploadActionDisplay(input: {
+function buildNotionUploadActionDisplay(locale: DirongLocale, input: {
   status: string;
   message: string;
   userAction: string | null;
   technicalDetail: string | null;
   details: readonly { label: string; value: unknown }[];
 }): HumanStatusDisplay {
-  return buildHumanStatusDisplay(undefined, {
+  return buildHumanStatusDisplay(locale, {
     ...notionUploadDisplayKeys(input.status),
     status: input.status,
     message: input.message,
@@ -1340,6 +1339,13 @@ function notionUploadDisplayKeys(
     return {
       titleKey: "statusDisplay.notion.done.title",
       descriptionKey: "statusDisplay.notion.done.description",
+    };
+  }
+  if (status === "draft_not_found") {
+    return {
+      titleKey: "statusDisplay.notion.draftNotFound.title",
+      descriptionKey: "statusDisplay.notion.draftNotFound.description",
+      nextActionKey: "statusDisplay.notion.draftNotFound.nextAction",
     };
   }
   if (status === "retry_wait") {

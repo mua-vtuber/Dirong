@@ -1,16 +1,17 @@
 import {
   MissingRequiredConfigError,
   safeErrorInfo,
-  toKoreanErrorMessage,
+  toLocalizedErrorMessage,
 } from "../errors.js";
+import { t } from "../i18n/catalog.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 
-export function formatUserFacingError(error: unknown): string {
+export function formatUserFacingError(
+  error: unknown,
+  locale: DirongLocale = "ko",
+): string {
   if (error instanceof MissingRequiredConfigError) {
-    return [
-      ".env 설정이 아직 부족합니다.",
-      `빠진 항목: ${error.missingKeys.join(", ")}`,
-      ".env.example을 .env로 복사한 뒤 Discord 토큰과 ID를 채워 주세요.",
-    ].join("\n");
+    return toLocalizedErrorMessage(error, locale);
   }
 
   const info = safeErrorInfo(error);
@@ -72,9 +73,9 @@ export function formatUserFacingError(error: unknown): string {
     ].join("\n");
   }
 
-  return toKoreanErrorMessage(error);
+  return toLocalizedErrorMessage(error, locale);
 }
 
-export function formatDebugHint(): string {
-  return "상세 정보가 필요하면 --debug 옵션 또는 DIRONG_DEBUG=true로 다시 실행해 주세요.";
+export function formatDebugHint(locale: DirongLocale = "ko"): string {
+  return t(locale, "error.common.debugHint");
 }

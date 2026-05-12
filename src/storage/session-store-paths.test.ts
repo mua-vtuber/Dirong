@@ -53,6 +53,41 @@ test("SessionStore stores new audio paths relative and resolves reads", () => {
   }
 });
 
+test("SessionStore status text localizes primary recording state", () => {
+  const fixture = createFixture();
+  try {
+    const store = new SessionStore(fixture.database, {
+      storageRoot: fixture.dir,
+      normalizeStoredPaths: true,
+    });
+    const paths = seedSessionWithAudio(store, fixture.dir);
+    const runtime = {
+      isRecording: true,
+      sessionId: paths.sessionId,
+      guildId: "guild",
+      voiceChannelId: "voice",
+      voiceChannelName: "Voice",
+      openChunks: 0,
+    };
+
+    const english = store.statusText(runtime, "http://127.0.0.1:3095/", "en");
+    const korean = store.statusText(runtime, "http://127.0.0.1:3095/", "ko");
+
+    assert.match(
+      english,
+      /Recording and STT status: The recording session has been created\. \(created\)/,
+    );
+    assert.match(english, /STT queue: Waiting\(queued\):1/);
+    assert.match(
+      korean,
+      /녹음과 STT 상태: 녹음 세션이 만들어졌습니다\. \(created\)/,
+    );
+    assert.match(korean, /STT 대기열: 대기 중\(queued\):1/);
+  } finally {
+    fixture.close();
+  }
+});
+
 test("SessionStore normalizes existing absolute path rows under the storage root", () => {
   const fixture = createFixture();
   try {

@@ -40,7 +40,7 @@ export async function handleNotionAction(
       sessionId: readOptionalBodyString(body, "sessionId"),
       draftId: readOptionalBodyString(body, "draftId"),
       force,
-    });
+    }, locale);
     sendJson(response, result);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

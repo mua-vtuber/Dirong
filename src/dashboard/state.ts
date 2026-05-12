@@ -53,7 +53,7 @@ export function appendDashboardRuntimeSnapshots(
       ? { aloneFinalize: sources.aloneFinalize.getSnapshot(locale) }
       : {}),
     ...(sources.notion
-      ? { notion: sources.notion.getSnapshot() }
+      ? { notion: sources.notion.getSnapshot(locale) }
       : {}),
     ...(sources.notionAutomation
       ? { notionAutomation: sources.notionAutomation.getSnapshot(locale) }

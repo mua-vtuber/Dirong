@@ -49,6 +49,34 @@ test("NotionDashboardService reads latest settings for snapshots", () => {
   }
 });
 
+test("NotionDashboardService localizes dashboard snapshot display", () => {
+  const fixture = createFixture();
+  try {
+    const service = new NotionDashboardService({
+      settings: notionSettings({
+        enabled: false,
+        apiKey: null,
+        targetUrl: null,
+      }),
+      database: fixture.database,
+      config: { sttLeaseMs: 60000 },
+      workerId: "notion-dashboard-test",
+    });
+
+    const snapshot = service.getSnapshot("en");
+
+    assert.equal(snapshot.status, "disabled");
+    assert.equal(
+      snapshot.message,
+      "Sending meeting notes to Notion is currently disabled.",
+    );
+    assert.equal(snapshot.display?.title, "Notion upload is turned off");
+    assert.match(snapshot.userAction ?? "", /Turn on Notion upload/);
+  } finally {
+    fixture.close();
+  }
+});
+
 test("NotionDashboardService manual upload uses the latest settings client", async () => {
   const fixture = createFixture();
   try {
@@ -79,6 +107,34 @@ test("NotionDashboardService manual upload uses the latest settings client", asy
 
     assert.equal(result.status, "draft_not_found");
     assert.deepEqual(seenApiKeys, ["ntn_new_dashboard_secret"]);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("NotionDashboardService localizes manual upload action display", async () => {
+  const fixture = createFixture();
+  try {
+    const service = new NotionDashboardService({
+      settings: notionSettings(),
+      database: fixture.database,
+      config: { sttLeaseMs: 60000 },
+      workerId: "notion-dashboard-test",
+    });
+
+    const result = await service.runManualUpload({
+      draftId: null,
+      sessionId: null,
+      force: false,
+    }, "en");
+
+    assert.equal(result.status, "draft_not_found");
+    assert.equal(
+      result.message,
+      "Dirong could not find an uploadable meeting-note draft or session.",
+    );
+    assert.equal(result.display?.title, "No meeting notes are ready for Notion");
+    assert.match(result.userAction ?? "", /Try again after recording/);
   } finally {
     fixture.close();
   }

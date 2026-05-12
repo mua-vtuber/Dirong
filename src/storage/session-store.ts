@@ -16,6 +16,7 @@ import { SqlRunner } from "./sql-runner.js";
 import { DirongDatabase, type SqlValue } from "./sqlite.js";
 import { SttJobQueue } from "./stt-job-queue.js";
 import { buildStatusTextReadModel } from "./status-text-read-model.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 
 export type SessionStatus =
   | "created"
@@ -973,11 +974,16 @@ export class SessionStore {
     });
   }
 
-  statusText(runtime: RecordingRuntimeState, dashboardUrl: string): string {
+  statusText(
+    runtime: RecordingRuntimeState,
+    dashboardUrl: string,
+    locale?: DirongLocale,
+  ): string {
     return buildStatusTextReadModel({
       sql: this.sql,
       runtime,
       dashboardUrl,
+      locale,
       getSession: (sessionId) => this.getSession(sessionId),
       getLatestSession: () => this.getLatestSession(),
     });

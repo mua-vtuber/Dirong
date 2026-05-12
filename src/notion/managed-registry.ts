@@ -8,6 +8,9 @@ import {
   type NotionPropertySemanticKey,
 } from "./schema-presets.js";
 import type {
+  ManagedNotionSchemaStatusSnapshot,
+} from "./managed-schema-status.js";
+import type {
   NotionManagedDatabase,
   NotionPropertyMapping,
   NotionRegistryStore,
@@ -42,6 +45,7 @@ export type ManagedNotionRegistrySnapshot = {
   propertyMappingCount: number;
   expectedPropertyMappingCount: number;
   databases: ManagedNotionRegistryDatabaseSnapshot[];
+  remoteCheck: ManagedNotionSchemaStatusSnapshot | null;
   actionItemUpload: {
     status: "not_implemented";
     message: string;
@@ -50,6 +54,7 @@ export type ManagedNotionRegistrySnapshot = {
 
 export function readManagedNotionRegistrySnapshot(
   registryStore: NotionRegistryStore | null | undefined,
+  options: { remoteCheck?: ManagedNotionSchemaStatusSnapshot | null } = {},
 ): ManagedNotionRegistrySnapshot {
   const workspace = registryStore?.getWorkspaceSettings() ?? null;
   const managedDatabases = registryStore?.listManagedDatabases() ?? [];
@@ -74,6 +79,7 @@ export function readManagedNotionRegistrySnapshot(
     propertyMappingCount: propertyMappings.length,
     expectedPropertyMappingCount: NOTION_PROPERTY_SEMANTIC_KEYS.length,
     databases,
+    remoteCheck: options.remoteCheck ?? null,
     actionItemUpload: {
       status: "not_implemented",
       message: "액션 아이템 DB는 생성되지만, 액션 아이템 개별 업로드는 후속 Phase입니다.",

@@ -46,6 +46,10 @@ import {
   readManagedNotionRegistrySnapshot,
   type ManagedNotionRegistrySnapshot,
 } from "./managed-registry.js";
+import {
+  ManagedNotionSchemaStatusService,
+  type ManagedNotionSchemaStatusSnapshot,
+} from "./managed-schema-status.js";
 import { NotionRegistryStore } from "./registry-store.js";
 import { NotionWriteStore } from "./write-store.js";
 import { SqlRunner } from "../storage/sql-runner.js";
@@ -120,6 +124,7 @@ export class NotionDashboardService {
   private readonly runner: SqlRunner;
   private readonly propertyRuleStore: NotionCustomPropertyRuleStore;
   private readonly registryStore: NotionRegistryStore;
+  private lastManagedSchemaCheck: ManagedNotionSchemaStatusSnapshot | null = null;
 
   constructor(
     private readonly input: {
@@ -137,7 +142,9 @@ export class NotionDashboardService {
 
   getSnapshot(): NotionDashboardSnapshot {
     const settings = this.input.settings;
-    const managedRegistry = readManagedNotionRegistrySnapshot(this.registryStore);
+    const managedRegistry = readManagedNotionRegistrySnapshot(this.registryStore, {
+      remoteCheck: this.lastManagedSchemaCheck,
+    });
     const configured = Boolean(
       settings.apiKey &&
         (settings.targetUrl ||
@@ -238,6 +245,24 @@ export class NotionDashboardService {
       settings: snapshotNotionRuntimeSettings(settings),
       customProperties,
     };
+  }
+
+  async checkManagedSchema(): Promise<ManagedNotionSchemaStatusSnapshot> {
+    const settings = this.input.settings;
+    if (!settings.apiKey) {
+      throw new Error("Notion token이 설정된 뒤 managed DB 상태를 확인할 수 있습니다.");
+    }
+    const service = new ManagedNotionSchemaStatusService({
+      client: createNotionClient({
+        apiKey: settings.apiKey,
+        apiVersion: settings.apiVersion,
+        baseUrl: settings.baseUrl,
+        requestTimeoutMs: settings.requestTimeoutMs,
+      }),
+      registryStore: this.registryStore,
+    });
+    this.lastManagedSchemaCheck = await service.checkAll();
+    return this.lastManagedSchemaCheck;
   }
 
   async runManualUpload(

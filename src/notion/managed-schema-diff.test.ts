@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildManagedSchemaDiff,
   requiredSemanticKeysForManagedRole,
+  validateManagedDataSourceSchemaForUpload,
 } from "./managed-schema-diff.js";
 import {
   KOREAN_NOTION_SCHEMA_PRESET,
@@ -145,6 +146,39 @@ test("managed schema diff reports missing select options as repairable", () => {
       .map((issue) => [issue.semanticKey, issue.missingOptions]),
     [["task.status", ["진행 중", "완료"]]],
   );
+});
+
+test("managed schema upload validation supports required semantic subsets", () => {
+  const valid = validateManagedDataSourceSchemaForUpload({
+    databaseRole: "meeting",
+    properties: propertiesForRole("meeting"),
+    mappings: mappingsForAllRoles(),
+    managedDatabases: managedDatabases(),
+    requiredSemanticKeys: ["meeting.draftId"],
+  });
+
+  assert.equal(valid.ok, true);
+  if (valid.ok) {
+    assert.equal(valid.propertyIds["meeting.draftId"]?.name, "Dirong 초안 ID");
+  }
+
+  const missingProperties = propertiesForRole("meeting");
+  delete missingProperties["Dirong 초안 ID"];
+  const missing = validateManagedDataSourceSchemaForUpload({
+    databaseRole: "meeting",
+    properties: missingProperties,
+    mappings: mappingsForAllRoles(),
+    managedDatabases: managedDatabases(),
+    requiredSemanticKeys: ["meeting.draftId"],
+  });
+
+  assert.equal(missing.ok, false);
+  if (!missing.ok) {
+    assert.deepEqual(missing.missing, [
+      { semanticKey: "meeting.draftId", property: "Dirong 초안 ID" },
+    ]);
+    assert.match(missing.userAction, /DB 설정 화면/);
+  }
 });
 
 function managedDatabases(): NotionManagedDatabase[] {

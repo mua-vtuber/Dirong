@@ -1,4 +1,12 @@
-import type { NotionDataSourceProperties, NotionDataSourceProperty } from "./schema.js";
+import type {
+  NotionDataSourceProperties,
+  NotionDataSourceProperty,
+  NotionSchemaMissingOption,
+  NotionSemanticResolvedProperties,
+  NotionSemanticSchemaMissing,
+  NotionSemanticSchemaValidation,
+  NotionSemanticSchemaWrongType,
+} from "./schema.js";
 import {
   KOREAN_NOTION_SCHEMA_PRESET,
   type NotionDatabaseRole,
@@ -173,6 +181,89 @@ export function requiredSemanticKeysForManagedRole(
   return preset.databases[role].properties.map((property) => property.key);
 }
 
+export function validateManagedDataSourceSchemaForUpload(input: {
+  databaseRole: NotionDatabaseRole;
+  properties: NotionDataSourceProperties;
+  mappings: readonly NotionPropertyMapping[];
+  managedDatabases: readonly NotionManagedDatabase[];
+  requiredSemanticKeys: readonly NotionPropertySemanticKey[];
+  preset?: NotionSchemaPreset;
+}): NotionSemanticSchemaValidation {
+  const diff = buildManagedSchemaDiff({
+    databaseRole: input.databaseRole,
+    properties: input.properties,
+    mappings: input.mappings,
+    managedDatabases: input.managedDatabases,
+    preset: input.preset,
+  });
+  const required = new Set(input.requiredSemanticKeys);
+  const missing: NotionSemanticSchemaMissing[] = [];
+  const wrongType: NotionSemanticSchemaWrongType[] = [];
+  const missingOptions: NotionSchemaMissingOption[] = [];
+  const resolved: NotionSemanticResolvedProperties = {};
+
+  for (const property of diff.resolvedProperties) {
+    if (required.has(property.semanticKey)) {
+      resolved[property.semanticKey] = {
+        semanticKey: property.semanticKey,
+        id: property.propertyId ?? property.propertyName,
+        name: property.propertyName,
+        type: property.propertyType,
+      };
+    }
+  }
+
+  for (const issue of diff.issues) {
+    if (!issue.semanticKey || !required.has(issue.semanticKey)) {
+      continue;
+    }
+    if (issue.code === "extra") {
+      continue;
+    }
+    if (issue.code === "mapping_missing" || issue.code === "remote_missing") {
+      missing.push({
+        semanticKey: issue.semanticKey,
+        property: issue.propertyName,
+      });
+      continue;
+    }
+    if (issue.code === "option_missing") {
+      missingOptions.push({
+        property: issue.propertyName,
+        type: issue.actual ?? "select",
+        missingOptions: issue.missingOptions ?? [],
+      });
+      continue;
+    }
+    wrongType.push({
+      semanticKey: issue.semanticKey,
+      property: issue.propertyName,
+      expected: issue.expected ?? "managed schema",
+      actual: issue.actual ?? "unknown",
+    });
+  }
+
+  if (
+    missing.length === 0 &&
+    wrongType.length === 0 &&
+    missingOptions.length === 0
+  ) {
+    return { ok: true, propertyIds: resolved };
+  }
+
+  return {
+    ok: false,
+    missing,
+    wrongType,
+    missingOptions,
+    userAction: buildManagedUploadUserAction({
+      missing,
+      wrongType,
+      missingOptions,
+    }),
+  };
+}
+
 function collectRequiredPropertyIssues(input: {
   databaseRole: NotionDatabaseRole;
   match: MatchedProperty;
@@ -279,6 +370,40 @@ function collectRequiredPropertyIssues(input: {
     actual,
     issues: input.issues,
   });
+}
+
+function buildManagedUploadUserAction(input: {
+  missing: readonly NotionSemanticSchemaMissing[];
+  wrongType: readonly NotionSemanticSchemaWrongType[];
+  missingOptions: readonly NotionSchemaMissingOption[];
+}): string {
+  const messages: string[] = [];
+  if (input.missing.length > 0) {
+    messages.push(
+      `Managed Notion DB에 필요한 semantic 속성을 확인해 주세요: ${input.missing
+        .map((item) => `${item.semanticKey}(${item.property})`)
+        .join(", ")}`,
+    );
+  }
+  if (input.wrongType.length > 0) {
+    messages.push(
+      `Managed Notion DB 속성 타입/관계를 확인해 주세요: ${input.wrongType
+        .map(
+          (item) =>
+            `${item.semanticKey}:${item.property}(${item.actual} -> ${item.expected})`,
+        )
+        .join(", ")}`,
+    );
+  }
+  if (input.missingOptions.length > 0) {
+    messages.push(
+      `Managed Notion DB 옵션을 확인해 주세요: ${input.missingOptions
+        .map((item) => `${item.property}(${item.missingOptions.join(", ")})`)
+        .join(", ")}`,
+    );
+  }
+  messages.push("DB 설정 화면에서 Notion 상태를 다시 확인하고 복구 계획을 적용해 주세요.");
+  return messages.join(" ");
 }
 
 function collectRelationIssue(input: {

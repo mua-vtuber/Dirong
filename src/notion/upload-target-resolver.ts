@@ -14,8 +14,8 @@ import {
 } from "./registry-store.js";
 import {
   validateNotionDataSourceSchema,
-  validateNotionDataSourceSchemaBySemanticKey,
 } from "./schema.js";
+import { validateManagedDataSourceSchemaForUpload } from "./managed-schema-diff.js";
 import type {
   NotionResolvedPropertyIds,
   NotionSemanticResolvedProperties,
@@ -63,6 +63,8 @@ export type ResolvedTarget = LegacyResolvedTarget | ManagedResolvedTarget;
 type ManagedUploadRegistryCandidate = {
   meetingDatabase: NotionManagedDatabase;
   memberDatabase: NotionManagedDatabase;
+  managedDatabases: NotionManagedDatabase[];
+  allMappings: NotionPropertyMapping[];
   meetingMappings: NotionPropertyMapping[];
   memberMappings: NotionPropertyMapping[];
 };
@@ -197,10 +199,11 @@ async function resolveManagedUploadTarget(input: {
   const meetingDataSource = await input.client.retrieveDataSource(
     input.candidate.meetingDatabase.dataSourceId,
   );
-  const meetingValidation = validateNotionDataSourceSchemaBySemanticKey({
+  const meetingValidation = validateManagedDataSourceSchemaForUpload({
     databaseRole: "meeting",
     properties: readDataSourceProperties(meetingDataSource),
-    mappings: input.candidate.meetingMappings,
+    mappings: input.candidate.allMappings,
+    managedDatabases: input.candidate.managedDatabases,
     requiredSemanticKeys: MANAGED_MEETING_UPLOAD_SEMANTIC_KEYS,
   });
   if (!meetingValidation.ok) {
@@ -225,10 +228,11 @@ async function resolveManagedUploadTarget(input: {
   const memberDataSource = await input.client.retrieveDataSource(
     input.candidate.memberDatabase.dataSourceId,
   );
-  const memberValidation = validateNotionDataSourceSchemaBySemanticKey({
+  const memberValidation = validateManagedDataSourceSchemaForUpload({
     databaseRole: "member",
     properties: readDataSourceProperties(memberDataSource),
-    mappings: input.candidate.memberMappings,
+    mappings: input.candidate.allMappings,
+    managedDatabases: input.candidate.managedDatabases,
     requiredSemanticKeys: MANAGED_MEMBER_UPLOAD_SEMANTIC_KEYS,
   });
   if (!memberValidation.ok) {
@@ -292,6 +296,8 @@ function loadManagedUploadRegistryCandidate(
     return null;
   }
 
+  const managedDatabases = registryStore.listManagedDatabases();
+  const allMappings = registryStore.listPropertyMappings();
   const meetingMappings = registryStore.listPropertyMappings("meeting");
   const memberMappings = registryStore.listPropertyMappings("member");
   if (
@@ -304,6 +310,8 @@ function loadManagedUploadRegistryCandidate(
   return {
     meetingDatabase,
     memberDatabase,
+    managedDatabases,
+    allMappings,
     meetingMappings,
     memberMappings,
   };

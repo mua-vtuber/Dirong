@@ -7,7 +7,10 @@ import { NotionApiError, type NotionClient } from "./client.js";
 import { NotionDraftInputReadModel } from "./draft-input-read-model.js";
 import type { NotionDataSourceProperties } from "./schema.js";
 import { DEFAULT_NOTION_PROPERTY_NAMES, type NotionRuntimeSettings } from "./settings.js";
-import { KOREAN_NOTION_SCHEMA_PRESET } from "./schema-presets.js";
+import {
+  KOREAN_NOTION_SCHEMA_PRESET,
+  NOTION_MEETING_STATUS_OPTIONS,
+} from "./schema-presets.js";
 import { NotionRegistryStore } from "./registry-store.js";
 import { makeNotionDraftInput } from "./test-fixtures.js";
 import { runNotionUpload } from "./writer.js";
@@ -921,18 +924,39 @@ function completeProperties(): Record<string, { id: string; type: string }> {
 function koreanManagedMeetingProperties(
   rename: Record<string, string> = {},
 ): NotionDataSourceProperties {
-  const property = (name: string, id: string, type: string) => ({
-    [rename[name] ?? name]: { id, type },
+  const property = (
+    name: string,
+    id: string,
+    type: string,
+    extra: Record<string, unknown> = {},
+  ) => ({
+    [rename[name] ?? name]: { id, type, ...extra },
   });
   return {
     ...property("회의록", "meeting-title-id", "title"),
     ...property("날짜", "meeting-date-id", "date"),
     ...property("회의 시간", "meeting-time-id", "rich_text"),
     ...property("채널", "meeting-channel-id", "rich_text"),
-    ...property("참가자 연결", "meeting-member-relation-id", "relation"),
-    ...property("참가자", "meeting-participants-id", "rollup"),
-    ...property("액션 아이템", "meeting-action-items-id", "relation"),
-    ...property("상태", "meeting-status-id", "select"),
+    ...property("참가자 연결", "meeting-member-relation-id", "relation", {
+      relation: { data_source_id: managedMemberDataSourceId },
+    }),
+    ...property("참가자", "meeting-participants-id", "rollup", {
+      rollup: {
+        function: "show_original",
+        relation_property_id: "meeting-member-relation-id",
+        relation_property_name: rename["참가자 연결"] ?? "참가자 연결",
+        rollup_property_id: "member-notion-person-id",
+        rollup_property_name: "노션 연결",
+      },
+    }),
+    ...property("액션 아이템", "meeting-action-items-id", "relation", {
+      relation: { data_source_id: managedTaskDataSourceId },
+    }),
+    ...property("상태", "meeting-status-id", "select", {
+      select: {
+        options: NOTION_MEETING_STATUS_OPTIONS.map((name) => ({ name })),
+      },
+    }),
     ...property("Dirong 세션 ID", "meeting-session-id", "rich_text"),
     ...property("Dirong 초안 ID", "meeting-draft-id", "rich_text"),
     ...property("Dirong 내용 해시", "meeting-hash-id", "rich_text"),

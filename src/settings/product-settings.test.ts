@@ -80,6 +80,8 @@ test("buildProductSetupStatus reports ready Discord without exposing token value
 
     assert.equal(status.features.discord.status, "ready");
     assert.equal(status.features.discord.display?.title, "Discord 봇 연결이 준비됐어요");
+    assert.equal(status.features.discord.runtimeEffect?.kind, "restart_required");
+    assert.match(status.features.discord.runtimeEffect?.message ?? "", /자동 반영되지 않습니다/);
     assert.equal(status.secrets.discordBot.displayValue, "[REDACTED]");
     assert.doesNotMatch(serialized, /discord-secret-raw-value/);
   } finally {
@@ -191,6 +193,11 @@ test("buildProductSetupStatus localizes setup messages and exposes locale keys",
     assert.equal(
       status.features.discord.display?.title,
       "Discord bot connection is not finished yet",
+    );
+    assert.equal(status.features.stt.runtimeEffect?.kind, "restart_required");
+    assert.match(
+      status.features.stt.runtimeEffect?.message ?? "",
+      /will not reload automatically/,
     );
     assert.match(
       status.features.discord.display?.details.find((detail) => detail.label === "message")?.value ?? "",

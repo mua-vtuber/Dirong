@@ -60,12 +60,34 @@ export type ProductFeatureStatus =
   | "blocked"
   | "repair_required";
 
+export type SettingsRuntimeEffectKind =
+  | "current_process"
+  | "next_tick"
+  | "restart_required";
+
+export type SettingsRuntimeEffectScope =
+  | "dashboard"
+  | "discord"
+  | "stt"
+  | "ai"
+  | "notion";
+
+export type SettingsRuntimeEffect = {
+  scope: SettingsRuntimeEffectScope;
+  kind: SettingsRuntimeEffectKind;
+  messageKey: LocaleKey;
+  message: string;
+  userActionKey: LocaleKey | null;
+  userAction: string | null;
+};
+
 export type ProductSetupFeatureSnapshot = {
   status: ProductFeatureStatus;
   messageKey: LocaleKey;
   message: string;
   userActionKey: LocaleKey | null;
   userAction: string | null;
+  runtimeEffect?: SettingsRuntimeEffect;
   display?: HumanStatusDisplay;
   missing: string[];
 };
@@ -404,6 +426,58 @@ export function canStartNotionAutomation(
   return status.features.notion.status === "ready";
 }
 
+export function buildSettingsRuntimeEffect(
+  locale: DirongLocale,
+  scope: SettingsRuntimeEffectScope,
+): SettingsRuntimeEffect {
+  const definition = SETTINGS_RUNTIME_EFFECTS[scope];
+  return {
+    scope,
+    kind: definition.kind,
+    messageKey: definition.messageKey,
+    message: t(locale, definition.messageKey),
+    userActionKey: definition.userActionKey,
+    userAction: definition.userActionKey
+      ? t(locale, definition.userActionKey)
+      : null,
+  };
+}
+
+const SETTINGS_RUNTIME_EFFECTS = {
+  dashboard: {
+    kind: "current_process",
+    messageKey: "setup.runtimeEffect.dashboard.currentProcess.message",
+    userActionKey: null,
+  },
+  discord: {
+    kind: "restart_required",
+    messageKey: "setup.runtimeEffect.discord.restartRequired.message",
+    userActionKey: "setup.runtimeEffect.discord.restartRequired.action",
+  },
+  stt: {
+    kind: "restart_required",
+    messageKey: "setup.runtimeEffect.stt.restartRequired.message",
+    userActionKey: "setup.runtimeEffect.stt.restartRequired.action",
+  },
+  ai: {
+    kind: "restart_required",
+    messageKey: "setup.runtimeEffect.ai.restartRequired.message",
+    userActionKey: "setup.runtimeEffect.ai.restartRequired.action",
+  },
+  notion: {
+    kind: "next_tick",
+    messageKey: "setup.runtimeEffect.notion.nextTick.message",
+    userActionKey: null,
+  },
+} as const satisfies Record<
+  SettingsRuntimeEffectScope,
+  {
+    kind: SettingsRuntimeEffectKind;
+    messageKey: LocaleKey;
+    userActionKey: LocaleKey | null;
+  }
+>;
+
 function buildProductSttSettings(
   settings: SttLocalSettings,
   secretStore: LocalSecretStore,
@@ -505,6 +579,7 @@ function buildDiscordStatus(
       missing,
       applicationIdConfigured: Boolean(settings.discord.applicationId),
       guildAllowlistCount: settings.discord.guildIds?.length ?? 0,
+      runtimeEffect: buildSettingsRuntimeEffect(locale, "discord"),
     });
   }
 
@@ -515,6 +590,7 @@ function buildDiscordStatus(
     missing: [],
     applicationIdConfigured: true,
     guildAllowlistCount: settings.discord.guildIds?.length ?? 0,
+    runtimeEffect: buildSettingsRuntimeEffect(locale, "discord"),
   });
 }
 
@@ -531,6 +607,7 @@ function buildSttStatus(
       missing: ["stt.provider"],
       provider: null,
       model: null,
+      runtimeEffect: buildSettingsRuntimeEffect(locale, "stt"),
     });
   }
 
@@ -542,6 +619,7 @@ function buildSttStatus(
       missing: ["stt.openAiApiKey"],
       provider: "openai",
       model: settings.stt.openAiModel ?? null,
+      runtimeEffect: buildSettingsRuntimeEffect(locale, "stt"),
     });
   }
 
@@ -556,6 +634,7 @@ function buildSttStatus(
         ? settings.stt.openAiModel ?? DEFAULT_STT_SETTINGS.openai.model
         : settings.stt.localWhisper?.model ??
           DEFAULT_STT_SETTINGS.localWhisper.model,
+    runtimeEffect: buildSettingsRuntimeEffect(locale, "stt"),
   });
 }
 
@@ -572,6 +651,7 @@ function buildAiStatus(
       missing: ["ai.provider", "ai.mode"],
       provider: settings.ai.provider ?? null,
       mode: settings.ai.mode ?? null,
+      runtimeEffect: buildSettingsRuntimeEffect(locale, "ai"),
     });
   }
 
@@ -583,6 +663,7 @@ function buildAiStatus(
       missing: ["ai.claudeApiKey"],
       provider: "claude",
       mode: "api",
+      runtimeEffect: buildSettingsRuntimeEffect(locale, "ai"),
     });
   }
 
@@ -598,6 +679,7 @@ function buildAiStatus(
       missing: ["ai.claudeCommand"],
       provider: "claude",
       mode: "cli",
+      runtimeEffect: buildSettingsRuntimeEffect(locale, "ai"),
     });
   }
 
@@ -608,6 +690,7 @@ function buildAiStatus(
     missing: [],
     provider: "claude",
     mode: settings.ai.mode,
+    runtimeEffect: buildSettingsRuntimeEffect(locale, "ai"),
   });
 }
 
@@ -664,6 +747,7 @@ function buildNotionStatus(
       managedRegistryReady: false,
       managedRegistryStatus: managedRegistry.status,
       managedRegistry,
+      runtimeEffect: buildSettingsRuntimeEffect(locale, "notion"),
     });
   }
 
@@ -679,6 +763,7 @@ function buildNotionStatus(
       managedRegistryReady: false,
       managedRegistryStatus: managedRegistry.status,
       managedRegistry,
+      runtimeEffect: buildSettingsRuntimeEffect(locale, "notion"),
     });
   }
 
@@ -692,6 +777,7 @@ function buildNotionStatus(
       managedRegistryReady: false,
       managedRegistryStatus: managedRegistry.status,
       managedRegistry,
+      runtimeEffect: buildSettingsRuntimeEffect(locale, "notion"),
     });
   }
 
@@ -704,6 +790,7 @@ function buildNotionStatus(
     managedRegistryReady: true,
     managedRegistryStatus: managedRegistry.status,
     managedRegistry,
+    runtimeEffect: buildSettingsRuntimeEffect(locale, "notion"),
   });
 }
 

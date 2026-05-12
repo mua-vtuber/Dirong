@@ -69,6 +69,8 @@ test("SetupWizardService saves Discord application ID and bot token without retu
       fixture.secrets.get(DEFAULT_SECRET_REFS.discordBotToken),
       "discord-secret-raw-value",
     );
+    assert.equal(tokenResult.runtimeEffect?.kind, "restart_required");
+    assert.match(tokenResult.runtimeEffect?.message ?? "", /Discord 봇 로그인/);
     assert.doesNotMatch(serialized, /discord-secret-raw-value/);
     assert.match(serialized, /\[REDACTED\]/);
   } finally {
@@ -130,6 +132,7 @@ test("SetupWizardService saves STT and Claude settings and uses the fake Claude 
       computeType: "int8",
     });
     assert.equal(stt.ok, true);
+    assert.equal(stt.runtimeEffect?.kind, "restart_required");
     assert.equal(fixture.settings.read().stt.provider, "local-whisper");
     assert.equal(
       fixture.settings.read().stt.localWhisper?.profile,
@@ -145,6 +148,7 @@ test("SetupWizardService saves STT and Claude settings and uses the fake Claude 
       model: "sonnet",
     });
     assert.equal(claude.ok, true);
+    assert.equal(claude.runtimeEffect?.kind, "restart_required");
     assert.equal(fixture.settings.read().ai.mode, "cli");
     assert.equal(fixture.settings.read().ai.claudeProfile, "claude-cli-default");
     assert.equal(fixture.settings.read().ai.claudeCommand, undefined);

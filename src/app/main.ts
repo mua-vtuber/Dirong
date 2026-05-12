@@ -18,7 +18,6 @@ import {
 import {
   canStartAiAutomation,
   canStartDiscordRuntime,
-  canStartNotionAutomation,
   canStartSttAutomation,
   createProductNotionRuntimeSettingsProvider,
   createProductSetupStatusSource,
@@ -169,11 +168,7 @@ if (canStartAiAutomation(initialSetupStatus)) {
 } else {
   console.log(`AI cleanup 자동 실행 대기 안 함: ${initialSetupStatus.features.ai.message}`);
 }
-if (canStartNotionAutomation(initialSetupStatus)) {
-  startNotionAutomation();
-} else {
-  console.log(`Notion 자동 업로드 대기 안 함: ${initialSetupStatus.features.notion.message}`);
-}
+startNotionAutomation();
 if (canStartDiscordRuntime(initialSetupStatus)) {
   startAloneFinalizeService();
 } else {
@@ -680,12 +675,13 @@ function startAiCleanupAutomation(): void {
 
 function startNotionAutomation(): void {
   const snapshot = notionAutomation.getSnapshot();
-  if (snapshot.status !== "idle") {
-    console.log(`Notion 자동 업로드 대기 안 함: ${snapshot.message}`);
+  notionAutomation.start();
+  if (snapshot.status === "idle") {
+    console.log("Notion 자동 업로드 대기 시작: completed valid draft를 기다립니다.");
     return;
   }
-  notionAutomation.start();
-  console.log("Notion 자동 업로드 대기 시작: completed valid draft를 기다립니다.");
+  console.log(`Notion 자동 업로드 설정 감시 시작: ${snapshot.message}`);
+  console.log("Notion 설정은 저장 후 다음 자동화 tick부터 반영됩니다.");
 }
 
 function startAloneFinalizeService(): void {

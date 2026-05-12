@@ -523,6 +523,36 @@ export const ko = {
         },
       },
     },
+    runtimeEffect: {
+      dashboard: {
+        currentProcess: {
+          message: "이 설정은 현재 대시보드에 바로 반영됩니다.",
+        },
+      },
+      discord: {
+        restartRequired: {
+          message: "저장은 완료됐지만 현재 Discord 봇 로그인에는 자동 반영되지 않습니다.",
+          action: "진행 중인 녹음 세션을 깨지 않도록 앱을 다시 시작할 때 적용됩니다.",
+        },
+      },
+      stt: {
+        restartRequired: {
+          message: "저장은 완료됐지만 현재 STT 자동화 provider에는 자동 반영되지 않습니다.",
+          action: "진행 중인 녹음/변환을 보존하려면 앱을 다시 시작해 적용해 주세요.",
+        },
+      },
+      ai: {
+        restartRequired: {
+          message: "저장은 완료됐지만 현재 Claude provider 프로세스에는 자동 반영되지 않습니다.",
+          action: "진행 중인 AI 작업을 보존하려면 앱을 다시 시작해 적용해 주세요.",
+        },
+      },
+      notion: {
+        nextTick: {
+          message: "Notion 설정은 다음 대시보드 작업 또는 자동화 tick부터 새 값으로 반영됩니다.",
+        },
+      },
+    },
   },
   dashboard: {
     app: {
@@ -1533,6 +1563,36 @@ export const en = {
       status: {
         ready: {
           message: "Default retention policy is applied.",
+        },
+      },
+    },
+    runtimeEffect: {
+      dashboard: {
+        currentProcess: {
+          message: "This setting applies to the current dashboard immediately.",
+        },
+      },
+      discord: {
+        restartRequired: {
+          message: "The value is saved, but the current Discord bot login will not reload automatically.",
+          action: "Restart the app to apply it without disrupting an active recording session.",
+        },
+      },
+      stt: {
+        restartRequired: {
+          message: "The value is saved, but the current STT automation provider will not reload automatically.",
+          action: "Restart the app to apply it while preserving active recording or transcription work.",
+        },
+      },
+      ai: {
+        restartRequired: {
+          message: "The value is saved, but the current Claude provider process will not reload automatically.",
+          action: "Restart the app to apply it while preserving active AI work.",
+        },
+      },
+      notion: {
+        nextTick: {
+          message: "Notion settings apply to the next dashboard action or automation tick.",
         },
       },
     },

@@ -9,6 +9,7 @@ import {
   type DirongDashboardTheme,
   type DirongLocale,
 } from "../settings/local-settings-store.js";
+import { buildSettingsRuntimeEffect } from "../settings/product-settings.js";
 import type { SetupWizardActionResult } from "../setup/wizard-service.js";
 import {
   isRecord,
@@ -137,6 +138,7 @@ export async function handleLanguageSave(
       notionSchemaLocale: setup.notionSchemaLocale,
       messageKey: "settings.language.save.done.message",
       userActionKey: null,
+      runtimeEffect: buildSettingsRuntimeEffect(setup.locale, "dashboard"),
       setup,
     }));
   } catch (error) {
@@ -212,6 +214,7 @@ export async function handleThemeSave(
       theme: setup.dashboardTheme,
       messageKey: "settings.theme.save.done.message",
       userActionKey: null,
+      runtimeEffect: buildSettingsRuntimeEffect(setup.locale, "dashboard"),
       setup,
     }));
   } catch (error) {

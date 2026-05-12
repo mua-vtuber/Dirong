@@ -45,7 +45,10 @@ import {
   LocalSecretStore,
 } from "../settings/local-secret-store.js";
 import {
+  buildSettingsRuntimeEffect,
   buildProductSetupStatus,
+  type SettingsRuntimeEffect,
+  type SettingsRuntimeEffectScope,
   type ProductSetupStatusSnapshot,
 } from "../settings/product-settings.js";
 import {
@@ -97,6 +100,7 @@ export type SetupWizardActionResult = {
   userActionKey: LocaleKey | null;
   userAction: string | null;
   display?: HumanStatusDisplay;
+  runtimeEffect?: SettingsRuntimeEffect;
   httpStatus: number;
   setup: SetupWizardStateSnapshot;
   [key: string]: unknown;
@@ -216,6 +220,7 @@ export class SetupWizardService {
       status: "done",
       messageKey: "setup.discord.applicationId.save.done.message",
       userActionKey: null,
+      runtimeEffectScope: "discord",
       inviteUrl: buildDiscordInviteUrl(applicationId),
     });
   }
@@ -246,6 +251,7 @@ export class SetupWizardService {
       status: "done",
       messageKey: "setup.discord.botToken.save.done.message",
       userActionKey: null,
+      runtimeEffectScope: "discord",
       secret: this.options.secretStore.snapshot(DEFAULT_SECRET_REFS.discordBotToken),
     });
   }
@@ -391,6 +397,7 @@ export class SetupWizardService {
         status: "done",
         messageKey: "setup.discord.guildAllowlist.save.done.message",
         userActionKey: null,
+        runtimeEffectScope: "discord",
         guilds: selectedGuilds,
       });
     } catch (error) {
@@ -463,6 +470,7 @@ export class SetupWizardService {
       status: "done",
       messageKey: "setup.stt.settings.save.done.message",
       userActionKey: null,
+      runtimeEffectScope: "stt",
       stt: settingsUpdate.stt,
     });
   }
@@ -501,6 +509,7 @@ export class SetupWizardService {
         status: "done",
         messageKey: "setup.ai.claude.save.done.message",
         userActionKey: null,
+        runtimeEffectScope: "ai",
         ai: {
           provider: "claude",
           mode,
@@ -542,6 +551,7 @@ export class SetupWizardService {
       status: "done",
       messageKey: "setup.ai.claude.save.done.message",
       userActionKey: null,
+      runtimeEffectScope: "ai",
       ai: {
         provider: "claude",
         mode,
@@ -613,6 +623,7 @@ export class SetupWizardService {
       status: "done",
       messageKey: "setup.notion.token.save.done.message",
       userActionKey: null,
+      runtimeEffectScope: "notion",
       secret: this.options.secretStore.snapshot(DEFAULT_SECRET_REFS.notionToken),
     });
   }
@@ -658,6 +669,7 @@ export class SetupWizardService {
       status: "done",
       messageKey: "setup.notion.parentPage.save.done.message",
       userActionKey: null,
+      runtimeEffectScope: "notion",
       notion: { parentPageConfigured: true },
     });
   }
@@ -709,6 +721,7 @@ export class SetupWizardService {
         status: "ready",
         messageKey: "setup.notion.managedDatabases.create.existing.message",
         userActionKey: null,
+        runtimeEffectScope: "notion",
         notion: registrySnapshot,
       });
     }
@@ -753,6 +766,7 @@ export class SetupWizardService {
         status: "done",
         messageKey: "setup.notion.managedDatabases.create.done.message",
         userActionKey: null,
+        runtimeEffectScope: "notion",
         notion: {
           locale: created.locale,
           parentPageUrl: created.parentPageUrl,
@@ -894,11 +908,16 @@ export class SetupWizardService {
     const locale = setup.locale;
     const message = t(locale, input.messageKey);
     const userAction = input.userActionKey ? t(locale, input.userActionKey) : null;
+    const runtimeEffect = input.runtimeEffectScope
+      ? buildSettingsRuntimeEffect(locale, input.runtimeEffectScope)
+      : undefined;
+    const { runtimeEffectScope: _runtimeEffectScope, ...resultInput } = input;
     return {
       httpStatus: input.httpStatus ?? (input.ok ? 200 : 400),
-      ...input,
+      ...resultInput,
       message,
       userAction,
+      ...(runtimeEffect ? { runtimeEffect } : {}),
       display: buildHumanStatusDisplay(locale, {
         ...wizardActionDisplayKeys(input.status),
         status: input.status,
@@ -920,6 +939,7 @@ type ResultInput = {
   messageKey: LocaleKey;
   userActionKey: LocaleKey | null;
   httpStatus?: number;
+  runtimeEffectScope?: SettingsRuntimeEffectScope;
   [key: string]: unknown;
 };
 

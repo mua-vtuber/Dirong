@@ -95,6 +95,11 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
       return '<details><summary class="muted">' + i18n('dashboard.logs.details.toggle') + '</summary>' +
         '<table class="display-details-table"><tbody>' + rows + '</tbody></table></details>';
     }
+    function renderRuntimeEffect(effect) {
+      if (!effect) return '';
+      const action = effect.userAction ? '<br>' + escapeHtml(effect.userAction) : '';
+      return '<div class="display-next">' + escapeHtml(effect.message ?? '') + action + '</div>';
+    }
     function displayTitle(source, fallback = '-') {
       return source?.display?.title ?? source?.message ?? fallback;
     }

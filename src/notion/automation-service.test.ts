@@ -235,6 +235,42 @@ test("NotionAutomationService reads fresh settings at each tick", async () => {
   }
 });
 
+test("NotionAutomationService starts polling before Notion settings are complete", async () => {
+  const fixture = createFixture();
+  try {
+    let currentSettings = notionSettings({ apiKey: null, targetUrl: null });
+    const client = new FakeNotionClient();
+    const service = createService(fixture, {
+      settings: currentSettings,
+      client: null,
+      getSettings: () => currentSettings,
+      getClient: (settings) => (settings.apiKey ? client : null),
+      pollIntervalMs: 5,
+    });
+
+    try {
+      service.start();
+      await waitFor(() => service.getSnapshot().status === "not_configured");
+
+      currentSettings = notionSettings();
+      await waitFor(() =>
+        client.calls.some((call) => call.method === "createPage"),
+      );
+
+      const snapshot = service.getSnapshot();
+      assert.equal(snapshot.status, "done");
+      assert.equal(
+        client.calls.filter((call) => call.method === "createPage").length,
+        1,
+      );
+    } finally {
+      await service.stop();
+    }
+  } finally {
+    fixture.close();
+  }
+});
+
 class FakeNotionClient implements NotionClient {
   readonly calls: Array<{ method: string; body?: unknown }> = [];
 
@@ -363,6 +399,7 @@ function createService(
     getClient?: (settings: NotionRuntimeSettings) => NotionClient | null;
     registryStore?: NotionRegistryStore | null;
     retention?: NotionUploadRetentionHandler;
+    pollIntervalMs?: number;
   } = {},
 ): NotionAutomationService {
   return new NotionAutomationService({
@@ -372,7 +409,7 @@ function createService(
     getClient: options.getClient,
     readModel: new NotionDraftInputReadModel(fixture.runner),
     writeStore: fixture.writeStore,
-    pollIntervalMs: 5000,
+    pollIntervalMs: options.pollIntervalMs ?? 5000,
     batchLimit: 1,
     workerId: "notion-auto-test",
     leaseMs: 60000,
@@ -401,6 +438,19 @@ function notionSettings(
     propertyNames: DEFAULT_NOTION_PROPERTY_NAMES,
     ...overrides,
   };
+}
+
+async function waitFor(
+  predicate: () => boolean,
+  timeoutMs = 1000,
+): Promise<void> {
+  const started = Date.now();
+  while (!predicate()) {
+    if (Date.now() - started > timeoutMs) {
+      throw new Error("Timed out waiting for Notion automation condition.");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 }
 
 function completeProperties(): Record<string, { id: string; type: string }> {

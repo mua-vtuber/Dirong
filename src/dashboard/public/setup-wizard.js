@@ -248,7 +248,7 @@ const setupStepDefinitions = [
       const failed = result.ok === false || ['failed', 'blocked', 'not_configured'].includes(String(result.status));
       return '<div class="setup-result">' +
         '<div class="' + (failed ? 'error' : 'status') + '">' +
-        renderHumanDisplay(result) + '</div></div>';
+        renderHumanDisplay(result) + renderRuntimeEffect(result.runtimeEffect) + '</div></div>';
     }
     function renderCreatedNotionDatabases() {
       const databases = setupLocalState.lastResult?.notion?.databases;
@@ -275,6 +275,7 @@ const setupStepDefinitions = [
         '<div class="setup-status-card"><div class="label">' + escapeHtml(label) + ' · ' +
         escapeHtml(feature?.status ?? '-') + '</div>' +
         renderHumanDisplay(feature) +
+        renderRuntimeEffect(feature?.runtimeEffect) +
         '</div>'
       ).join('') + '</div>';
     }

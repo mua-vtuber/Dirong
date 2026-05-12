@@ -340,6 +340,7 @@ async function refresh() {
           ? renderAloneFinalize(state.aloneFinalize)
           : '<div class="metric"><div class="label">' + i18n('dashboard.settings.tabs.' + activeSettingsTab) + '</div>' +
             renderHumanDisplay(featureMap[activeSettingsTab]) +
+            renderRuntimeEffect(featureMap[activeSettingsTab]?.runtimeEffect) +
             '<div class="muted">' + i18n('dashboard.settings.secretsHidden') + '</div></div>';
       return body + renderThemeSettings(theme, setup);
     }
@@ -382,7 +383,12 @@ async function refresh() {
           body: JSON.stringify({ theme })
         });
         const result = await res.json();
-        if (statusEl) statusEl.textContent = result.message ?? result.status;
+        if (statusEl) {
+          statusEl.textContent = [
+            result.message ?? result.status,
+            result.runtimeEffect?.message,
+          ].filter(Boolean).join(' · ');
+        }
         await refresh();
       } catch (error) {
         if (statusEl) statusEl.textContent = error instanceof Error ? error.message : String(error);

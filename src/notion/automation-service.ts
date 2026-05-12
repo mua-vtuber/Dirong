@@ -133,9 +133,6 @@ export class NotionAutomationService {
   }
 
   start(): void {
-    if (!shouldRun(this.getRuntime(), this.options.registryStore ?? null)) {
-      return;
-    }
     this.loop.start();
   }
 
@@ -182,6 +179,20 @@ export class NotionAutomationService {
         checkedAt,
         message: "Notion 업로드 진행 중",
         userAction: null,
+        repairedExpiredLeases,
+        inFlightDraftIds: this.getInFlightDraftIds(),
+      });
+      return this.getSnapshot();
+    }
+
+    const blocked = blockedSnapshot(
+      runtime,
+      this.options.registryStore ?? null,
+      this.snapshot,
+    );
+    if (blocked) {
+      this.snapshot = makeSnapshot({
+        ...blocked,
         repairedExpiredLeases,
         inFlightDraftIds: this.getInFlightDraftIds(),
       });
@@ -538,17 +549,6 @@ function blockedSnapshot(
     });
   }
   return null;
-}
-
-function shouldRun(
-  runtime: NotionAutomationRuntime,
-  registryStore: NotionRegistryStore | null,
-): boolean {
-  return (
-    runtime.settings.enabled &&
-    runtime.settings.uploadMode === "automatic_after_ai_cleanup" &&
-    isConfigured(runtime, registryStore)
-  );
 }
 
 function isConfigured(

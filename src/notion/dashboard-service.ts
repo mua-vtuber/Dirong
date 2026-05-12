@@ -171,6 +171,9 @@ export class NotionDashboardService {
     private readonly input: {
       settings: NotionRuntimeSettings;
       getSettings?: NotionRuntimeSettingsProvider;
+      notionClientFactory?: (
+        settings: NotionRuntimeSettings,
+      ) => NotionClient | null;
       database: DirongDatabase;
       config: Pick<Phase1Config, "sttLeaseMs">;
       workerId: string;
@@ -329,13 +332,12 @@ export class NotionDashboardService {
     if (!settings.apiKey) {
       throw new Error("Notion token이 설정된 뒤 managed DB 상태를 확인할 수 있습니다.");
     }
+    const client = this.createClient(settings);
+    if (!client) {
+      throw new Error("Notion client를 만들 수 없습니다. token 설정을 확인해 주세요.");
+    }
     const service = new ManagedNotionSchemaStatusService({
-      client: createNotionClient({
-        apiKey: settings.apiKey,
-        apiVersion: settings.apiVersion,
-        baseUrl: settings.baseUrl,
-        requestTimeoutMs: settings.requestTimeoutMs,
-      }),
+      client,
       registryStore: this.registryStore,
     });
     this.lastManagedSchemaCheck = await service.checkAll();
@@ -382,12 +384,10 @@ export class NotionDashboardService {
     if (!settings.apiKey) {
       throw new Error("Notion token이 설정된 뒤 managed DB를 복구할 수 있습니다.");
     }
-    const client = createNotionClient({
-      apiKey: settings.apiKey,
-      apiVersion: settings.apiVersion,
-      baseUrl: settings.baseUrl,
-      requestTimeoutMs: settings.requestTimeoutMs,
-    });
+    const client = this.createClient(settings);
+    if (!client) {
+      throw new Error("Notion client를 만들 수 없습니다. token 설정을 확인해 주세요.");
+    }
 
     try {
       const result = await applyManagedSchemaRepair({
@@ -440,14 +440,7 @@ export class NotionDashboardService {
     }
 
     const settings = this.getSettings();
-    const client = settings.apiKey
-      ? createNotionClient({
-          apiKey: settings.apiKey,
-          apiVersion: settings.apiVersion,
-          baseUrl: settings.baseUrl,
-          requestTimeoutMs: settings.requestTimeoutMs,
-        })
-      : null;
+    const client = this.createClient(settings);
     const result = await runNotionUpload({
       settings,
       selector,
@@ -529,12 +522,15 @@ export class NotionDashboardService {
       });
     }
 
-    const client = createNotionClient({
-      apiKey: settings.apiKey,
-      apiVersion: settings.apiVersion,
-      baseUrl: settings.baseUrl,
-      requestTimeoutMs: settings.requestTimeoutMs,
-    });
+    const client = this.createClient(settings);
+    if (!client) {
+      return this.customPropertyActionResult({
+        ok: false,
+        status: "not_configured",
+        message: "Notion client를 만들 수 없습니다.",
+        userAction: "Notion token과 managed DB 설정을 확인해 주세요.",
+      });
+    }
     const target = await this.loadCustomPropertyDataSource({
       client,
       settings,
@@ -860,12 +856,17 @@ export class NotionDashboardService {
       };
     }
 
-    const client = createNotionClient({
-      apiKey: settings.apiKey,
-      apiVersion: settings.apiVersion,
-      baseUrl: settings.baseUrl,
-      requestTimeoutMs: settings.requestTimeoutMs,
-    });
+    const client = this.createClient(settings);
+    if (!client) {
+      return {
+        ok: false,
+        result: schemaActionErrorResult({
+          status: "not_configured",
+          message: "Notion client를 만들 수 없습니다.",
+          userAction: "NOTION_API_KEY 설정을 확인해 주세요.",
+        }),
+      };
+    }
 
     try {
       const target = await resolveDataSourceTarget(client, parsedTarget);
@@ -895,6 +896,20 @@ export class NotionDashboardService {
         }),
       };
     }
+  }
+
+  private createClient(settings: NotionRuntimeSettings): NotionClient | null {
+    if (this.input.notionClientFactory) {
+      return this.input.notionClientFactory(settings);
+    }
+    return settings.apiKey
+      ? createNotionClient({
+          apiKey: settings.apiKey,
+          apiVersion: settings.apiVersion,
+          baseUrl: settings.baseUrl,
+          requestTimeoutMs: settings.requestTimeoutMs,
+        })
+      : null;
   }
 }
 

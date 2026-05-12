@@ -35,19 +35,19 @@ export {
 } from "./state.js";
 
 export type DashboardAiReadinessSource = {
-  getSnapshot(): AiProviderRuntimeReadinessSnapshot;
+  getSnapshot(locale?: DirongLocale): AiProviderRuntimeReadinessSnapshot;
 };
 
 export type DashboardAiCleanupAutomationSource = {
-  getSnapshot(): AiCleanupAutomationSnapshot;
+  getSnapshot(locale?: DirongLocale): AiCleanupAutomationSnapshot;
 };
 
 export type DashboardAloneFinalizeSource = {
-  getSnapshot(): AloneFinalizeSnapshot;
+  getSnapshot(locale?: DirongLocale): AloneFinalizeSnapshot;
 };
 
 export type DashboardSttAutomationSource = {
-  getSnapshot(): SttAutomationSnapshot;
+  getSnapshot(locale?: DirongLocale): SttAutomationSnapshot;
 };
 
 export type DashboardNotionSource = {
@@ -73,7 +73,7 @@ export type DashboardNotionSource = {
 };
 
 export type DashboardNotionAutomationSource = {
-  getSnapshot(): NotionAutomationSnapshot;
+  getSnapshot(locale?: DirongLocale): NotionAutomationSnapshot;
 };
 
 export type DashboardSetupStatusSource = {

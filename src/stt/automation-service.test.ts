@@ -64,6 +64,35 @@ test("SttAutomationService disabled mode does not process jobs", async () => {
   }
 });
 
+test("SttAutomationService localizes runtime snapshot with app locale", async () => {
+  const fixture = createQueuedSttFixture();
+  try {
+    const service = new SttAutomationService(fixture.store, {
+      enabled: false,
+      provider: new FakeSttProvider(),
+      pollIntervalMs: 1000,
+      batchLimit: 1,
+      runner: {
+        workerId: "stt-auto-test",
+        leaseMs: 60000,
+        language: "ko",
+        timeoutMs: 1000,
+        contextSegments: 2,
+      },
+      localeResolver: () => "en",
+    });
+
+    const snapshot = await service.runOnce();
+
+    assert.equal(snapshot.message, "STT automation is turned off.");
+    assert.equal(snapshot.userAction, "Run the manual Phase 3 STT CLI if needed.");
+    assert.equal(snapshot.display?.title, "STT setup is not finished yet");
+    assert.equal(snapshot.provider, "dirong-fake-stt");
+  } finally {
+    fixture.close();
+  }
+});
+
 function createQueuedSttFixture(): {
   store: SessionStore;
   close: () => void;

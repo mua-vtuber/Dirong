@@ -446,7 +446,7 @@ async function syncManagedActionItemPages(input: {
       });
       if (existing.status === "ambiguous") {
         warnings.push(
-          `${sourceActionId}: 같은 Dirong 액션 ID를 가진 task page가 여러 개라 업데이트를 건너뜁니다.`,
+          `${sourceActionId}: 같은 Dirong 할 일 ID를 가진 할 일 페이지가 여러 개라 업데이트를 건너뜁니다.`,
         );
         continue;
       }
@@ -462,7 +462,7 @@ async function syncManagedActionItemPages(input: {
       });
     } catch (error) {
       warnings.push(
-        `${sourceActionId}: task page 동기화 중 오류가 발생했습니다 (${error instanceof Error ? error.message : String(error)}).`,
+        `${sourceActionId}: 할 일 페이지 동기화 중 오류가 발생했습니다 (${error instanceof Error ? error.message : String(error)}).`,
       );
     }
   }

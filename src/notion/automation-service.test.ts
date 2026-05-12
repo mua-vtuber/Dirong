@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import type { NotionClient } from "./client.js";
 import { NotionAutomationService } from "./automation-service.js";
+import type { AppLocaleResolver } from "../i18n/app-locale.js";
 import { NotionDraftInputReadModel } from "./draft-input-read-model.js";
 import { NOTION_MANAGED_SCHEMA_VERSION } from "./managed-schema.js";
 import { NotionRegistryStore } from "./registry-store.js";
@@ -36,6 +37,29 @@ test("NotionAutomationService does nothing when export is disabled", async () =>
     assert.equal(snapshot.status, "disabled");
     assert.equal(countNotionWrites(fixture.database), 0);
     assert.deepEqual(client.calls, []);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("NotionAutomationService localizes runtime snapshot with app locale", async () => {
+  const fixture = createFixture();
+  try {
+    const service = createService(fixture, {
+      settings: notionSettings({ enabled: false }),
+      client: new FakeNotionClient(),
+      localeResolver: () => "en",
+    });
+
+    const snapshot = await service.runOnce();
+
+    assert.equal(snapshot.status, "disabled");
+    assert.equal(snapshot.message, "Notion auto-upload is turned off.");
+    assert.equal(
+      snapshot.userAction,
+      "Set NOTION_EXPORT_ENABLED=true to use automatic uploads.",
+    );
+    assert.equal(snapshot.display?.title, "Notion upload is turned off");
   } finally {
     fixture.close();
   }
@@ -148,7 +172,8 @@ test("NotionAutomationService blocks partial managed registry before legacy fall
       snapshot.display?.details.find((detail) => detail.label === "technicalDetail")?.value ?? "",
       /databaseCount/,
     );
-    assert.match(snapshot.userAction ?? "", /legacy target/);
+    assert.equal(snapshot.userAction, "Notion 설정과 DB 상태를 확인해 주세요.");
+    assert.equal(snapshot.display?.nextAction, "Notion 설정 화면에서 연결과 DB 상태를 확인해 주세요.");
     assert.equal(countNotionWrites(fixture.database), 0);
     assert.deepEqual(client.calls, []);
   } finally {
@@ -400,6 +425,7 @@ function createService(
     registryStore?: NotionRegistryStore | null;
     retention?: NotionUploadRetentionHandler;
     pollIntervalMs?: number;
+    localeResolver?: AppLocaleResolver;
   } = {},
 ): NotionAutomationService {
   return new NotionAutomationService({
@@ -415,6 +441,7 @@ function createService(
     leaseMs: 60000,
     registryStore: options.registryStore,
     retention: options.retention,
+    localeResolver: options.localeResolver,
   });
 }
 

@@ -110,7 +110,7 @@ function buildBlocks(
     }),
   );
 
-  pushSection(blocks, "액션 아이템");
+  pushSection(blocks, "할 일 목록");
   pushBullets(
     blocks,
     draft.actionItems.map(

@@ -4,6 +4,7 @@ import type {
   DashboardAiReadinessSource,
   DashboardRuntimeSources,
 } from "./server.js";
+import { resolveAppLocale } from "../i18n/app-locale.js";
 import { isRecord } from "./http.js";
 
 export function appendAiReadinessToDashboardState(
@@ -34,31 +35,37 @@ export function appendDashboardRuntimeSnapshots(
     return state;
   }
 
+  const setupSnapshot = sources.setupStatus?.getSnapshot();
+  const locale = resolveAppLocale({
+    getLocale: () => sources.setupStatus?.getLocale?.(),
+    locale: setupSnapshot?.locale,
+  });
+
   return {
     ...state,
     ...(sources.aiReadiness
-      ? { aiReadiness: sources.aiReadiness.getSnapshot() }
+      ? { aiReadiness: sources.aiReadiness.getSnapshot(locale) }
       : {}),
     ...(sources.aiCleanupAutomation
-      ? { aiCleanupAutomation: sources.aiCleanupAutomation.getSnapshot() }
+      ? { aiCleanupAutomation: sources.aiCleanupAutomation.getSnapshot(locale) }
       : {}),
     ...(sources.aloneFinalize
-      ? { aloneFinalize: sources.aloneFinalize.getSnapshot() }
+      ? { aloneFinalize: sources.aloneFinalize.getSnapshot(locale) }
       : {}),
     ...(sources.notion
       ? { notion: sources.notion.getSnapshot() }
       : {}),
     ...(sources.notionAutomation
-      ? { notionAutomation: sources.notionAutomation.getSnapshot() }
+      ? { notionAutomation: sources.notionAutomation.getSnapshot(locale) }
       : {}),
     ...(sources.setupStatus
-      ? { setup: sources.setupStatus.getSnapshot() }
+      ? { setup: setupSnapshot }
       : {}),
     ...(sources.setupWizard
       ? { setupWizard: sources.setupWizard.getState().wizard }
       : {}),
     ...(sources.sttAutomation
-      ? { sttAutomation: sources.sttAutomation.getSnapshot() }
+      ? { sttAutomation: sources.sttAutomation.getSnapshot(locale) }
       : {}),
   };
 }

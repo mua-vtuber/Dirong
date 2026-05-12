@@ -150,12 +150,30 @@ test("SetupWizardService saves STT and Claude settings and uses the fake Claude 
     assert.equal(claude.ok, true);
     assert.equal(claude.runtimeEffect?.kind, "restart_required");
     assert.equal(fixture.settings.read().ai.mode, "cli");
+    assert.equal(fixture.settings.read().ai.model, "sonnet");
     assert.equal(fixture.settings.read().ai.claudeProfile, "claude-cli-default");
     assert.equal(fixture.settings.read().ai.claudeCommand, undefined);
 
     const tested = await fixture.service.testClaudeConnection();
     assert.equal(tested.ok, true);
     assert.deepEqual(claudeCalls, ["cli"]);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("SetupWizardService rejects versioned Claude model names from setup", () => {
+  const fixture = createFixture();
+  try {
+    const claude = fixture.service.saveClaudeSettings({
+      mode: "cli",
+      cliCommand: "claude",
+      model: "claude-3-5-sonnet-20241022",
+    });
+
+    assert.equal(claude.ok, false);
+    assert.equal(claude.messageKey, "setup.ai.claude.error.invalidModel.message");
+    assert.equal(fixture.settings.read().ai.mode, undefined);
   } finally {
     fixture.close();
   }
@@ -243,7 +261,7 @@ test("SetupWizardService verifies a Notion parent page and creates managed DBs t
         managedDatabases: [
           managedDatabase("meeting", "회의록", "meeting-db-id", "meeting-ds-id"),
           managedDatabase("member", "작업자", "member-db-id", "member-ds-id"),
-          managedDatabase("task", "액션 아이템", "task-db-id", "task-ds-id"),
+          managedDatabase("task", "할 일 목록", "task-db-id", "task-ds-id"),
         ],
         propertyMappings: allKoreanPropertyMappings(),
         nowIso: "2026-05-10T00:00:00.000Z",
@@ -269,7 +287,7 @@ test("SetupWizardService verifies a Notion parent page and creates managed DBs t
           },
           task: {
             role: "task",
-            name: "액션 아이템",
+            name: "할 일 목록",
             databaseId: "task-db-id",
             dataSourceId: "task-ds-id",
             url: "https://notion.so/task",

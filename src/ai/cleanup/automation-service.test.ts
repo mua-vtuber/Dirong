@@ -9,6 +9,7 @@ import {
   AiCleanupAutomationService,
   formatAiCleanupAutomationForStatus,
 } from "./automation-service.js";
+import type { AppLocaleResolver } from "../../i18n/app-locale.js";
 import { FakeAiCleanupProvider } from "./fake-provider.js";
 import { AiCleanupProviderError } from "./provider.js";
 import { PHASE4_AI_CLEANUP_PROMPT_VERSION } from "./prompts.js";
@@ -36,6 +37,27 @@ test("AiCleanupAutomationService waits while STT queued jobs remain", async () =
     assert.equal(snapshot.stt?.sttQueuedCount, 1);
     assert.deepEqual(fixture.countAiRows(), { jobs: 0, drafts: 0 });
     assert.equal(provider.generateCalls, 0);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("AiCleanupAutomationService localizes runtime snapshot with app locale", async () => {
+  const fixture = createSessionFixture();
+  try {
+    addQueuedSttChunk(fixture, 1);
+    finalizeSession(fixture);
+    const provider = new CountingFakeAiCleanupProvider();
+    const service = await createReadyAutomationService(fixture, provider, {
+      localeResolver: () => "en",
+    });
+
+    const snapshot = await service.runOnce();
+
+    assert.equal(snapshot.status, "waiting_for_stt");
+    assert.equal(snapshot.message, "Waiting for STT to finish");
+    assert.equal(snapshot.display?.title, "Waiting for STT to finish");
+    assert.equal(snapshot.provider, provider.providerName);
   } finally {
     fixture.close();
   }
@@ -750,7 +772,7 @@ function countExpiredLeaseRepairItems(fixture: AutomationFixture): number {
 async function createReadyAutomationService(
   fixture: AutomationFixture,
   provider: AiCleanupProvider,
-  options: { sessionBatchLimit?: number } = {},
+  options: { sessionBatchLimit?: number; localeResolver?: AppLocaleResolver } = {},
 ): Promise<AiCleanupAutomationService> {
   const lifecycle = await createReadyLifecycle(provider);
   return createAutomationService(fixture, provider, lifecycle, options);
@@ -772,7 +794,7 @@ function createAutomationService(
   fixture: AutomationFixture,
   provider: AiCleanupProvider,
   lifecycle: AiProviderLifecycleService,
-  options: { sessionBatchLimit?: number } = {},
+  options: { sessionBatchLimit?: number; localeResolver?: AppLocaleResolver } = {},
 ): AiCleanupAutomationService {
   return new AiCleanupAutomationService(fixture.store, {
     enabled: true,
@@ -790,6 +812,7 @@ function createAutomationService(
       maxOutputBytes: 1024 * 1024,
       backup: () => [],
     },
+    localeResolver: options.localeResolver,
   });
 }
 

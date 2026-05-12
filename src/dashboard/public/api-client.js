@@ -141,15 +141,18 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
     const sectionCache = new Map();
     const setupLocalState = {
       stepIndex: Number(window.localStorage.getItem('dirong.setup.stepIndex') ?? 0),
-      welcomeDone: window.localStorage.getItem('dirong.setup.welcomeDone') === 'true',
       recordingDone: window.localStorage.getItem('dirong.setup.recordingDone') === 'true',
       privacyDone: window.localStorage.getItem('dirong.setup.privacyDone') === 'true',
       sttProvider: window.localStorage.getItem('dirong.setup.sttProvider') || null,
       sttModel: window.localStorage.getItem('dirong.setup.sttModel') || null,
       aiMode: window.localStorage.getItem('dirong.setup.aiMode') || null,
+      aiModel: window.localStorage.getItem('dirong.setup.aiModel') || null,
       selectedGuildId: window.localStorage.getItem('dirong.setup.guildId') ?? '',
       guilds: [],
       lastResult: null,
+      lastResultPath: null,
+      discordConnectionStatus: 'idle',
+      discordConnectionAutoStarted: false,
       busy: false,
       forceRender: false
     };
@@ -163,8 +166,8 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
         setupLocalState.lastResult = {
           ok: false,
           status: 'failed',
-          message: '서버 기본값을 아직 불러오지 못했습니다.',
-          userAction: '잠시 후 다시 시도해 주세요.'
+          message: tr('dashboard.setupWizard.fallback.defaultsMissing'),
+          userAction: tr('dashboard.setupWizard.fallback.retryLater')
         };
         setupLocalState.forceRender = true;
         renderSetupWizard(setupLocalState.lastSetup);

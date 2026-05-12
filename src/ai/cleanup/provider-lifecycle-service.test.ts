@@ -82,6 +82,25 @@ test("AiProviderLifecycleService stop publishes a stopped snapshot", async () =>
   assert.equal(snapshot.message, "AI 준비 상태 확인 중지됨");
 });
 
+test("AiProviderLifecycleService localizes readiness snapshot with app locale", async () => {
+  const provider = new DeterministicCleanupProvider("missing");
+  const service = new AiProviderLifecycleService(
+    wrapAiCleanupProviderWithLifecycle(provider),
+    { prepareTimeoutMs: 100, localeResolver: () => "en" },
+  );
+
+  const snapshot = await service.startPrepareInBackground();
+
+  assert.equal(snapshot.status, "not_installed");
+  assert.equal(snapshot.message, "AI tool was not found");
+  assert.equal(
+    snapshot.userAction,
+    "Check that the selected AI CLI is installed and runs in a terminal.",
+  );
+  assert.equal(snapshot.display?.title, "Claude tool was not found");
+  assert.equal(snapshot.provider, "claude-cli");
+});
+
 test("formatAiReadinessForStatus renders user-facing status text", () => {
   assert.equal(
     formatAiReadinessForStatus({

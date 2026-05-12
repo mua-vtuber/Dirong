@@ -308,11 +308,16 @@ test("DashboardServer setup status API returns redacted configuration state", as
     const text = await response.text();
     const body = JSON.parse(text) as {
       status: string;
+      secrets: { discordBot: { configured: boolean; displayValue: string } };
       features: { discord: { display?: { title: string } } };
     };
 
     assert.equal(response.status, 200);
     assert.equal(body.status, "not_configured");
+    assert.deepEqual(body.secrets.discordBot, {
+      configured: true,
+      displayValue: "[REDACTED]",
+    });
     assert.equal(
       body.features.discord.display?.title,
       "Discord 봇 연결이 아직 끝나지 않았어요",
@@ -561,6 +566,18 @@ test("DashboardServer exposes locale catalog messages", async () => {
     assert.equal(response.status, 200);
     assert.equal(body.locale, "ko");
     assert.equal(body.messages["dashboard.nav.dashboard"], "대시보드");
+    assert.equal(
+      body.messages["dashboard.setupWizard.discord.guide.botTokenTitle"],
+      "애플리케이션 ID 발급 후 봇 토큰 복사 방법",
+    );
+    assert.equal(
+      body.messages["dashboard.setupWizard.discord.guide.botTokenStep5"],
+      "디롱이 페이지로 돌아와 디스코드 봇 토큰 칸에 붙여넣고 저장합니다.",
+    );
+    assert.notEqual(
+      body.messages["dashboard.setupWizard.discord.guide.botTokenStep5"],
+      "[REDACTED]",
+    );
   } finally {
     await fixture.close();
   }
@@ -1386,13 +1403,14 @@ function makeSetupStatusSource(): DashboardSetupStatusSource {
           missing: ["ai.provider"],
           provider: null,
           mode: null,
+          model: null,
         },
         notion: {
           status: "not_configured",
           messageKey: "setup.notion.status.notConfigured.message",
           message: "Notion 설정이 아직 없습니다.",
           userActionKey: "setup.notion.status.notConfigured.action",
-          userAction: "Notion token과 parent page URL을 저장해 주세요.",
+          userAction: "Notion token과 노션 DB 관리 페이지 URL을 저장해 주세요.",
           missing: ["notion.token"],
           parentPageConfigured: false,
           managedRegistryReady: false,

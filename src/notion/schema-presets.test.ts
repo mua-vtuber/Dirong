@@ -28,7 +28,7 @@ test("Korean Notion schema preset contains every required semantic key", () => {
 test("Korean Notion schema preset defines the managed DB names and relation shape", () => {
   assert.equal(KOREAN_PRESET.databases.meeting.name, "회의록");
   assert.equal(KOREAN_PRESET.databases.member.name, "작업자");
-  assert.equal(KOREAN_PRESET.databases.task.name, "액션 아이템");
+  assert.equal(KOREAN_PRESET.databases.task.name, "할 일 목록");
 
   assert.deepEqual(findProperty("meeting.memberRelation").relation, {
     mode: "direct",

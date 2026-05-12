@@ -374,7 +374,7 @@ test("runNotionUpload creates managed task pages for action items", async () => 
 
     assert.equal(result.status, "done");
     assert.equal(client.taskCreatePageBodies.length, 2);
-    assert.equal("액션 아이템" in meetingProperties, false);
+    assert.equal("할 일 목록" in meetingProperties, false);
     assert.deepEqual(firstTaskProperties["작업"], {
       title: [{ text: { content: "Notion writer 테스트를 추가한다." } }],
     });
@@ -384,7 +384,7 @@ test("runNotionUpload creates managed task pages for action items", async () => 
     assert.deepEqual(firstTaskProperties["작업자 연결"], {
       relation: [{ id: "member-taniar" }],
     });
-    assert.deepEqual(firstTaskProperties["Dirong 액션 ID"], {
+    assert.deepEqual(firstTaskProperties["Dirong 할 일 ID"], {
       rich_text: [{ text: { content: "draft-1:action-1" } }],
     });
     assert.deepEqual(secondTaskProperties["작업자 연결"], {
@@ -473,7 +473,7 @@ test("runNotionUpload leaves task worker relation empty when action owner is unm
 test("runNotionUpload keeps meeting upload done when managed task schema is unhealthy", async () => {
   const fixture = createFixture({ actionItems: managedActionItems() });
   const managedTaskProperties = koreanManagedTaskProperties();
-  delete managedTaskProperties["Dirong 액션 ID"];
+  delete managedTaskProperties["Dirong 할 일 ID"];
   seedManagedRegistry(fixture.registryStore);
   try {
     const client = new FakeNotionClient({ managedTaskProperties });
@@ -496,7 +496,7 @@ test("runNotionUpload keeps meeting upload done when managed task schema is unhe
     assert.equal(client.taskCreatePageBodies.length, 0);
     assert.match(
       result.warnings.join("\n"),
-      /액션 아이템 DB 스키마가 건강하지 않아/,
+      /할 일 목록 DB 스키마가 건강하지 않아/,
     );
   } finally {
     fixture.close();
@@ -922,7 +922,7 @@ class FakeNotionClient implements NotionClient {
     if (dataSourceId === managedTaskDataSourceId) {
       return {
         id: managedTaskDataSourceId,
-        name: "액션 아이템",
+        name: "할 일 목록",
         properties:
           this.options.managedTaskProperties ?? koreanManagedTaskProperties(),
       };
@@ -1194,7 +1194,7 @@ function koreanManagedMeetingProperties(
         rollup_property_name: "노션 연결",
       },
     }),
-    ...property("액션 아이템", "meeting-action-items-id", "relation", {
+    ...property("할 일 목록", "meeting-action-items-id", "relation", {
       relation: { data_source_id: managedTaskDataSourceId },
     }),
     ...property("상태", "meeting-status-id", "select", {
@@ -1264,7 +1264,7 @@ function koreanManagedTaskProperties(
       },
     },
     근거: { id: "task-evidence-id", type: "rich_text" },
-    "Dirong 액션 ID": { id: "task-source-action-id", type: "rich_text" },
+    "Dirong 할 일 ID": { id: "task-source-action-id", type: "rich_text" },
     ...overrides,
   };
 }
@@ -1310,7 +1310,7 @@ function seedManagedRegistry(
     databaseId: "managed-task-db",
     dataSourceId: managedTaskDataSourceId,
     url: "https://notion.so/managed-task",
-    name: "액션 아이템",
+    name: "할 일 목록",
     createdByDirong: true,
     schemaVersion: "notion-managed-db-v1",
     nowIso,

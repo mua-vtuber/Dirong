@@ -155,7 +155,7 @@ export const KOREAN_NOTION_SCHEMA_PRESET = {
         },
         {
           key: "meeting.actionItems",
-          name: "액션 아이템",
+          name: "할 일 목록",
           type: "relation",
           locked: true,
           relation: {
@@ -227,7 +227,7 @@ export const KOREAN_NOTION_SCHEMA_PRESET = {
       ],
     },
     task: {
-      name: "액션 아이템",
+      name: "할 일 목록",
       properties: [
         { key: "task.title", name: "작업", type: "title", locked: true },
         {
@@ -280,7 +280,7 @@ export const KOREAN_NOTION_SCHEMA_PRESET = {
         },
         {
           key: "task.sourceActionId",
-          name: "Dirong 액션 ID",
+          name: "Dirong 할 일 ID",
           type: "rich_text",
           locked: true,
         },

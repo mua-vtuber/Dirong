@@ -28,6 +28,9 @@ export const DEFAULT_MEETING_NOTES_LANGUAGE: DirongLocale = "ko";
 export const CREATABLE_NOTION_SCHEMA_LOCALES = ["ko"] as const;
 export type CreatableNotionSchemaLocale =
   (typeof CREATABLE_NOTION_SCHEMA_LOCALES)[number];
+export const SUPPORTED_CLAUDE_SETUP_MODELS = ["haiku", "sonnet", "opus"] as const;
+export type ClaudeSetupModel = (typeof SUPPORTED_CLAUDE_SETUP_MODELS)[number];
+export const DEFAULT_SETUP_CLAUDE_MODEL: ClaudeSetupModel = "haiku";
 
 export const DEFAULT_RECORDING_SETTINGS = {
   dataDir: "./data/sessions",
@@ -117,5 +120,5 @@ export const DEFAULT_SETUP_AI_SETTINGS = {
   provider: "claude",
   mode: "cli",
   claudeProfile: DEFAULT_CLAUDE_TOOL_PROFILE,
-  model: null,
+  model: DEFAULT_SETUP_CLAUDE_MODEL,
 } as const;

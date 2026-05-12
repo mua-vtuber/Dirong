@@ -8,9 +8,11 @@ import {
   DEFAULT_NOTION_SETTINGS,
   DEFAULT_RECORDING_SETTINGS,
   DEFAULT_RETENTION_SETTINGS,
+  DEFAULT_SETUP_CLAUDE_MODEL,
   DEFAULT_SETUP_AI_SETTINGS,
   DEFAULT_STT_SETTINGS,
   LOCAL_ONLY_DASHBOARD_HOST,
+  SUPPORTED_CLAUDE_SETUP_MODELS,
   SUPPORTED_STT_SAFE_FORMATS,
 } from "./defaults.js";
 
@@ -115,6 +117,8 @@ test("policy defaults are named constants", () => {
     provider: "claude",
     mode: "cli",
     claudeProfile: "claude-cli-default",
-    model: null,
+    model: "haiku",
   });
+  assert.deepEqual(SUPPORTED_CLAUDE_SETUP_MODELS, ["haiku", "sonnet", "opus"]);
+  assert.equal(DEFAULT_SETUP_CLAUDE_MODEL, "haiku");
 });

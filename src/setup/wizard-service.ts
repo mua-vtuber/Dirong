@@ -38,7 +38,10 @@ import {
   DEFAULT_AI_CLEANUP_SETTINGS,
   DEFAULT_MEETING_NOTES_LANGUAGE,
   DEFAULT_NOTION_SETTINGS,
+  DEFAULT_SETUP_AI_SETTINGS,
   DEFAULT_STT_SETTINGS,
+  SUPPORTED_CLAUDE_SETUP_MODELS,
+  type ClaudeSetupModel,
 } from "../settings/defaults.js";
 import {
   DEFAULT_SECRET_REFS,
@@ -487,21 +490,30 @@ export class SetupWizardService {
       });
     }
 
-    const model = readCleanString(body, ["model"]);
+    const claudeModel = readClaudeModelInput(body);
+    if (!claudeModel.ok) {
+      return this.result(claudeModel.error);
+    }
     if (mode === "cli") {
       const claudeProfile = readClaudeProfileInput(body);
       if (!claudeProfile.ok) {
         return this.result(claudeProfile.error);
       }
+      let savedModel: ClaudeSetupModel = DEFAULT_SETUP_AI_SETTINGS.model;
       this.options.settingsStore.update((settings) => ({
         ...settings,
-        ai: {
-          provider: "claude",
-          mode,
-          model: model ?? settings.ai.model,
-          claudeProfile: claudeProfile.profile,
-          apiKeySecretRef: settings.ai.apiKeySecretRef,
-        },
+        ai: (() => {
+          savedModel = resolveClaudeSetupModel(
+            claudeModel.model ?? settings.ai.model,
+          );
+          return {
+            provider: "claude",
+            mode,
+            model: savedModel,
+            claudeProfile: claudeProfile.profile,
+            apiKeySecretRef: settings.ai.apiKeySecretRef,
+          };
+        })(),
       }));
 
       return this.result({
@@ -513,7 +525,7 @@ export class SetupWizardService {
         ai: {
           provider: "claude",
           mode,
-          model: model ?? null,
+          model: savedModel,
           claudeProfile: claudeProfile.profile,
         },
       });
@@ -535,15 +547,21 @@ export class SetupWizardService {
       this.options.secretStore.set(DEFAULT_SECRET_REFS.claudeApiKey, apiKey);
     }
 
+    let savedModel: ClaudeSetupModel = DEFAULT_SETUP_AI_SETTINGS.model;
     this.options.settingsStore.update((settings) => ({
       ...settings,
-      ai: {
-        provider: "claude",
-        mode,
-        model: model ?? settings.ai.model,
-        claudeCommand: settings.ai.claudeCommand,
-        apiKeySecretRef: DEFAULT_SECRET_REFS.claudeApiKey,
-      },
+      ai: (() => {
+        savedModel = resolveClaudeSetupModel(
+          claudeModel.model ?? settings.ai.model,
+        );
+        return {
+          provider: "claude",
+          mode,
+          model: savedModel,
+          claudeCommand: settings.ai.claudeCommand,
+          apiKeySecretRef: DEFAULT_SECRET_REFS.claudeApiKey,
+        };
+      })(),
     }));
 
     return this.result({
@@ -555,7 +573,7 @@ export class SetupWizardService {
       ai: {
         provider: "claude",
         mode,
-        model: model ?? null,
+        model: savedModel,
         secret: this.options.secretStore.snapshot(DEFAULT_SECRET_REFS.claudeApiKey),
       },
     });
@@ -1287,6 +1305,39 @@ function readClaudeProfileInput(body: unknown):
   }
 
   return { ok: true, profile };
+}
+
+function readClaudeModelInput(body: unknown):
+  | { ok: true; model: ClaudeSetupModel | null }
+  | { ok: false; error: ResultInput } {
+  const model = readCleanString(body, ["model"]);
+  if (!model) {
+    return { ok: true, model: null };
+  }
+  const normalized = model.toLowerCase();
+  if (isClaudeSetupModel(normalized)) {
+    return { ok: true, model: normalized };
+  }
+  return {
+    ok: false,
+    error: {
+      ok: false,
+      status: "failed",
+      httpStatus: 400,
+      messageKey: "setup.ai.claude.error.invalidModel.message",
+      userActionKey: "setup.ai.claude.error.invalidModel.action",
+    },
+  };
+}
+
+function resolveClaudeSetupModel(value: string | null | undefined): ClaudeSetupModel {
+  return value && isClaudeSetupModel(value)
+    ? value
+    : DEFAULT_SETUP_AI_SETTINGS.model;
+}
+
+function isClaudeSetupModel(value: string): value is ClaudeSetupModel {
+  return SUPPORTED_CLAUDE_SETUP_MODELS.includes(value as ClaudeSetupModel);
 }
 
 function resolveClaudeCommand(settings: DirongLocalSettings["ai"]): string | null {

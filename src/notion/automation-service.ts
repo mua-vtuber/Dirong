@@ -5,7 +5,13 @@ import {
   type HumanStatusDisplay,
   type HumanStatusDisplayInput,
 } from "../messages/human-status.js";
+import {
+  resolveAppLocale,
+  type AppLocaleResolver,
+} from "../i18n/app-locale.js";
+import { t, type LocaleKey } from "../i18n/catalog.js";
 import { PollingLoop } from "../runtime/polling-loop.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 import {
   NotionApiError,
   type NotionClient,
@@ -84,6 +90,7 @@ export type NotionAutomationServiceOptions = {
   registryStore?: NotionRegistryStore | null;
   customPropertyRules?: () => readonly NotionCustomPropertyRule[];
   retention?: NotionUploadRetentionHandler;
+  localeResolver?: AppLocaleResolver;
 };
 
 type NotionAutomationRuntime = {
@@ -98,7 +105,7 @@ export class NotionAutomationService {
 
   constructor(private readonly options: NotionAutomationServiceOptions) {
     const runtime = this.getRuntime();
-    this.snapshot = makeSnapshot({
+    this.snapshot = this.makeSnapshot({
       enabled: runtime.settings.enabled,
       configured: isConfigured(runtime, options.registryStore ?? null),
       uploadMode: runtime.settings.uploadMode,
@@ -120,7 +127,7 @@ export class NotionAutomationService {
       intervalMs: options.pollIntervalMs,
       runTick: () => this.tick(),
       onScheduledError: (error) => {
-        this.snapshot = makeSnapshot({
+        this.snapshot = this.makeSnapshot({
           ...this.snapshot,
           status: "failed",
           checkedAt: new Date().toISOString(),
@@ -138,7 +145,7 @@ export class NotionAutomationService {
 
   async stop(): Promise<void> {
     await this.loop.stop();
-    this.snapshot = makeSnapshot({
+    this.snapshot = this.makeSnapshot({
       ...this.snapshot,
       status: "stopped",
       checkedAt: new Date().toISOString(),
@@ -148,8 +155,13 @@ export class NotionAutomationService {
     });
   }
 
-  getSnapshot(): NotionAutomationSnapshot {
-    return cloneSnapshot(this.snapshot);
+  getSnapshot(locale?: DirongLocale): NotionAutomationSnapshot {
+    return cloneSnapshot(
+      localizeNotionAutomationSnapshot(
+        this.snapshot,
+        resolveAppLocale({ locale, getLocale: this.options.localeResolver }),
+      ),
+    );
   }
 
   async runOnce(): Promise<NotionAutomationSnapshot> {
@@ -157,6 +169,7 @@ export class NotionAutomationService {
       this.getRuntime(),
       this.options.registryStore ?? null,
       this.snapshot,
+      this.resolveLocale(),
     );
     if (blocked) {
       this.snapshot = blocked;
@@ -173,7 +186,7 @@ export class NotionAutomationService {
       this.options.writeStore.releaseExpiredLeases(checkedAt);
 
     if (this.inFlightDraftIds.size > 0) {
-      this.snapshot = makeSnapshot({
+      this.snapshot = this.makeSnapshot({
         ...this.snapshot,
         status: "running",
         checkedAt,
@@ -189,9 +202,10 @@ export class NotionAutomationService {
       runtime,
       this.options.registryStore ?? null,
       this.snapshot,
+      this.resolveLocale(),
     );
     if (blocked) {
-      this.snapshot = makeSnapshot({
+      this.snapshot = this.makeSnapshot({
         ...blocked,
         repairedExpiredLeases,
         inFlightDraftIds: this.getInFlightDraftIds(),
@@ -205,7 +219,7 @@ export class NotionAutomationService {
       this.options.registryStore ?? null,
     );
     if (!target.ok) {
-      this.snapshot = makeSnapshot({
+      this.snapshot = this.makeSnapshot({
         ...this.snapshot,
         status: target.status,
         checkedAt,
@@ -228,7 +242,7 @@ export class NotionAutomationService {
       (item) => !this.inFlightDraftIds.has(item.id),
     );
     if (!candidate) {
-      this.snapshot = makeSnapshot({
+      this.snapshot = this.makeSnapshot({
         ...this.snapshot,
         status: "idle",
         checkedAt,
@@ -262,7 +276,7 @@ export class NotionAutomationService {
     runtime: NotionAutomationRuntime,
   ): Promise<NotionAutomationSnapshot> {
     this.inFlightDraftIds.add(candidate.id);
-    this.snapshot = makeSnapshot({
+    this.snapshot = this.makeSnapshot({
       ...this.snapshot,
       status: "running",
       checkedAt: new Date().toISOString(),
@@ -298,9 +312,10 @@ export class NotionAutomationService {
         previous: this.snapshot,
         result,
         repairedExpiredLeases,
+        locale: this.resolveLocale(),
       });
     } catch (error) {
-      this.snapshot = makeSnapshot({
+      this.snapshot = this.makeSnapshot({
         ...this.snapshot,
         status: "failed",
         checkedAt: new Date().toISOString(),
@@ -312,7 +327,7 @@ export class NotionAutomationService {
       });
     } finally {
       this.inFlightDraftIds.delete(candidate.id);
-      this.snapshot = makeSnapshot({
+      this.snapshot = this.makeSnapshot({
         ...this.snapshot,
         inFlightDraftIds: this.getInFlightDraftIds(),
       });
@@ -332,12 +347,25 @@ export class NotionAutomationService {
       : this.options.client ?? null;
     return { settings, client };
   }
+
+  private makeSnapshot(
+    snapshot: NotionAutomationSnapshot,
+  ): NotionAutomationSnapshot {
+    return makeSnapshot(snapshot, this.resolveLocale());
+  }
+
+  private resolveLocale(): DirongLocale {
+    return resolveAppLocale({ getLocale: this.options.localeResolver });
+  }
 }
 
 export function formatNotionAutomationForStatus(
   snapshot: NotionAutomationSnapshot,
+  locale?: DirongLocale,
 ): string {
-  const display = snapshot.display ?? buildNotionAutomationDisplay(snapshot);
+  const resolvedLocale = resolveAppLocale({ locale });
+  const localized = localizeNotionAutomationSnapshot(snapshot, resolvedLocale);
+  const display = localized.display ?? buildNotionAutomationDisplay(resolvedLocale, localized);
   const lines = [
     formatHumanStatusDisplayForText(display, {
       title: "Notion 자동 업로드",
@@ -362,6 +390,7 @@ function snapshotFromRunResult(input: {
   previous: NotionAutomationSnapshot;
   result: NotionUploadResult;
   repairedExpiredLeases: number;
+  locale: DirongLocale;
 }): NotionAutomationSnapshot {
   return makeSnapshot({
     ...input.previous,
@@ -377,7 +406,7 @@ function snapshotFromRunResult(input: {
     technicalDetail: input.result.technicalDetail,
     lastRunStatus: input.result.status,
     repairedExpiredLeases: input.repairedExpiredLeases,
-  });
+  }, input.locale);
 }
 
 async function resolveAutomationTargetId(
@@ -505,6 +534,7 @@ function blockedSnapshot(
   runtime: NotionAutomationRuntime,
   registryStore: NotionRegistryStore | null,
   previous: NotionAutomationSnapshot,
+  locale: DirongLocale,
 ): NotionAutomationSnapshot | null {
   const checkedAt = new Date().toISOString();
   if (!runtime.settings.enabled) {
@@ -518,7 +548,7 @@ function blockedSnapshot(
       message: "Notion export is disabled.",
       userAction: "자동 업로드를 쓰려면 NOTION_EXPORT_ENABLED=true로 켜 주세요.",
       technicalDetail: null,
-    });
+    }, locale);
   }
   if (runtime.settings.uploadMode !== "automatic_after_ai_cleanup") {
     return makeSnapshot({
@@ -532,7 +562,7 @@ function blockedSnapshot(
       userAction:
         "자동 업로드를 쓰려면 NOTION_UPLOAD_MODE=automatic_after_ai_cleanup으로 설정해 주세요.",
       technicalDetail: null,
-    });
+    }, locale);
   }
   if (!isConfigured(runtime, registryStore)) {
     return makeSnapshot({
@@ -546,7 +576,7 @@ function blockedSnapshot(
       userAction:
         "NOTION_API_KEY와 NOTION_TARGET_URL을 설정한 뒤 다시 시작해 주세요.",
       technicalDetail: null,
-    });
+    }, locale);
   }
   return null;
 }
@@ -613,19 +643,16 @@ function initialUserAction(
 
 function makeSnapshot(
   snapshot: NotionAutomationSnapshot,
+  locale: DirongLocale,
 ): NotionAutomationSnapshot {
   const technicalDetail =
     snapshot.technicalDetail === null
       ? null
       : redactSensitiveText(snapshot.technicalDetail);
-  return cloneSnapshot({
+  return cloneSnapshot(localizeNotionAutomationSnapshot({
     ...snapshot,
     technicalDetail,
-    display: buildNotionAutomationDisplay({
-      ...snapshot,
-      technicalDetail,
-    }),
-  });
+  }, locale));
 }
 
 function cloneSnapshot(
@@ -644,9 +671,10 @@ function cloneSnapshot(
 }
 
 function buildNotionAutomationDisplay(
+  locale: DirongLocale,
   snapshot: NotionAutomationSnapshot,
 ): HumanStatusDisplay {
-  return buildHumanStatusDisplay(undefined, {
+  return buildHumanStatusDisplay(locale, {
     ...notionAutomationDisplayKeys(snapshot.status),
     status: snapshot.status,
     message: snapshot.message,
@@ -664,6 +692,74 @@ function buildNotionAutomationDisplay(
       { label: "repairedExpiredLeases", value: snapshot.repairedExpiredLeases },
     ],
   });
+}
+
+function localizeNotionAutomationSnapshot(
+  snapshot: NotionAutomationSnapshot,
+  locale: DirongLocale,
+): NotionAutomationSnapshot {
+  const message = t(locale, notionAutomationMessageKey(snapshot.status));
+  const userActionKey = notionAutomationUserActionKey(snapshot.status);
+  const localized = {
+    ...snapshot,
+    message,
+    userAction: userActionKey ? t(locale, userActionKey) : null,
+  };
+  return {
+    ...localized,
+    display: buildNotionAutomationDisplay(locale, localized),
+  };
+}
+
+function notionAutomationMessageKey(
+  status: NotionAutomationStatus,
+): LocaleKey {
+  switch (status) {
+    case "disabled":
+      return "runtimeStatus.notionAutomation.disabled.message";
+    case "manual":
+      return "runtimeStatus.notionAutomation.manual.message";
+    case "not_configured":
+      return "runtimeStatus.notionAutomation.notConfigured.message";
+    case "running":
+      return "runtimeStatus.notionAutomation.running.message";
+    case "done":
+      return "runtimeStatus.notionAutomation.done.message";
+    case "not_claimed":
+      return "runtimeStatus.notionAutomation.notClaimed.message";
+    case "retry_wait":
+      return "runtimeStatus.notionAutomation.retryWait.message";
+    case "blocked":
+      return "runtimeStatus.notionAutomation.blocked.message";
+    case "failed":
+      return "runtimeStatus.notionAutomation.failed.message";
+    case "stopped":
+      return "runtimeStatus.notionAutomation.stopped.message";
+    case "idle":
+    default:
+      return "runtimeStatus.notionAutomation.idle.message";
+  }
+}
+
+function notionAutomationUserActionKey(
+  status: NotionAutomationStatus,
+): LocaleKey | null {
+  switch (status) {
+    case "disabled":
+      return "runtimeStatus.notionAutomation.disabled.action";
+    case "manual":
+      return "runtimeStatus.notionAutomation.manual.action";
+    case "not_configured":
+      return "runtimeStatus.notionAutomation.notConfigured.action";
+    case "retry_wait":
+      return "runtimeStatus.notionAutomation.retryWait.action";
+    case "blocked":
+      return "runtimeStatus.notionAutomation.blocked.action";
+    case "failed":
+      return "runtimeStatus.notionAutomation.failed.action";
+    default:
+      return null;
+  }
 }
 
 function notionAutomationDisplayKeys(

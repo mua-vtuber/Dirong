@@ -93,7 +93,7 @@ function appendActionItems(
   draft: MeetingNotesDraftV1,
   maxLineLength: number,
 ): void {
-  appendHeading(lines, "액션 아이템");
+  appendHeading(lines, "할 일 목록");
   if (draft.actionItems.length === 0) {
     appendEmpty(lines);
   } else {

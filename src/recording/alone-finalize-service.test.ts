@@ -12,6 +12,7 @@ import {
 } from "./alone-finalize-service.js";
 import { RecordingProducer } from "./recording-producer.js";
 import type { Phase1Config } from "../config.js";
+import type { AppLocaleResolver } from "../i18n/app-locale.js";
 import type { RecordingRuntimeState } from "../storage/session-store.js";
 import { SessionStore } from "../storage/session-store.js";
 import { DirongDatabase } from "../storage/sqlite.js";
@@ -35,6 +36,33 @@ test("AloneFinalizeService starts grace timer when everyone leaves", async () =>
     assert.match(snapshot.message, /5초 후 자동 종료/);
     assert.deepEqual(fixture.eventTypes(), ["alone_since"]);
     assert.equal(fixture.producer.stopCalls.length, 0);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("AloneFinalizeService localizes runtime snapshot with app locale", async () => {
+  const fixture = createFixture();
+  try {
+    fixture.memberCount = memberCount({ nonBot: 0, bot: 1 });
+    const service = fixture.createService({
+      graceMs: 5000,
+      localeResolver: () => "en",
+    });
+    service.start();
+
+    await service.handleVoiceStateUpdate({ channelId: "voice" }, { channelId: null });
+
+    const snapshot = service.getSnapshot();
+    assert.equal(snapshot.message, "Dirong is alone; recording will stop in 5s");
+    assert.equal(
+      snapshot.userAction,
+      "If someone returns during the grace period, automatic stop is cancelled.",
+    );
+    assert.equal(
+      snapshot.display?.title,
+      "Dirong is alone and waiting to stop recording",
+    );
   } finally {
     fixture.close();
   }
@@ -308,7 +336,10 @@ type Fixture = {
   clock: ManualClock;
   producer: FakeProducer;
   memberCount: AloneFinalizeMemberCountResult;
-  createService(input: { graceMs: number }): AloneFinalizeService;
+  createService(input: {
+    graceMs: number;
+    localeResolver?: AppLocaleResolver;
+  }): AloneFinalizeService;
   eventTypes(): string[];
   close(): void;
 };
@@ -350,6 +381,7 @@ function createFixture(): Fixture {
         now: () => clock.nowMs,
         setTimeout: (callback, delayMs) => clock.setTimeout(callback, delayMs),
         clearTimeout: (timer) => clock.clearTimeout(timer),
+        localeResolver: input.localeResolver,
       }),
     eventTypes: () =>
       database.db.prepare(

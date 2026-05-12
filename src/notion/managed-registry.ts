@@ -82,7 +82,7 @@ export function readManagedNotionRegistrySnapshot(
     remoteCheck: options.remoteCheck ?? null,
     actionItemUpload: {
       status: "implemented",
-      message: "액션 아이템 DB가 준비되면 업로드 시 작업 page를 생성하거나 갱신합니다.",
+      message: "할 일 목록 DB가 준비되면 업로드 시 할 일 페이지를 생성하거나 갱신합니다.",
     },
   };
 }

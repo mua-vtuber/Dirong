@@ -7,6 +7,12 @@ import {
   type HumanStatusDisplayInput,
 } from "../messages/human-status.js";
 import {
+  resolveAppLocale,
+  type AppLocaleResolver,
+} from "../i18n/app-locale.js";
+import { formatLocaleText, t, type LocaleKey } from "../i18n/catalog.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
+import {
   cloneAloneFinalizeSnapshot,
   createInitialAloneFinalizeSnapshot,
   reduceAloneFinalizeSnapshot,
@@ -86,6 +92,7 @@ export type AloneFinalizeServiceOptions = {
   now?: () => number;
   setTimeout?: (callback: () => void, delayMs: number) => AloneFinalizeTimer;
   clearTimeout?: (timer: AloneFinalizeTimer) => void;
+  localeResolver?: AppLocaleResolver;
 };
 
 type AloneFinalizeTimer = ReturnType<typeof setTimeout> & {
@@ -134,9 +141,10 @@ export class AloneFinalizeService {
     });
   }
 
-  getSnapshot(): AloneFinalizeSnapshot {
+  getSnapshot(locale?: DirongLocale): AloneFinalizeSnapshot {
     return withAloneFinalizeDisplay(
       cloneAloneFinalizeSnapshot(this.withDynamicCountdown(this.snapshot)),
+      resolveAppLocale({ locale, getLocale: this.options.localeResolver }),
     );
   }
 
@@ -599,8 +607,11 @@ export class AloneFinalizeService {
 
 export function formatAloneFinalizeForStatus(
   snapshot: AloneFinalizeSnapshot,
+  locale?: DirongLocale,
 ): string {
-  const display = snapshot.display ?? buildAloneFinalizeDisplay(snapshot);
+  const resolvedLocale = resolveAppLocale({ locale });
+  const localized = localizeAloneFinalizeSnapshot(snapshot, resolvedLocale);
+  const display = localized.display ?? buildAloneFinalizeDisplay(resolvedLocale, localized);
   const lines = [
     formatHumanStatusDisplayForText(display, {
       title: "녹음 자동 종료",
@@ -623,17 +634,18 @@ function isFinalStopState(status: SessionStatus): boolean {
 
 function withAloneFinalizeDisplay(
   snapshot: AloneFinalizeSnapshot,
+  locale: DirongLocale,
 ): AloneFinalizeSnapshot {
-  return {
+  return localizeAloneFinalizeSnapshot({
     ...snapshot,
-    display: buildAloneFinalizeDisplay(snapshot),
-  };
+  }, locale);
 }
 
 function buildAloneFinalizeDisplay(
+  locale: DirongLocale,
   snapshot: AloneFinalizeSnapshot,
 ): HumanStatusDisplay {
-  return buildHumanStatusDisplay(undefined, {
+  return buildHumanStatusDisplay(locale, {
     ...aloneFinalizeDisplayKeys(snapshot.status),
     status: snapshot.status,
     message: snapshot.message,
@@ -649,6 +661,88 @@ function buildAloneFinalizeDisplay(
       { label: "warnings", value: snapshot.warnings },
     ],
   });
+}
+
+function localizeAloneFinalizeSnapshot(
+  snapshot: AloneFinalizeSnapshot,
+  locale: DirongLocale,
+): AloneFinalizeSnapshot {
+  const message = aloneFinalizeMessage(locale, snapshot);
+  const userActionKey = aloneFinalizeUserActionKey(snapshot.status);
+  const localized = {
+    ...snapshot,
+    message,
+    userAction: userActionKey ? t(locale, userActionKey) : null,
+  };
+  return {
+    ...localized,
+    display: buildAloneFinalizeDisplay(locale, localized),
+  };
+}
+
+function aloneFinalizeMessage(
+  locale: DirongLocale,
+  snapshot: AloneFinalizeSnapshot,
+): string {
+  if (snapshot.status === "countdown") {
+    return formatLocaleText(
+      locale,
+      "runtimeStatus.aloneFinalize.countdown.message",
+      { seconds: Math.ceil((snapshot.remainingMs ?? 0) / 1000) },
+    );
+  }
+  if (snapshot.status === "finalized") {
+    const rawStatus = snapshot.warnings
+      .find((warning) => warning.startsWith("session_"))
+      ?.slice("session_".length) ?? "finalized";
+    return formatLocaleText(
+      locale,
+      "runtimeStatus.aloneFinalize.finalized.message",
+      { status: rawStatus },
+    );
+  }
+  return t(locale, aloneFinalizeMessageKey(snapshot.status));
+}
+
+function aloneFinalizeMessageKey(status: AloneFinalizeStatus): LocaleKey {
+  switch (status) {
+    case "disabled":
+      return "runtimeStatus.aloneFinalize.disabled.message";
+    case "countdown":
+      return "runtimeStatus.aloneFinalize.countdown.message";
+    case "deferred_reconnecting":
+      return "runtimeStatus.aloneFinalize.deferredReconnecting.message";
+    case "triggering":
+      return "runtimeStatus.aloneFinalize.triggering.message";
+    case "finalized":
+      return "runtimeStatus.aloneFinalize.finalized.message";
+    case "skipped":
+      return "runtimeStatus.aloneFinalize.skipped.message";
+    case "failed":
+      return "runtimeStatus.aloneFinalize.failed.message";
+    case "stopped":
+      return "runtimeStatus.aloneFinalize.stopped.message";
+    case "idle":
+    default:
+      return "runtimeStatus.aloneFinalize.idle.message";
+  }
+}
+
+function aloneFinalizeUserActionKey(status: AloneFinalizeStatus): LocaleKey | null {
+  switch (status) {
+    case "disabled":
+      return "runtimeStatus.aloneFinalize.disabled.action";
+    case "countdown":
+      return "runtimeStatus.aloneFinalize.countdown.action";
+    case "deferred_reconnecting":
+      return "runtimeStatus.aloneFinalize.deferredReconnecting.action";
+    case "skipped":
+      return "runtimeStatus.aloneFinalize.skipped.action";
+    case "failed":
+      return "runtimeStatus.aloneFinalize.failed.action";
+    default:
+      return null;
+  }
 }
 
 function aloneFinalizeDisplayKeys(

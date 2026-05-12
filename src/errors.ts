@@ -99,8 +99,12 @@ export function redactSensitiveText(value: string): string {
     "[REDACTED_DISCORD_TOKEN_LIKE_VALUE]",
   );
   redacted = redacted.replace(
-    /(authorization|token|secret|api[_-]?key)(["'\s:=]+)([^"',\s}]+)/gi,
+    /\b(authorization|token|secret|api[_-]?key)(\s*[:=]\s*)([^"',\s}]+)/gi,
     "$1$2[REDACTED]",
+  );
+  redacted = redacted.replace(
+    /\bauthorization\s*[:=]?\s*bearer\s+[A-Za-z0-9._~+/=-]{8,}/gi,
+    "authorization [REDACTED]",
   );
 
   return redacted;
@@ -126,11 +130,34 @@ export function redactForJson(value: unknown, depth = 0): unknown {
   const output: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(value)) {
     output[key] = SENSITIVE_KEY_PATTERN.test(key)
+      && !isSafeSecretPresenceSnapshot(entry)
+      && !isSafeSecretPresenceMap(entry)
       ? "[REDACTED]"
       : redactForJson(entry, depth + 1);
   }
 
   return output;
+}
+
+function isSafeSecretPresenceSnapshot(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record);
+  return (
+    keys.length === 2
+    && typeof record.configured === "boolean"
+    && (record.displayValue === "[REDACTED]" || record.displayValue === "[MISSING]")
+  );
+}
+
+function isSafeSecretPresenceMap(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const entries = Object.values(value as Record<string, unknown>);
+  return entries.length > 0 && entries.every(isSafeSecretPresenceSnapshot);
 }
 
 export function safeErrorInfo(error: unknown): SafeErrorInfo {

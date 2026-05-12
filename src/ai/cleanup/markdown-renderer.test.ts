@@ -16,7 +16,7 @@ test("renderMeetingNotesDraftMarkdown renders core Korean sections", () => {
   assert.match(markdown, /^## 요약$/m);
   assert.match(markdown, /^## 주요 주제$/m);
   assert.match(markdown, /^## 결정 사항$/m);
-  assert.match(markdown, /^## 액션 아이템$/m);
+  assert.match(markdown, /^## 할 일 목록$/m);
   assert.match(markdown, /^## 미해결\/불확실한 항목$/m);
   assert.match(markdown, /^## 잡담\/노이즈 처리$/m);
   assert.match(markdown, /^## 출처 타임라인$/m);
@@ -45,7 +45,7 @@ test("renderMeetingNotesDraftMarkdown handles empty arrays naturally", () => {
 
   assert.match(markdown, /^## 주요 주제\n\n- 없음$/m);
   assert.match(markdown, /^## 결정 사항\n\n- 없음$/m);
-  assert.match(markdown, /^## 액션 아이템\n\n- 없음$/m);
+  assert.match(markdown, /^## 할 일 목록\n\n- 없음$/m);
   assert.match(markdown, /^## 미해결\/불확실한 항목\n\n- 없음$/m);
   assert.match(markdown, /- 보존 이유: 없음/);
 });

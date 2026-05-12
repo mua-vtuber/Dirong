@@ -40,7 +40,7 @@ test("createManagedNotionSchema stores parent page and creates DBs in managed or
       client.calls
         .filter((call) => call.method === "createDatabase")
         .map((call) => readDatabaseTitle(call.body)),
-      ["작업자", "회의록", "액션 아이템"],
+      ["작업자", "회의록", "할 일 목록"],
     );
     assert.equal(result.databases.member.dataSourceId, "member-ds");
     assert.equal(result.databases.meeting.dataSourceId, "meeting-ds");
@@ -123,7 +123,7 @@ test("createManagedNotionSchema sends Korean preset fields and resolved relation
       client.calls.find((call) => call.method === "updateDataSource")?.body,
     );
     const actionItems = requireRecord(
-      requireRecord(updateBody.properties)["액션 아이템"],
+      requireRecord(updateBody.properties)["할 일 목록"],
     );
     assert.deepEqual(requireRecord(actionItems.relation), {
       data_source_id: "task-ds",
@@ -189,7 +189,7 @@ test("createManagedNotionSchema stores managed databases and semantic property m
     assert.equal(
       fixture.store.getPropertyMapping("meeting", "meeting.actionItems")
         ?.propertyId,
-      "meeting-ds:액션 아이템",
+      "meeting-ds:할 일 목록",
     );
     assert.equal(
       fixture.store.getPropertyMapping("task", "task.assignee")?.sourceKind,
@@ -410,7 +410,7 @@ function roleFromDatabaseTitle(title: string): "meeting" | "member" | "task" {
   if (title === "작업자") {
     return "member";
   }
-  if (title === "액션 아이템") {
+  if (title === "할 일 목록") {
     return "task";
   }
   throw new Error(`unknown database title ${title}`);

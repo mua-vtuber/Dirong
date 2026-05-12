@@ -5,15 +5,15 @@ async function refresh() {
           fetch('/api/setup/state', { cache: 'no-store' }),
           fetch('/api/i18n', { cache: 'no-store' })
         ]);
-        if (!res.ok) {
-          throw new Error('HTTP ' + res.status);
-        }
         if (i18nRes.ok) {
           const i18n = await i18nRes.json();
           i18nLocale = i18n.locale ?? 'ko';
           i18nMessages = i18n.messages ?? {};
           document.documentElement.lang = i18nLocale;
           applyStaticI18n();
+        }
+        if (!res.ok) {
+          throw new Error('HTTP ' + res.status);
         }
         const state = await res.json();
         const setup = setupRes.ok ? await setupRes.json() : state.setup ?? null;
@@ -22,8 +22,9 @@ async function refresh() {
         const message = error instanceof Error ? error.message : String(error);
         setHtml('events', '<div class="metric"><div class="label">dashboard fetch failed</div>' +
           '<div class="value error">' + escapeHtml(message) + '</div></div>');
-        setHtml('setupWizard', '<div class="setup-top"><div><h2 class="setup-title">첫 설정 위자드</h2>' +
-          '<p class="setup-copy">설정 상태를 불러오지 못했습니다.</p></div></div>' +
+        setHtml('setupWizard', '<div class="setup-top"><div><h2 class="setup-title">' +
+          i18n('dashboard.setupWizard.title') + '</h2>' +
+          '<p class="setup-copy">' + i18n('dashboard.setupWizard.fetchFailed') + '</p></div></div>' +
           '<div class="setup-result"><div class="value error">' + escapeHtml(message) + '</div></div>');
       }
     }

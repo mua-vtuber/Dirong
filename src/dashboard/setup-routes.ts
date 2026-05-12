@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { redactForJson } from "../errors.js";
+import { resolveAppLocale } from "../i18n/app-locale.js";
 import { catalogs, listLocaleKeys, t } from "../i18n/catalog.js";
 import {
   DEFAULT_DIRONG_DASHBOARD_THEME,
@@ -15,6 +16,7 @@ import {
   isRecord,
   readJsonBody,
   sendJson,
+  sendTrustedJson,
   withMessageKeys,
 } from "./http.js";
 import type { DashboardRuntimeSources } from "./server.js";
@@ -22,11 +24,10 @@ import type { DashboardRuntimeSources } from "./server.js";
 export function getDashboardResponseLocale(
   sources: DashboardRuntimeSources,
 ): DirongLocale {
-  return (
-    sources.setupStatus?.getLocale?.() ??
-    sources.setupStatus?.getSnapshot().locale ??
-    DEFAULT_DIRONG_LOCALE
-  );
+  return resolveAppLocale({
+    getLocale: () => sources.setupStatus?.getLocale?.(),
+    locale: sources.setupStatus?.getSnapshot().locale,
+  });
 }
 
 export function handleSetupStatusGet(
@@ -82,10 +83,10 @@ export function handleLanguageGet(
   }
 
   const snapshot = sources.setupStatus.getSnapshot();
-  const locale =
-    sources.setupStatus.getLocale?.() ??
-    snapshot.locale ??
-    DEFAULT_DIRONG_LOCALE;
+  const locale = resolveAppLocale({
+    getLocale: () => sources.setupStatus?.getLocale?.(),
+    locale: snapshot.locale,
+  });
 
   sendJson(response, withMessageKeys(locale, {
     ok: true,
@@ -236,7 +237,7 @@ export function handleI18nGet(
 ): void {
   const locale = getDashboardResponseLocale(sources);
   const keys = listLocaleKeys(catalogs[locale] ?? catalogs.ko);
-  sendJson(response, {
+  sendTrustedJson(response, {
     locale,
     messages: Object.fromEntries(keys.map((key) => [key, t(locale, key)])),
   });

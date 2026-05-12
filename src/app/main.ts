@@ -15,6 +15,7 @@ import {
 import {
   snapshotPhase1Config,
 } from "../config.js";
+import { createAppLocaleResolver } from "../i18n/app-locale.js";
 import {
   canStartAiAutomation,
   canStartDiscordRuntime,
@@ -83,6 +84,9 @@ import type { SttProvider } from "../stt/provider.js";
 import { backupDatabaseSnapshot } from "../storage/sqlite-backup.js";
 
 const productRuntime = loadProductRuntimeSettings();
+const resolveAppLocale = createAppLocaleResolver({
+  getLocale: () => productRuntime.setupStatus.getLocale(),
+});
 const config = productRuntime.config;
 const appSettings = productRuntime.appSettings;
 const DIRONG_DISCORD_IMAGE_PATH = fileURLToPath(
@@ -468,6 +472,7 @@ function createAloneFinalizeService(): AloneFinalizeService {
     store,
     producer,
     countNonBotMembers: countNonBotVoiceMembers,
+    localeResolver: resolveAppLocale,
   });
 }
 
@@ -495,6 +500,7 @@ function createSttAutomationService(
       timeoutMs,
       contextSegments: 2,
     },
+    localeResolver: resolveAppLocale,
   });
 }
 
@@ -505,6 +511,7 @@ function createAiLifecycleService(
     wrapAiCleanupProviderWithLifecycle(provider),
     {
       prepareTimeoutMs: appSettings.aiCleanup.prepareTimeoutMs,
+      localeResolver: resolveAppLocale,
     },
   );
 }
@@ -536,6 +543,7 @@ function createAiCleanupAutomationService(
           busyTimeoutMs: config.dbBusyTimeoutMs,
         }),
     },
+    localeResolver: resolveAppLocale,
   });
 }
 
@@ -557,6 +565,7 @@ function createNotionAutomationService(
     registryStore: new NotionRegistryStore(runner),
     customPropertyRules: () => notionPropertyRuleStore.listEnabledRules("meeting"),
     retention: notionUploadRetention,
+    localeResolver: resolveAppLocale,
   });
 }
 

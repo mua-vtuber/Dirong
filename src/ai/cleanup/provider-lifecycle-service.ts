@@ -4,6 +4,12 @@ import {
   formatHumanStatusDisplayForText,
   type HumanStatusDisplayInput,
 } from "../../messages/human-status.js";
+import {
+  resolveAppLocale,
+  type AppLocaleResolver,
+} from "../../i18n/app-locale.js";
+import { t, type LocaleKey } from "../../i18n/catalog.js";
+import type { DirongLocale } from "../../settings/local-settings-store.js";
 import type {
   AiMeetingNotesProvider,
   AiProviderLifecycleCallOptions,
@@ -12,6 +18,7 @@ import type {
 
 export type AiProviderLifecycleServiceOptions = {
   prepareTimeoutMs: number;
+  localeResolver?: AppLocaleResolver;
 };
 
 /**
@@ -35,7 +42,7 @@ export class AiProviderLifecycleService {
     private readonly provider: AiMeetingNotesProvider,
     private readonly options: AiProviderLifecycleServiceOptions,
   ) {
-    this.snapshot = sanitizeSnapshot(provider.getReadiness());
+    this.snapshot = this.sanitizeSnapshot(provider.getReadiness());
   }
 
   startPrepareInBackground(): Promise<AiProviderRuntimeReadinessSnapshot> {
@@ -53,21 +60,21 @@ export class AiProviderLifecycleService {
     };
 
     const prepare = this.provider.prepare(callOptions);
-    this.snapshot = sanitizeSnapshot(this.provider.getReadiness());
+    this.snapshot = this.sanitizeSnapshot(this.provider.getReadiness());
 
     this.preparePromise = prepare
       .then((snapshot) => {
         if (this.stopped) {
           return this.getSnapshot();
         }
-        this.snapshot = sanitizeSnapshot(snapshot);
+        this.snapshot = this.sanitizeSnapshot(snapshot);
         return this.snapshot;
       })
       .catch((error: unknown) => {
         if (this.stopped) {
           return this.getSnapshot();
         }
-        this.snapshot = sanitizeSnapshot({
+        this.snapshot = this.sanitizeSnapshot({
           status: "failed",
           provider: this.provider.providerName,
           model: this.provider.modelName,
@@ -85,22 +92,40 @@ export class AiProviderLifecycleService {
     return this.preparePromise;
   }
 
-  getSnapshot(): AiProviderRuntimeReadinessSnapshot {
-    return { ...this.snapshot };
+  getSnapshot(locale?: DirongLocale): AiProviderRuntimeReadinessSnapshot {
+    return {
+      ...localizeAiReadinessSnapshot(
+        this.snapshot,
+        resolveAppLocale({ locale, getLocale: this.options.localeResolver }),
+      ),
+    };
   }
 
   async stop(): Promise<void> {
     this.stopped = true;
     this.prepareAbortController.abort();
     await this.provider.stop({ timeoutMs: this.options.prepareTimeoutMs });
-    this.snapshot = sanitizeSnapshot(this.provider.getReadiness());
+    this.snapshot = this.sanitizeSnapshot(this.provider.getReadiness());
+  }
+
+  private sanitizeSnapshot(
+    snapshot: AiProviderRuntimeReadinessSnapshot,
+  ): AiProviderRuntimeReadinessSnapshot {
+    return sanitizeSnapshot(snapshot, this.resolveLocale());
+  }
+
+  private resolveLocale(): DirongLocale {
+    return resolveAppLocale({ getLocale: this.options.localeResolver });
   }
 }
 
 export function formatAiReadinessForStatus(
   snapshot: AiProviderRuntimeReadinessSnapshot,
+  locale?: DirongLocale,
 ): string {
-  const display = snapshot.display ?? buildAiReadinessDisplay(snapshot);
+  const resolvedLocale = resolveAppLocale({ locale });
+  const localized = localizeAiReadinessSnapshot(snapshot, resolvedLocale);
+  const display = localized.display ?? buildAiReadinessDisplay(resolvedLocale, localized);
   const lines = [
     formatHumanStatusDisplayForText(display, {
       title: "AI 상태",
@@ -114,19 +139,16 @@ export function formatAiReadinessForStatus(
 
 function sanitizeSnapshot(
   snapshot: AiProviderRuntimeReadinessSnapshot,
+  locale: DirongLocale,
 ): AiProviderRuntimeReadinessSnapshot {
   const technicalDetail =
     snapshot.technicalDetail === null
       ? null
       : redactSensitiveText(snapshot.technicalDetail);
-  return {
+  return localizeAiReadinessSnapshot({
     ...snapshot,
     technicalDetail,
-    display: buildAiReadinessDisplay({
-      ...snapshot,
-      technicalDetail,
-    }),
-  };
+  }, locale);
 }
 
 function errorMessage(error: unknown): string {
@@ -134,9 +156,10 @@ function errorMessage(error: unknown): string {
 }
 
 function buildAiReadinessDisplay(
+  locale: DirongLocale,
   snapshot: AiProviderRuntimeReadinessSnapshot,
 ) {
-  return buildHumanStatusDisplay(undefined, {
+  return buildHumanStatusDisplay(locale, {
     ...aiReadinessDisplayKeys(snapshot.status),
     status: snapshot.status,
     message: snapshot.message,
@@ -148,6 +171,72 @@ function buildAiReadinessDisplay(
       { label: "checkedAt", value: snapshot.checkedAt },
     ],
   });
+}
+
+function localizeAiReadinessSnapshot(
+  snapshot: AiProviderRuntimeReadinessSnapshot,
+  locale: DirongLocale,
+): AiProviderRuntimeReadinessSnapshot {
+  const message = t(locale, aiReadinessMessageKey(snapshot.status));
+  const userActionKey = aiReadinessUserActionKey(snapshot.status);
+  const localized = {
+    ...snapshot,
+    message,
+    userAction: userActionKey ? t(locale, userActionKey) : null,
+  };
+  return {
+    ...localized,
+    display: buildAiReadinessDisplay(locale, localized),
+  };
+}
+
+function aiReadinessMessageKey(
+  status: AiProviderRuntimeReadinessSnapshot["status"],
+): LocaleKey {
+  switch (status) {
+    case "idle":
+      return "runtimeStatus.aiReadiness.idle.message";
+    case "preparing":
+      return "runtimeStatus.aiReadiness.preparing.message";
+    case "ready":
+      return "runtimeStatus.aiReadiness.ready.message";
+    case "login_required":
+      return "runtimeStatus.aiReadiness.loginRequired.message";
+    case "auth_required":
+      return "runtimeStatus.aiReadiness.authRequired.message";
+    case "server_unreachable":
+      return "runtimeStatus.aiReadiness.serverUnreachable.message";
+    case "not_installed":
+      return "runtimeStatus.aiReadiness.notInstalled.message";
+    case "degraded":
+      return "runtimeStatus.aiReadiness.degraded.message";
+    case "stopped":
+      return "runtimeStatus.aiReadiness.stopped.message";
+    case "failed":
+    default:
+      return "runtimeStatus.aiReadiness.failed.message";
+  }
+}
+
+function aiReadinessUserActionKey(
+  status: AiProviderRuntimeReadinessSnapshot["status"],
+): LocaleKey | null {
+  switch (status) {
+    case "login_required":
+      return "runtimeStatus.aiReadiness.loginRequired.action";
+    case "auth_required":
+      return "runtimeStatus.aiReadiness.authRequired.action";
+    case "server_unreachable":
+      return "runtimeStatus.aiReadiness.serverUnreachable.action";
+    case "not_installed":
+      return "runtimeStatus.aiReadiness.notInstalled.action";
+    case "degraded":
+      return "runtimeStatus.aiReadiness.degraded.action";
+    case "failed":
+      return "runtimeStatus.aiReadiness.failed.action";
+    default:
+      return null;
+  }
 }
 
 function aiReadinessDisplayKeys(

@@ -318,7 +318,7 @@ async function resolveManagedActionItemTarget(input: {
   if (!input.candidate.taskDatabase) {
     return {
       target: null,
-      warnings: ["Notion 액션 아이템 DB 연결 정보가 없어 task page 생성을 건너뜁니다."],
+      warnings: ["Notion 할 일 목록 DB 연결 정보가 없어 할 일 페이지 생성을 건너뜁니다."],
     };
   }
 
@@ -337,7 +337,7 @@ async function resolveManagedActionItemTarget(input: {
       return {
         target: null,
         warnings: [
-          `Notion 액션 아이템 DB 스키마가 건강하지 않아 task page 생성을 건너뜁니다. ${taskValidation.userAction}`,
+          `Notion 할 일 목록 DB 스키마가 건강하지 않아 할 일 페이지 생성을 건너뜁니다. ${taskValidation.userAction}`,
         ],
       };
     }
@@ -352,7 +352,7 @@ async function resolveManagedActionItemTarget(input: {
     return {
       target: null,
       warnings: [
-        `Notion 액션 아이템 DB 상태를 확인하지 못해 task page 생성을 건너뜁니다 (${error instanceof Error ? error.message : String(error)}).`,
+        `Notion 할 일 목록 DB 상태를 확인하지 못해 할 일 페이지 생성을 건너뜁니다 (${error instanceof Error ? error.message : String(error)}).`,
       ],
     };
   }

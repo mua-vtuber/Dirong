@@ -29,6 +29,19 @@ export function sendJson(
   response.end(`${JSON.stringify(redactForJson(value))}\n`);
 }
 
+export function sendTrustedJson(
+  response: ServerResponse,
+  value: unknown,
+  statusCode = 200,
+): void {
+  response.writeHead(statusCode, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+  });
+  response.end(`${JSON.stringify(value)}\n`);
+}
+
 export function sendText(
   response: ServerResponse,
   statusCode: number,

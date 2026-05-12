@@ -122,6 +122,7 @@ export type ProductSetupStatusSnapshot = {
     ai: ProductSetupFeatureSnapshot & {
       provider: string | null;
       mode: string | null;
+      model: string | null;
     };
     notion: ProductSetupFeatureSnapshot & {
       parentPageConfigured: boolean;
@@ -651,6 +652,7 @@ function buildAiStatus(
       missing: ["ai.provider", "ai.mode"],
       provider: settings.ai.provider ?? null,
       mode: settings.ai.mode ?? null,
+      model: settings.ai.model ?? null,
       runtimeEffect: buildSettingsRuntimeEffect(locale, "ai"),
     });
   }
@@ -663,6 +665,7 @@ function buildAiStatus(
       missing: ["ai.claudeApiKey"],
       provider: "claude",
       mode: "api",
+      model: settings.ai.model ?? null,
       runtimeEffect: buildSettingsRuntimeEffect(locale, "ai"),
     });
   }
@@ -679,6 +682,7 @@ function buildAiStatus(
       missing: ["ai.claudeCommand"],
       provider: "claude",
       mode: "cli",
+      model: settings.ai.model ?? null,
       runtimeEffect: buildSettingsRuntimeEffect(locale, "ai"),
     });
   }
@@ -690,6 +694,7 @@ function buildAiStatus(
     missing: [],
     provider: "claude",
     mode: settings.ai.mode,
+    model: settings.ai.model ?? null,
     runtimeEffect: buildSettingsRuntimeEffect(locale, "ai"),
   });
 }

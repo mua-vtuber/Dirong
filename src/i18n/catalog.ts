@@ -6,7 +6,7 @@ export const ko = {
     action: {
       done: {
         title: "설정을 저장했어요",
-        description: "방금 입력한 값이 저장됐고 다음 단계로 진행할 수 있습니다.",
+        description: "방금 입력한 값이 저장되었습니다.",
       },
       ready: {
         title: "이미 준비되어 있어요",
@@ -99,11 +99,69 @@ export const ko = {
         description: "Claude provider 준비 상태 확인이 중지되었습니다.",
       },
     },
+    aiCleanup: {
+      disabled: {
+        title: "AI 회의록 자동화가 꺼져 있어요",
+        description: "회의록 초안을 자동으로 만드는 기능이 현재 비활성화되어 있습니다.",
+        nextAction: "필요하면 수동 Phase 4 CLI로 회의록 생성을 실행해 주세요.",
+      },
+      idle: {
+        title: "AI 회의록 자동화가 대기 중이에요",
+        description: "처리할 회의가 생기면 STT 상태를 확인한 뒤 회의록 초안을 만듭니다.",
+      },
+      waitingForFinalizedSession: {
+        title: "완료된 녹음 세션을 기다리고 있어요",
+        description: "회의록을 만들 수 있는 finalized 세션이 아직 없습니다.",
+      },
+      waitingForStt: {
+        title: "STT 완료를 기다리고 있어요",
+        description: "회의록을 만들기 전에 음성 텍스트 변환이 끝나야 합니다.",
+      },
+      waitingForAiProvider: {
+        title: "AI provider 준비를 기다리고 있어요",
+        description: "회의록 생성을 시작하기 전에 AI 실행 환경이 준비되어야 합니다.",
+        nextAction: "AI provider 상태를 확인해 주세요. 준비되면 자동으로 다시 시도합니다.",
+      },
+      queued: {
+        title: "AI 회의록 작업을 준비하고 있어요",
+        description: "회의록 생성 job을 실행할 차례인지 확인하는 중입니다.",
+      },
+      running: {
+        title: "회의록 초안을 만들고 있어요",
+        description: "AI provider가 STT 결과를 바탕으로 회의록 초안을 생성하는 중입니다.",
+      },
+      done: {
+        title: "회의록 초안 생성이 끝났어요",
+        description: "AI 회의록 초안을 저장했습니다.",
+      },
+      alreadyDone: {
+        title: "이미 회의록 초안이 있어요",
+        description: "같은 입력으로 만든 회의록 초안이 이미 저장되어 있습니다.",
+      },
+      blocked: {
+        title: "회의록 생성을 보류했어요",
+        description: "생성할 실제 발화가 없거나 입력 조건을 만족하지 않아 회의록 생성을 멈췄습니다.",
+        nextAction: "실제 STT 발화가 생기면 다시 실행됩니다.",
+      },
+      failed: {
+        title: "회의록 생성에 실패했어요",
+        description: "AI 회의록 초안을 만들지 못했습니다. 녹음과 STT 결과는 보존됩니다.",
+        nextAction: "AI provider 상태와 job 오류를 확인한 뒤 필요하면 수동 Phase 4 CLI로 재시도해 주세요.",
+      },
+      notClaimed: {
+        title: "AI 회의록 작업 순서를 기다리고 있어요",
+        description: "이미 처리 중이거나 재시도 시간이 아직 오지 않아 이번에는 job을 잡지 않았습니다.",
+      },
+      stopped: {
+        title: "AI 회의록 자동화를 멈췄어요",
+        description: "AI 회의록 자동 실행 서비스가 중지되었습니다.",
+      },
+    },
     notion: {
       notConfigured: {
         title: "Notion 연결 설정이 아직 끝나지 않았어요",
-        description: "Notion token 또는 디롱이 전용 parent page 정보가 빠져 있어서 업로드를 시작할 수 없습니다.",
-        nextAction: "Notion 설정에서 token과 parent page URL을 저장해 주세요.",
+        description: "Notion token 또는 노션 DB 관리 페이지 정보가 빠져 있어서 업로드를 시작할 수 없습니다.",
+        nextAction: "Notion 설정에서 token과 노션 DB 관리 페이지 URL을 저장해 주세요.",
       },
       registryMissing: {
         title: "Notion DB 설정이 아직 만들어지지 않았어요",
@@ -230,6 +288,192 @@ export const ko = {
       },
     },
   },
+  runtimeStatus: {
+    sttAutomation: {
+      disabled: {
+        message: "STT 자동 실행이 꺼져 있습니다.",
+        action: "필요하면 수동 Phase 3 STT CLI를 실행해 주세요.",
+      },
+      idle: {
+        message: "STT 자동 실행 대기 중: queued job 없음",
+      },
+      running: {
+        message: "STT queued job 확인 중",
+      },
+      done: {
+        message: "STT batch 처리 완료",
+      },
+      doneMore: {
+        message: "STT batch 처리 완료: 추가 queued job이 남아 있습니다.",
+      },
+      failed: {
+        message: "STT 처리 실패. 녹음 파일과 job 상태는 보존됩니다.",
+        action: "실패한 STT job은 dashboard와 로그를 확인해 주세요.",
+      },
+      stopped: {
+        message: "STT 자동 실행 중지됨",
+      },
+    },
+    aiReadiness: {
+      idle: {
+        message: "AI 준비 전",
+      },
+      preparing: {
+        message: "AI 준비 중",
+      },
+      ready: {
+        message: "AI 준비 완료",
+      },
+      loginRequired: {
+        message: "AI 로그인 필요",
+        action: "터미널에서 AI CLI 로그인을 완료한 뒤 다시 확인해 주세요.",
+      },
+      authRequired: {
+        message: "AI API 키 필요",
+        action: "설정의 AI API key를 확인해 주세요.",
+      },
+      serverUnreachable: {
+        message: "로컬 AI 서버가 꺼져 있음",
+        action: "로컬 AI 서버를 켠 뒤 다시 확인해 주세요.",
+      },
+      notInstalled: {
+        message: "AI 도구를 찾지 못함",
+        action: "선택한 AI CLI가 설치되어 있고 터미널에서 실행되는지 확인해 주세요.",
+      },
+      degraded: {
+        message: "AI provider를 사용할 수 있지만 일부 상태를 확인해야 합니다.",
+        action: "AI provider 상태와 로그를 확인해 주세요.",
+      },
+      failed: {
+        message: "AI 준비 확인 실패. 실패했지만 녹음/STT는 보존됩니다.",
+        action: "AI 설정과 provider 상태를 확인한 뒤 다시 시도해 주세요.",
+      },
+      stopped: {
+        message: "AI 준비 상태 확인 중지됨",
+      },
+    },
+    aiCleanupAutomation: {
+      disabled: {
+        message: "AI cleanup 자동 실행이 꺼져 있습니다.",
+        action: "필요하면 수동 Phase 4 CLI를 실행해 주세요.",
+      },
+      idle: {
+        message: "AI cleanup 자동 실행 대기 중",
+      },
+      waitingForFinalizedSession: {
+        message: "AI cleanup 대기 중: finalized 세션을 기다리는 중",
+      },
+      waitingForStt: {
+        message: "STT 완료 대기 중",
+      },
+      waitingForAiProvider: {
+        message: "AI cleanup 대기 중: AI 준비가 필요합니다.",
+        action: "AI provider 상태를 확인한 뒤 준비가 완료되면 자동으로 다시 시도합니다.",
+      },
+      queued: {
+        message: "AI cleanup job 실행 준비 중",
+      },
+      running: {
+        message: "회의록 생성 중",
+      },
+      done: {
+        message: "회의록 초안 생성 완료",
+      },
+      alreadyDone: {
+        message: "이미 회의록 초안이 있습니다.",
+      },
+      blocked: {
+        message: "회의록 생성 보류: 생성할 실제 발화가 없거나 입력 조건을 만족하지 않습니다.",
+        action: "실제 STT 발화가 생기면 다시 실행됩니다. fake/no_speech만 있는 세션은 draft 없이 보류됩니다.",
+      },
+      failed: {
+        message: "회의록 생성 실패. 실패했지만 녹음/STT는 보존됩니다.",
+        action: "AI provider 상태와 job 오류를 확인한 뒤 필요하면 수동 Phase 4 CLI로 재시도해 주세요.",
+      },
+      notClaimed: {
+        message: "AI cleanup job을 아직 실행할 수 없습니다.",
+        action: "이미 처리 중이거나 재시도 시간이 아직 오지 않았습니다.",
+      },
+      stopped: {
+        message: "AI cleanup 자동 실행 중지됨",
+      },
+    },
+    notionAutomation: {
+      disabled: {
+        message: "Notion 자동 업로드가 꺼져 있습니다.",
+        action: "자동 업로드를 쓰려면 NOTION_EXPORT_ENABLED=true로 켜 주세요.",
+      },
+      manual: {
+        message: "Notion 업로드가 수동 모드입니다.",
+        action: "자동 업로드를 쓰려면 NOTION_UPLOAD_MODE=automatic_after_ai_cleanup으로 설정해 주세요.",
+      },
+      notConfigured: {
+        message: "Notion 자동 업로드 설정이 아직 완성되지 않았습니다.",
+        action: "NOTION_API_KEY와 NOTION_TARGET_URL을 설정한 뒤 다시 시작해 주세요.",
+      },
+      idle: {
+        message: "Notion 자동 업로드 대기 중: 업로드할 valid draft 없음",
+      },
+      running: {
+        message: "Notion 자동 업로드 실행 중",
+      },
+      done: {
+        message: "Notion 자동 업로드 완료",
+      },
+      notClaimed: {
+        message: "Notion 업로드 순서를 기다리는 중",
+      },
+      retryWait: {
+        message: "Notion 자동 업로드 재시도 대기 중",
+        action: "잠시 기다리면 자동으로 다시 시도합니다. 계속 실패하면 Notion 연결 상태를 확인해 주세요.",
+      },
+      blocked: {
+        message: "Notion 자동 업로드가 멈췄습니다.",
+        action: "Notion 설정과 DB 상태를 확인해 주세요.",
+      },
+      failed: {
+        message: "Notion 자동 업로드 중 오류가 발생했습니다. local draft는 보존됩니다.",
+        action: "Notion 설정과 dashboard의 최신 Notion write 상태를 확인한 뒤 수동 Retry를 시도해 주세요.",
+      },
+      stopped: {
+        message: "Notion 자동 업로드 중지됨",
+      },
+    },
+    aloneFinalize: {
+      disabled: {
+        message: "혼자 남음 자동 종료가 꺼져 있습니다.",
+        action: "DIRONG_ALONE_FINALIZE_ENABLED=true로 명시 opt-in해야 동작합니다.",
+      },
+      idle: {
+        message: "혼자 남음 자동 종료 대기 중",
+      },
+      countdown: {
+        message: "혼자 남음 감지, {seconds}초 후 자동 종료",
+        action: "grace 시간 안에 사람이 돌아오면 자동 종료가 취소됩니다.",
+      },
+      deferredReconnecting: {
+        message: "혼자 남음 감지됨: Discord 재연결 중이라 자동 종료를 보류했습니다.",
+        action: "연결이 안정되면 다시 확인합니다. 녹음 데이터는 보존됩니다.",
+      },
+      triggering: {
+        message: "혼자 남음 grace가 끝나 녹음을 자동 종료하는 중",
+      },
+      finalized: {
+        message: "혼자 남음으로 녹음을 자동 종료했습니다. 상태: {status}",
+      },
+      skipped: {
+        message: "혼자 남음 자동 종료를 건너뛰었습니다. 녹음은 계속됩니다.",
+        action: "자동 종료 조건을 안전하게 확인하지 못했습니다. dashboard 상태를 확인해 주세요.",
+      },
+      failed: {
+        message: "혼자 남음 자동 종료 실패. 녹음/STT 데이터는 보존됩니다.",
+        action: "dashboard와 로그를 확인한 뒤 필요하면 /dirong stop을 실행해 주세요.",
+      },
+      stopped: {
+        message: "혼자 남음 자동 종료 중지됨",
+      },
+    },
+  },
   setup: {
     discord: {
       status: {
@@ -271,7 +515,8 @@ export const ko = {
       connection: {
         test: {
           done: {
-            message: "Discord bot token과 application ID 연결을 확인했습니다.",
+            message:
+              "애플리케이션 ID와 봇 토큰이 같은 디스코드 봇의 값인 것을 확인했습니다.",
           },
         },
         error: {
@@ -423,6 +668,10 @@ export const ko = {
             message: "허용되지 않는 Claude CLI command입니다.",
             action: "대시보드에서는 기본 Claude CLI profile만 사용할 수 있습니다.",
           },
+          invalidModel: {
+            message: "지원하지 않는 Claude 모델입니다.",
+            action: "haiku, sonnet, opus 중 하나를 선택해 주세요.",
+          },
         },
       },
     },
@@ -430,12 +679,12 @@ export const ko = {
       status: {
         notConfigured: {
           message: "Notion 연결 설정이 아직 완료되지 않았습니다.",
-          action: "Notion internal connection token과 parent page URL을 저장해 주세요.",
+          action: "Notion internal connection token과 노션 DB 관리 페이지 URL을 저장해 주세요.",
         },
         registryMissing: {
           message: "Notion 연결 값은 있지만 managed DB registry가 아직 없습니다.",
           action:
-            "위자드의 managed DB 생성 단계에서 회의록, 작업자, 액션 아이템 DB 세트를 생성해 주세요.",
+            "위자드의 managed DB 생성 단계에서 회의록, 작업자, 할 일 목록 DB 세트를 생성해 주세요.",
         },
         registryPartial: {
           message: "Notion managed DB registry가 일부만 저장되어 업로드를 막았습니다.",
@@ -462,28 +711,28 @@ export const ko = {
       parentPage: {
         save: {
           done: {
-            message: "Notion parent page URL을 저장했습니다.",
+            message: "노션 DB 관리 페이지 URL을 저장했습니다.",
           },
         },
         verify: {
           done: {
-            message: "Notion parent page 접근 권한을 확인했습니다.",
+            message: "노션 DB 관리 페이지 접근 권한을 확인했습니다.",
           },
           error: {
             notConfigured: {
-              message: "Notion parent page 검증에 필요한 값이 아직 없습니다.",
-              action: "Notion token과 parent page URL을 먼저 저장해 주세요.",
+              message: "노션 DB 관리 페이지 검증에 필요한 값이 아직 없습니다.",
+              action: "Notion token과 노션 DB 관리 페이지 URL을 먼저 저장해 주세요.",
             },
             failed: {
-              message: "Notion parent page에 접근하지 못했습니다.",
+              message: "노션 DB 관리 페이지에 접근하지 못했습니다.",
               action: "해당 page에 Dirong internal connection을 Add connection으로 공유했는지 확인해 주세요.",
             },
           },
         },
         error: {
           invalid: {
-            message: "Notion parent page URL 형식이 올바르지 않습니다.",
-            action: "데이터베이스가 아니라 Dirong 전용 상위 page 링크를 복사해 주세요.",
+            message: "노션 DB 관리 페이지 URL 형식이 올바르지 않습니다.",
+            action: "데이터베이스 링크가 아니라 디롱이가 DB를 만들 노션 페이지 링크를 복사해 주세요.",
           },
         },
       },
@@ -511,7 +760,7 @@ export const ko = {
           },
           failed: {
             message: "Notion managed DB 생성에 실패했습니다.",
-            action: "parent page 공유 권한과 Notion token을 확인한 뒤 disposable parent page에서 다시 시도해 주세요.",
+            action: "노션 DB 관리 페이지 공유 권한과 Notion token을 확인한 뒤 다시 시도해 주세요.",
           },
         },
       },
@@ -588,6 +837,235 @@ export const ko = {
       },
       lockedTitle: "잠긴 기능",
     },
+    setupWizard: {
+      title: "첫 설정 위자드",
+      loading: "설정 상태 API를 기다리는 중입니다.",
+      fetchFailed: "설정 상태를 불러오지 못했습니다.",
+      intro:
+        "처음 사용하는 사람도 토큰, 서버 선택, STT, Claude, Notion 생성을 대시보드에서 차근차근 끝낼 수 있게 안내합니다.",
+      progress: "{completed} / {total}",
+      steps: {
+        language: "언어 선택",
+        discord: "디스코드 봇 연결",
+        guild: "디스코드 서버 선택",
+        stt: "STT provider/model 선택",
+        ai: "Claude CLI/API 선택",
+        notionToken: "Notion token 입력",
+        notionParent: "노션 DB 관리 페이지 URL 입력",
+        notionManaged: "managed DB 생성",
+        recording: "녹음 자동 종료 확인",
+        privacy: "개인정보/보관 정책 확인",
+        final: "최종 점검",
+      },
+      actions: {
+        goDashboard: "대시보드로 가기",
+        skipToDashboard: "나중에 설정하고 대시보드 보기",
+        next: "다음",
+        continue: "계속",
+        saveLanguage: "언어 저장",
+        saveDiscordApplicationId: "애플리케이션 ID 저장",
+        saveDiscordBotToken: "봇 토큰 저장",
+        testConnection: "연결 확인",
+        loadGuilds: "서버 목록 불러오기",
+        saveSelectedGuild: "선택한 서버 저장",
+        saveStt: "STT 설정 저장",
+        saveClaude: "Claude 설정 저장",
+        saveNotionToken: "Notion token 저장",
+        saveParentPage: "DB 관리 페이지 URL 저장",
+        verifyAccess: "접근 확인",
+        createManagedDb: "managed DB 생성",
+        restartFromBeginning: "처음부터 다시 보기",
+      },
+      fallback: {
+        defaultsMissing: "서버 기본값을 아직 불러오지 못했습니다.",
+        retryLater: "잠시 후 다시 시도해 주세요.",
+        checkDiscordToken: "디스코드 봇 토큰 저장 상태를 확인해 주세요.",
+      },
+      language: {
+        title: "앱 언어를 선택해 주세요",
+        description:
+          "현재 버전에서는 앱 언어, 위자드 언어, Notion schema locale을 같은 값으로 저장합니다.",
+        korean: {
+          title: "한국어",
+          description:
+            "디스코드 음성 채팅방에서 진행한 회의를 노션에 자동으로 등록하고, 할 일 목록 정리를 이어갈 수 있게 돕습니다.",
+        },
+        english: {
+          title: "English",
+          description:
+            "UI language can be saved, but managed Notion DB creation is limited to Korean in this version.",
+        },
+        englishNotice:
+          "English를 선택하면 Notion schema locale도 en으로 저장됩니다. 단, 이번 버전의 managed Notion DB 자동 생성은 한국어 preset만 지원하므로 생성 단계에서 한국어로 전환하라는 안내가 표시됩니다.",
+      },
+      discord: {
+        title: "디스코드 봇을 연결합니다",
+        description:
+          "Discord Developer Portal(디스코드 개발자 페이지)에서 만든 애플리케이션 ID와 봇 토큰을 저장합니다. 토큰은 저장 후 다시 표시하지 않습니다.",
+        applicationIdLabel: "디스코드 애플리케이션 ID",
+        applicationIdPlaceholder: "숫자로 된 애플리케이션 ID",
+        botTokenLabel: "디스코드 봇 토큰",
+        botTokenPlaceholder: "저장 후 화면에 다시 표시되지 않습니다",
+        inviteLabel: "초대 링크",
+        inviteLink: "디스코드 서버에 Dirong 봇 추가",
+        connectionCheck: {
+          title: "연결 확인",
+          description:
+            "애플리케이션 ID와 봇 토큰이 같은 디스코드 봇의 값인지 확인합니다. 성공하면 다음 단계에서 봇이 들어간 서버를 선택합니다.",
+          checkingTitle: "연결을 확인하고 있습니다",
+          checkingDescription:
+            "애플리케이션 ID와 봇 토큰이 같은 디스코드 봇의 값인지 자동으로 확인하는 중입니다.",
+          verifiedTitle: "연결 확인 완료",
+          verifiedDescription:
+            "같은 디스코드 봇의 값인 것을 확인하였습니다. 다음으로 넘어가시면 됩니다.",
+          failedTitle: "연결을 확인하지 못했습니다",
+          failedDescription:
+            "애플리케이션 ID와 봇 토큰이 같은 봇의 값인지 다시 확인해 주세요. 값을 다시 저장하면 자동으로 다시 확인합니다.",
+        },
+        guide: {
+          portalLink: "Discord Developer Portal(디스코드 개발자 페이지)",
+          applicationIdTitle: "애플리케이션 ID 발급 방법",
+          applicationIdStep1Suffix: "에 접속합니다.",
+          applicationIdStep2: "왼쪽 메뉴에서 애플리케이션을 클릭합니다.",
+          applicationIdStep3: "신규 애플리케이션 버튼을 클릭해 애플리케이션을 만듭니다.",
+          applicationIdStep4: "애플리케이션을 연 뒤 왼쪽 메뉴에서 일반 정보를 클릭합니다.",
+          applicationIdStep5: "애플리케이션 ID 항목의 복사 버튼을 클릭합니다.",
+          applicationIdStep6:
+            "디롱이 페이지로 돌아와 디스코드 애플리케이션 ID 칸에 붙여넣고 저장합니다.",
+          botTokenTitle: "애플리케이션 ID 발급 후 봇 토큰 복사 방법",
+          botTokenStep1: "같은 애플리케이션의 왼쪽 메뉴에서 봇을 클릭합니다.",
+          botTokenStep2: "토큰 초기화를 클릭해 새 봇 토큰을 발급합니다.",
+          botTokenStep3:
+            "다단계 인증 창이 열리면 로그인 비밀번호를 입력해 인증합니다.",
+          botTokenStep4: "새로 발급된 토큰의 복사 버튼을 클릭합니다.",
+          botTokenStep5:
+            "디롱이 페이지로 돌아와 디스코드 봇 토큰 칸에 붙여넣고 저장합니다.",
+        },
+      },
+      guild: {
+        title: "녹음을 허용할 디스코드 서버를 선택합니다",
+        description:
+          "봇이 들어간 서버 이름만 보여줍니다. 서버 ID는 직접 입력하지 않습니다.",
+        empty: "아직 서버 목록을 불러오지 않았습니다.",
+        invite: {
+          title: "서버에 봇 추가",
+          description:
+            "서버 목록에 원하는 서버가 보이지 않으면 초대 링크로 Dirong 봇을 먼저 추가한 뒤 서버 목록을 다시 불러와 주세요.",
+          link: "디스코드 서버에 Dirong 봇 추가",
+        },
+      },
+      stt: {
+        title: "STT provider와 모델을 선택합니다",
+        description:
+          "기본 추천은 내 PC에서 처리하는 local faster-whisper입니다. OpenAI STT는 API 발급이 필요한 유료 고급 대안입니다.",
+        localWhisper: {
+          title: "추천: local faster-whisper",
+          description: "무료이며 음성이 외부 STT API로 전송되지 않습니다.",
+        },
+        openAi: {
+          title: "고급: OpenAI STT 사용 (API 발급 필요 - 유료)",
+          description:
+            "처리는 쉬울 수 있지만 API 비용이 발생하고 음성이 OpenAI로 전송됩니다.",
+          apiKeyLabel: "OpenAI API key",
+          apiKeyPlaceholder: "API 발급 필요 - 유료",
+        },
+        smallModel: {
+          title: "추천: 빠름",
+          description: "small / cpu / int8. 대부분의 PC에 먼저 권장합니다.",
+        },
+        mediumModel: {
+          title: "정확도 우선",
+          description:
+            "medium / cpu / int8. 더 느릴 수 있지만 한국어 회의 품질이 좋아질 수 있습니다.",
+        },
+      },
+      ai: {
+        title: "Claude 사용 방식을 선택합니다",
+        description:
+          "현재 버전에서는 Claude만 실제 지원합니다. CLI 또는 API 중 하나를 선택합니다.",
+        cli: {
+          title: "Claude CLI 사용",
+          description: "로컬 Claude command를 실행해 회의록을 만듭니다.",
+        },
+        api: {
+          title: "Claude API 사용",
+          description: "API key를 저장해 회의록을 만듭니다.",
+          apiKeyLabel: "Claude API key",
+        },
+        apiKeyPlaceholder: "저장 후 화면에 다시 표시되지 않습니다",
+        modelLabel: "Model (선택)",
+        models: {
+          haiku: "haiku",
+          sonnet: "sonnet",
+          opus: "opus",
+        },
+      },
+      notionToken: {
+        title: "Notion internal connection token을 입력합니다",
+        description:
+          "Notion 내부 연결 설정에서 token을 복사해 붙여넣습니다. Token은 local secret file에 저장되고 원문은 다시 표시하지 않습니다.",
+        label: "Notion token",
+        placeholder: "secret_ 또는 ntn_ token",
+        guide: {
+          title: "Notion 토큰 발급 받는 방법",
+          profileLink: "Notion 프로필 페이지",
+          step1Suffix: "에 접속합니다.",
+          step2: "메뉴에서 내부 연결을 클릭합니다.",
+          step3: "새 연결 만들기를 클릭합니다.",
+          step4:
+            "연결 이름을 입력하고 회의록을 작성할 워크스페이스를 선택한 뒤 생성하기를 클릭합니다.",
+          step5:
+            "콘텐츠 기능에서 콘텐츠 읽기, 콘텐츠 업데이트, 콘텐츠 입력 권한이 체크되어 있는지 확인합니다.",
+          step6: "액세스 토큰 설치 영역에서 표시하기를 클릭합니다.",
+          step7: "복사를 클릭합니다.",
+          step8: "디롱 페이지로 돌아와 Notion token 칸에 붙여넣습니다.",
+        },
+      },
+      notionParent: {
+        title: "노션 DB 관리 페이지 URL을 입력합니다",
+        description:
+          "디롱이가 사용하는 회의록, 작업자, 할 일 목록 DB를 만들 노션 페이지 주소를 입력해 주세요. 아직 없다면 노션에서 빈 페이지를 하나 만든 뒤 그 페이지 주소를 붙여넣어 주세요.",
+        label: "노션 DB 관리 페이지 URL",
+        placeholder: "https://www.notion.so/...",
+      },
+      notionManaged: {
+        title: "Notion managed DB 세트를 생성합니다",
+        description:
+          "사용자는 database id, data source id, property id를 입력하지 않습니다. Dirong이 생성 결과를 registry에 저장합니다.",
+        unsupportedNotice:
+          "현재 앱 언어와 Notion schema locale은 {locale}입니다. managed Notion DB 자동 생성은 한국어 preset만 지원하므로, 생성하려면 언어 선택 단계에서 한국어로 바꿔 주세요.",
+        readyNotice:
+          "이 버튼은 노션 DB 관리 페이지 안에 회의록, 작업자, 할 일 목록 DB를 만들고 registry에 내부 mapping을 저장합니다.",
+        openInNotion: "Notion에서 열기",
+      },
+      recording: {
+        title: "녹음 자동 종료를 확인합니다",
+        description:
+          "추천 기본값은 켜짐입니다. 음성 채널에 사람이 모두 나가고 Dirong 봇만 남으면 90초 뒤 녹음을 종료합니다.",
+        confirm: "자동 종료 기본값을 확인했습니다.",
+      },
+      privacy: {
+        title: "개인정보와 보관 정책을 확인합니다",
+        audioKept: "음성 파일 자동 삭제가 꺼져 있으며 Dirong 실행 PC에 보관됩니다.",
+        audioDeleted:
+          "음성 파일은 Dirong 실행 PC에 저장되며, Notion 업로드 성공 후 즉시 삭제합니다.",
+        textDraftRetention: "STT 텍스트와 AI draft는 기본 {days}일 뒤 삭제합니다.",
+        confirm: "녹음 시작 안내와 기본 보관 정책을 확인했습니다.",
+      },
+      final: {
+        title: "최종 점검",
+        description:
+          "기능별 상태가 모두 ready이면 녹음부터 Notion 업로드까지 사용할 준비가 된 상태입니다.",
+      },
+      features: {
+        discord: "Discord",
+        recording: "Recording",
+        stt: "STT",
+        ai: "AI",
+        notion: "Notion",
+        dataRetention: "Data retention",
+      },
+    },
     status: {
       recording: { label: "녹음 연결" },
       stt: { label: "텍스트 변환" },
@@ -655,13 +1133,13 @@ export const ko = {
     },
     notes: {
       title: "회의록",
-      empty: "AI 회의록 draft가 생기면 여기에 표시됩니다.",
+      empty: "AI가 회의 내용을 정리한 회의록 초안이 생성되면 여기에 표시됩니다.",
     },
     db: {
       tabs: {
         meeting: "회의록",
         members: "작업자",
-        actionItems: "액션 아이템",
+        actionItems: "할 일 목록",
         customFields: "사용자 필드",
         customDb: "+ DB 추가",
       },
@@ -672,8 +1150,8 @@ export const ko = {
         title: "Notion DB 연결 상태",
         missing: "아직 Notion DB 연결 정보가 없습니다.",
         summary: "Notion DB {databaseCount}/{expectedDatabaseCount}개 · 필드 연결 {mappingCount}/{expectedMappingCount}개",
-        parentPage: "상위 Notion 페이지",
-        actionItemsReady: "액션 아이템 DB가 준비되면 업로드 시 작업 page를 생성하거나 갱신합니다.",
+        parentPage: "노션 DB 관리 페이지",
+        actionItemsReady: "할 일 목록 DB가 준비되면 업로드 시 할 일 페이지를 생성하거나 갱신합니다.",
         fieldMappings: "필드 연결",
       },
       requiredFields: {
@@ -734,7 +1212,7 @@ export const ko = {
             channel: "채널",
             memberRelation: "참가자 연결",
             participants: "참가자",
-            actionItems: "액션 아이템",
+            actionItems: "할 일 목록",
             status: "상태",
             sessionId: "Dirong 세션 ID",
             draftId: "Dirong 초안 ID",
@@ -756,7 +1234,7 @@ export const ko = {
             dueDate: "마감일",
             status: "상태",
             evidence: "근거",
-            sourceActionId: "Dirong 액션 ID",
+            sourceActionId: "Dirong 할 일 ID",
           },
         },
       },
@@ -764,7 +1242,7 @@ export const ko = {
         title: "사용자 추가 DB",
         label: "기본 DB 외 추가 테이블",
         body: "사용자가 기본 3개 DB 외에 관리할 추가 Notion DB를 보여줄 자리입니다.",
-        notice: "MVP에서는 추가 DB 생성 기능이 아직 준비 중입니다. 회의록, 작업자, 액션 아이템의 사용자 필드는 각 DB 탭 안에서 관리해 주세요.",
+        notice: "MVP에서는 추가 DB 생성 기능이 아직 준비 중입니다. 회의록, 작업자, 할 일 목록의 사용자 필드는 각 DB 탭 안에서 관리해 주세요.",
       },
       customFields: {
         title: "사용자 필드",
@@ -774,7 +1252,7 @@ export const ko = {
         target: {
           meeting: "회의록 DB",
           member: "작업자 DB",
-          task: "액션 아이템 DB",
+          task: "할 일 목록 DB",
         },
         meetingScopeNotice: "현재 필드 추가/수정 동작은 회의록 DB 대상 설정으로 저장됩니다.",
         roleComingSoon: {
@@ -1047,7 +1525,7 @@ export const en = {
     action: {
       done: {
         title: "Settings saved",
-        description: "The value you entered was saved, and you can continue to the next step.",
+        description: "The value you entered was saved.",
       },
       ready: {
         title: "Already ready",
@@ -1140,11 +1618,69 @@ export const en = {
         description: "The Claude provider readiness check has stopped.",
       },
     },
+    aiCleanup: {
+      disabled: {
+        title: "AI meeting-note automation is turned off",
+        description: "Automatic meeting-note draft generation is currently disabled.",
+        nextAction: "Run the manual Phase 4 CLI if you need to create notes.",
+      },
+      idle: {
+        title: "AI meeting-note automation is waiting",
+        description: "When a meeting is ready, Dirong will check STT state and create a draft.",
+      },
+      waitingForFinalizedSession: {
+        title: "Waiting for a finalized recording session",
+        description: "There is no finalized session ready for meeting-note generation yet.",
+      },
+      waitingForStt: {
+        title: "Waiting for STT to finish",
+        description: "Audio transcription must finish before meeting notes can be created.",
+      },
+      waitingForAiProvider: {
+        title: "Waiting for the AI provider",
+        description: "The AI runtime must be ready before meeting-note generation can start.",
+        nextAction: "Check the AI provider state. Dirong will retry automatically when it is ready.",
+      },
+      queued: {
+        title: "Preparing the AI meeting-note job",
+        description: "Dirong is checking whether it can claim the meeting-note job.",
+      },
+      running: {
+        title: "Creating a meeting-note draft",
+        description: "The AI provider is generating a meeting-note draft from the STT result.",
+      },
+      done: {
+        title: "Meeting-note draft created",
+        description: "The AI meeting-note draft has been saved.",
+      },
+      alreadyDone: {
+        title: "Meeting-note draft already exists",
+        description: "A draft for the same input is already saved.",
+      },
+      blocked: {
+        title: "Meeting-note generation is blocked",
+        description: "Dirong stopped because there is no real speech to summarize or the input is not eligible.",
+        nextAction: "Dirong will run again when real STT speech is available.",
+      },
+      failed: {
+        title: "Meeting-note generation failed",
+        description: "Dirong could not create the AI meeting-note draft. Recording and STT results are preserved.",
+        nextAction: "Check the AI provider state and job error, then retry with the manual Phase 4 CLI if needed.",
+      },
+      notClaimed: {
+        title: "Waiting for the AI meeting-note job turn",
+        description: "Dirong did not claim this job because it is already processing or waiting for a retry time.",
+      },
+      stopped: {
+        title: "AI meeting-note automation stopped",
+        description: "The AI meeting-note automation service has stopped.",
+      },
+    },
     notion: {
       notConfigured: {
         title: "Notion connection setup is not finished yet",
-        description: "Upload cannot start because the Notion token or Dirong parent page is missing.",
-        nextAction: "Save the Notion token and parent page URL in Notion settings.",
+        description: "Upload cannot start because the Notion token or Notion DB management page is missing.",
+        nextAction: "Save the Notion token and Notion DB management page URL in Notion settings.",
       },
       registryMissing: {
         title: "Notion DB setup has not been created yet",
@@ -1271,6 +1807,192 @@ export const en = {
       },
     },
   },
+  runtimeStatus: {
+    sttAutomation: {
+      disabled: {
+        message: "STT automation is turned off.",
+        action: "Run the manual Phase 3 STT CLI if needed.",
+      },
+      idle: {
+        message: "STT automation is waiting: no queued jobs",
+      },
+      running: {
+        message: "Checking queued STT jobs",
+      },
+      done: {
+        message: "STT batch completed",
+      },
+      doneMore: {
+        message: "STT batch completed: more queued jobs remain.",
+      },
+      failed: {
+        message: "STT processing failed. Audio files and job state are preserved.",
+        action: "Check the failed STT jobs in the dashboard and logs.",
+      },
+      stopped: {
+        message: "STT automation stopped",
+      },
+    },
+    aiReadiness: {
+      idle: {
+        message: "AI is not prepared yet",
+      },
+      preparing: {
+        message: "Preparing AI",
+      },
+      ready: {
+        message: "AI is ready",
+      },
+      loginRequired: {
+        message: "AI login is required",
+        action: "Complete AI CLI login in a terminal, then check again.",
+      },
+      authRequired: {
+        message: "AI API key is required",
+        action: "Check the AI API key in settings.",
+      },
+      serverUnreachable: {
+        message: "Local AI server is not running",
+        action: "Start the local AI server, then check again.",
+      },
+      notInstalled: {
+        message: "AI tool was not found",
+        action: "Check that the selected AI CLI is installed and runs in a terminal.",
+      },
+      degraded: {
+        message: "The AI provider is usable, but part of its state needs attention.",
+        action: "Check the AI provider state and logs.",
+      },
+      failed: {
+        message: "AI readiness check failed. Recording and STT results are preserved.",
+        action: "Check AI settings and provider state, then try again.",
+      },
+      stopped: {
+        message: "AI readiness check stopped",
+      },
+    },
+    aiCleanupAutomation: {
+      disabled: {
+        message: "AI cleanup automation is turned off.",
+        action: "Run the manual Phase 4 CLI if needed.",
+      },
+      idle: {
+        message: "AI cleanup automation is waiting",
+      },
+      waitingForFinalizedSession: {
+        message: "AI cleanup is waiting for a finalized session",
+      },
+      waitingForStt: {
+        message: "Waiting for STT to finish",
+      },
+      waitingForAiProvider: {
+        message: "AI cleanup is waiting for AI readiness.",
+        action: "Check the AI provider state. Dirong will retry automatically when it is ready.",
+      },
+      queued: {
+        message: "Preparing to run the AI cleanup job",
+      },
+      running: {
+        message: "Creating meeting notes",
+      },
+      done: {
+        message: "Meeting-note draft created",
+      },
+      alreadyDone: {
+        message: "A meeting-note draft already exists.",
+      },
+      blocked: {
+        message: "Meeting-note generation is blocked because there is no real speech to summarize or the input is not eligible.",
+        action: "Dirong will run again when real STT speech is available. Fake or no-speech-only sessions stay blocked without a draft.",
+      },
+      failed: {
+        message: "Meeting-note generation failed. Recording and STT results are preserved.",
+        action: "Check the AI provider state and job error, then retry with the manual Phase 4 CLI if needed.",
+      },
+      notClaimed: {
+        message: "The AI cleanup job cannot run yet.",
+        action: "It is already processing or its retry time has not arrived yet.",
+      },
+      stopped: {
+        message: "AI cleanup automation stopped",
+      },
+    },
+    notionAutomation: {
+      disabled: {
+        message: "Notion auto-upload is turned off.",
+        action: "Set NOTION_EXPORT_ENABLED=true to use automatic uploads.",
+      },
+      manual: {
+        message: "Notion upload is in manual mode.",
+        action: "Set NOTION_UPLOAD_MODE=automatic_after_ai_cleanup to use automatic uploads.",
+      },
+      notConfigured: {
+        message: "Notion automatic upload settings are incomplete.",
+        action: "Set NOTION_API_KEY and NOTION_TARGET_URL, then restart.",
+      },
+      idle: {
+        message: "Notion auto-upload is waiting: no valid draft to upload",
+      },
+      running: {
+        message: "Running Notion auto-upload",
+      },
+      done: {
+        message: "Notion auto-upload completed",
+      },
+      notClaimed: {
+        message: "Waiting for the Notion upload turn",
+      },
+      retryWait: {
+        message: "Notion auto-upload is waiting to retry",
+        action: "Wait for the automatic retry. If it keeps failing, check the Notion connection.",
+      },
+      blocked: {
+        message: "Notion auto-upload has stopped.",
+        action: "Check Notion settings and DB state.",
+      },
+      failed: {
+        message: "Notion auto-upload failed. The local draft is preserved.",
+        action: "Check Notion settings and the latest Notion write state in the dashboard, then retry manually.",
+      },
+      stopped: {
+        message: "Notion auto-upload stopped",
+      },
+    },
+    aloneFinalize: {
+      disabled: {
+        message: "Automatic alone stop is turned off.",
+        action: "Set DIRONG_ALONE_FINALIZE_ENABLED=true to opt in.",
+      },
+      idle: {
+        message: "Automatic alone stop is waiting",
+      },
+      countdown: {
+        message: "Dirong is alone; recording will stop in {seconds}s",
+        action: "If someone returns during the grace period, automatic stop is cancelled.",
+      },
+      deferredReconnecting: {
+        message: "Dirong is alone, but automatic stop was deferred during Discord reconnect.",
+        action: "Dirong will check again when the connection is stable. Recording data is preserved.",
+      },
+      triggering: {
+        message: "The alone grace period ended, so Dirong is stopping the recording",
+      },
+      finalized: {
+        message: "Recording stopped automatically because Dirong was alone. Status: {status}",
+      },
+      skipped: {
+        message: "Automatic alone stop was skipped. Recording continues.",
+        action: "Dirong could not safely verify the stop condition. Check the dashboard state.",
+      },
+      failed: {
+        message: "Automatic alone stop failed. Recording and STT data are preserved.",
+        action: "Check the dashboard and logs, then run /dirong stop if needed.",
+      },
+      stopped: {
+        message: "Automatic alone stop stopped",
+      },
+    },
+  },
   setup: {
     discord: {
       status: {
@@ -1312,7 +2034,8 @@ export const en = {
       connection: {
         test: {
           done: {
-            message: "Discord bot token and application ID connection has been verified.",
+            message:
+              "The application ID and bot token have been verified as values for the same Discord bot.",
           },
         },
         error: {
@@ -1464,6 +2187,10 @@ export const en = {
             message: "The Claude CLI command is not allowed.",
             action: "The dashboard can only use the default Claude CLI profile.",
           },
+          invalidModel: {
+            message: "Unsupported Claude model.",
+            action: "Choose one of haiku, sonnet, or opus.",
+          },
         },
       },
     },
@@ -1471,7 +2198,7 @@ export const en = {
       status: {
         notConfigured: {
           message: "Notion connection setup is not complete yet.",
-          action: "Save the Notion internal connection token and parent page URL.",
+          action: "Save the Notion internal connection token and Notion DB management page URL.",
         },
         registryMissing: {
           message:
@@ -1505,28 +2232,28 @@ export const en = {
       parentPage: {
         save: {
           done: {
-            message: "Notion parent page URL has been saved.",
+            message: "Notion DB management page URL has been saved.",
           },
         },
         verify: {
           done: {
-            message: "Notion parent page access has been verified.",
+            message: "Notion DB management page access has been verified.",
           },
           error: {
             notConfigured: {
-              message: "Notion parent page verification values are missing.",
-              action: "Save the Notion token and parent page URL first.",
+              message: "Notion DB management page verification values are missing.",
+              action: "Save the Notion token and Notion DB management page URL first.",
             },
             failed: {
-              message: "Could not access the Notion parent page.",
+              message: "Could not access the Notion DB management page.",
               action: "Check that the Dirong internal connection was shared with the page using Add connection.",
             },
           },
         },
         error: {
           invalid: {
-            message: "The Notion parent page URL format is invalid.",
-            action: "Copy the link to a dedicated parent page, not a database.",
+            message: "The Notion DB management page URL format is invalid.",
+            action: "Copy a Notion page link where Dirong can create DBs, not a database link.",
           },
         },
       },
@@ -1554,7 +2281,7 @@ export const en = {
           },
           failed: {
             message: "Notion managed DB creation failed.",
-            action: "Check the parent page sharing permissions and Notion token, then retry on a disposable parent page.",
+            action: "Check the Notion DB management page sharing permissions and Notion token, then retry.",
           },
         },
       },
@@ -1631,6 +2358,235 @@ export const en = {
       },
       lockedTitle: "Locked features",
     },
+    setupWizard: {
+      title: "First Setup Wizard",
+      loading: "Waiting for the setup status API.",
+      fetchFailed: "Could not load setup status.",
+      intro:
+        "Guides first-time users through tokens, server selection, STT, Claude, and Notion creation from the dashboard.",
+      progress: "{completed} / {total}",
+      steps: {
+        language: "Language",
+        discord: "Connect Discord Bot",
+        guild: "Select Discord Server",
+        stt: "Select STT Provider/Model",
+        ai: "Select Claude CLI/API",
+        notionToken: "Enter Notion Token",
+        notionParent: "Enter Notion DB Management Page URL",
+        notionManaged: "Create Managed DBs",
+        recording: "Confirm Auto Stop",
+        privacy: "Confirm Privacy/Retention",
+        final: "Final Check",
+      },
+      actions: {
+        goDashboard: "Go to Dashboard",
+        skipToDashboard: "Set up later and view dashboard",
+        next: "Next",
+        continue: "Continue",
+        saveLanguage: "Save language",
+        saveDiscordApplicationId: "Save application ID",
+        saveDiscordBotToken: "Save bot token",
+        testConnection: "Check connection",
+        loadGuilds: "Load server list",
+        saveSelectedGuild: "Save selected server",
+        saveStt: "Save STT settings",
+        saveClaude: "Save Claude settings",
+        saveNotionToken: "Save Notion token",
+        saveParentPage: "Save DB management page URL",
+        verifyAccess: "Check access",
+        createManagedDb: "Create managed DBs",
+        restartFromBeginning: "Review from the beginning",
+      },
+      fallback: {
+        defaultsMissing: "Server defaults have not loaded yet.",
+        retryLater: "Try again in a moment.",
+        checkDiscordToken: "Check whether the Discord bot token has been saved.",
+      },
+      language: {
+        title: "Choose the app language",
+        description:
+          "In this version, the app language, wizard language, and Notion schema locale are saved as the same value.",
+        korean: {
+          title: "한국어",
+          description:
+            "Automatically sends meetings from Discord voice channels to Notion and helps organize follow-up schedules and action items.",
+        },
+        english: {
+          title: "English",
+          description:
+            "UI language can be saved, but managed Notion DB creation is limited to Korean in this version.",
+        },
+        englishNotice:
+          "If you choose English, the Notion schema locale is also saved as en. Managed Notion DB creation in this version only supports the Korean preset, so the creation step will ask you to switch back to Korean.",
+      },
+      discord: {
+        title: "Connect a Discord bot",
+        description:
+          "Save the application ID and bot token created in the Discord Developer Portal. The token will not be shown again after it is saved.",
+        applicationIdLabel: "Discord application ID",
+        applicationIdPlaceholder: "Numeric application ID",
+        botTokenLabel: "Discord bot token",
+        botTokenPlaceholder: "This will not be shown again after saving",
+        inviteLabel: "Invite link",
+        inviteLink: "Add the Dirong bot to a Discord server",
+        connectionCheck: {
+          title: "Connection check",
+          description:
+            "Checks whether the application ID and bot token belong to the same Discord bot. After it succeeds, choose the server that includes the bot in the next step.",
+          checkingTitle: "Checking the connection",
+          checkingDescription:
+            "Automatically checking whether the application ID and bot token belong to the same Discord bot.",
+          verifiedTitle: "Connection verified",
+          verifiedDescription:
+            "These values belong to the same Discord bot. You can continue to the next step.",
+          failedTitle: "Connection could not be verified",
+          failedDescription:
+            "Check that the application ID and bot token belong to the same bot. Save the values again to run the check again automatically.",
+        },
+        guide: {
+          portalLink: "Discord Developer Portal",
+          applicationIdTitle: "How to get the application ID",
+          applicationIdStep1Suffix: ".",
+          applicationIdStep2: "Open the Applications menu on the left.",
+          applicationIdStep3: "Click New Application to create an application.",
+          applicationIdStep4: "Open the application, then click General Information on the left.",
+          applicationIdStep5: "Click Copy next to the Application ID.",
+          applicationIdStep6:
+            "Return to Dirong, paste it into the Discord application ID field, and save it.",
+          botTokenTitle: "How to copy the bot token after creating the application ID",
+          botTokenStep1: "In the same application, click Bot on the left.",
+          botTokenStep2: "Click Reset Token to issue a new bot token.",
+          botTokenStep3:
+            "If multi-factor authentication opens, enter your login password to confirm.",
+          botTokenStep4: "Click Copy for the newly issued token.",
+          botTokenStep5:
+            "Return to Dirong, paste it into the Discord bot token field, and save it.",
+        },
+      },
+      guild: {
+        title: "Select the Discord server where recording is allowed",
+        description:
+          "Only servers that already include the bot are shown. You do not need to type a server ID.",
+        empty: "The server list has not been loaded yet.",
+        invite: {
+          title: "Add the bot to a server",
+          description:
+            "If the server you want is not listed, add the Dirong bot with the invite link first, then reload the server list.",
+          link: "Add the Dirong bot to a Discord server",
+        },
+      },
+      stt: {
+        title: "Select an STT provider and model",
+        description:
+          "The default recommendation is local faster-whisper, which runs on your PC. OpenAI STT is a paid advanced option that requires an API key.",
+        localWhisper: {
+          title: "Recommended: local faster-whisper",
+          description: "Free, and audio is not sent to an external STT API.",
+        },
+        openAi: {
+          title: "Advanced: OpenAI STT (API key required - paid)",
+          description:
+            "Processing can be easier, but API costs apply and audio is sent to OpenAI.",
+          apiKeyLabel: "OpenAI API key",
+          apiKeyPlaceholder: "API key required - paid",
+        },
+        smallModel: {
+          title: "Recommended: fast",
+          description: "small / cpu / int8. Recommended first for most PCs.",
+        },
+        mediumModel: {
+          title: "Prioritize accuracy",
+          description:
+            "medium / cpu / int8. It can be slower, but may improve Korean meeting quality.",
+        },
+      },
+      ai: {
+        title: "Choose how to use Claude",
+        description:
+          "In this version, Claude is the only fully supported AI provider. Choose either CLI or API.",
+        cli: {
+          title: "Use Claude CLI",
+          description: "Runs a local Claude command to create meeting notes.",
+        },
+        api: {
+          title: "Use Claude API",
+          description: "Stores an API key and creates meeting notes.",
+          apiKeyLabel: "Claude API key",
+        },
+        apiKeyPlaceholder: "This will not be shown again after saving",
+        modelLabel: "Model (optional)",
+        models: {
+          haiku: "haiku",
+          sonnet: "sonnet",
+          opus: "opus",
+        },
+      },
+      notionToken: {
+        title: "Enter the Notion internal connection token",
+        description:
+          "Copy the token from Notion internal connection settings and paste it here. The token is saved in the local secret file and the raw value is not shown again.",
+        label: "Notion token",
+        placeholder: "secret_ or ntn_ token",
+        guide: {
+          title: "How to create a Notion token",
+          profileLink: "Notion profile page",
+          step1Suffix: ".",
+          step2: "Open Internal integrations from the menu.",
+          step3: "Click New integration.",
+          step4:
+            "Enter an integration name, choose the workspace where meeting notes will be created, then click Create.",
+          step5:
+            "Under Content capabilities, confirm that Read content, Update content, and Insert content are enabled.",
+          step6: "In the access token area, click Show.",
+          step7: "Click Copy.",
+          step8: "Return to Dirong and paste it into the Notion token field.",
+        },
+      },
+      notionParent: {
+        title: "Enter the Notion DB management page URL",
+        description:
+          "Enter the Notion page URL where Dirong should create the Meeting, Member, and Action Item DBs. If you do not have one yet, create a blank Notion page and paste that page URL here.",
+        label: "Notion DB management page URL",
+        placeholder: "https://www.notion.so/...",
+      },
+      notionManaged: {
+        title: "Create the managed Notion DB set",
+        description:
+          "You do not need to type database IDs, data source IDs, or property IDs. Dirong saves the created result in the registry.",
+        unsupportedNotice:
+          "The current app language and Notion schema locale is {locale}. Managed Notion DB creation only supports the Korean preset, so switch to Korean in the language step before creating it.",
+        readyNotice:
+          "This button creates the Meeting, Member, and Action Item DBs inside the Notion DB management page and saves the internal mapping in the registry.",
+        openInNotion: "Open in Notion",
+      },
+      recording: {
+        title: "Confirm automatic recording stop",
+        description:
+          "The recommended default is on. When everyone leaves the voice channel and only the Dirong bot remains, recording stops after 90 seconds.",
+        confirm: "I confirmed the automatic stop default.",
+      },
+      privacy: {
+        title: "Confirm privacy and retention policy",
+        audioKept: "Automatic audio deletion is off, so audio files remain on the PC running Dirong.",
+        audioDeleted:
+          "Audio files are stored on the PC running Dirong and deleted immediately after a successful Notion upload.",
+        textDraftRetention: "STT text and AI drafts are deleted after {days} days by default.",
+        confirm: "I confirmed the recording notice and default retention policy.",
+      },
+      final: {
+        title: "Final check",
+        description:
+          "When every feature status is ready, Dirong is ready to use from recording through Notion upload.",
+      },
+      features: {
+        discord: "Discord",
+        recording: "Recording",
+        stt: "STT",
+        ai: "AI",
+        notion: "Notion",
+        dataRetention: "Data retention",
+      },
+    },
     status: {
       recording: { label: "Recording" },
       stt: { label: "Transcription" },
@@ -1698,7 +2654,7 @@ export const en = {
     },
     notes: {
       title: "Meeting Notes",
-      empty: "AI meeting-note drafts will appear here.",
+      empty: "AI-generated meeting note drafts will appear here.",
     },
     db: {
       tabs: {
@@ -1715,7 +2671,7 @@ export const en = {
         title: "Notion DB Connection",
         missing: "No Notion DB connection has been created yet.",
         summary: "{databaseCount}/{expectedDatabaseCount} Notion DBs · {mappingCount}/{expectedMappingCount} field links",
-        parentPage: "Parent Notion page",
+        parentPage: "Notion DB management page",
         actionItemsReady: "When the Action Items DB is ready, uploads create or update task pages.",
         fieldMappings: "Field links",
       },
@@ -2089,6 +3045,17 @@ export type LocaleKey = LeafKey<LocaleCatalog>;
 export function t(locale: DirongLocale | undefined, key: LocaleKey): string {
   const catalog = catalogs[locale ?? DEFAULT_DIRONG_LOCALE] ?? catalogs.ko;
   return lookupLocaleValue(catalog, key) ?? lookupLocaleValue(catalogs.ko, key) ?? key;
+}
+
+export function formatLocaleText(
+  locale: DirongLocale | undefined,
+  key: LocaleKey,
+  values: Record<string, string | number | boolean | null | undefined>,
+): string {
+  return t(locale, key).replace(/\{([A-Za-z0-9_]+)\}/g, (match, name) => {
+    const value = values[name];
+    return value === null || value === undefined ? match : String(value);
+  });
 }
 
 export function listLocaleKeys(catalog: LocaleCatalog): LocaleKey[] {

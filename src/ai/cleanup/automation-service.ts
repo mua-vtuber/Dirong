@@ -1,4 +1,16 @@
 import { redactSensitiveText, summarizeSafeError } from "../../errors.js";
+import {
+  buildHumanStatusDisplay,
+  formatHumanStatusDisplayForText,
+  type HumanStatusDisplay,
+  type HumanStatusDisplayInput,
+} from "../../messages/human-status.js";
+import {
+  resolveAppLocale,
+  type AppLocaleResolver,
+} from "../../i18n/app-locale.js";
+import { t, type LocaleKey } from "../../i18n/catalog.js";
+import type { DirongLocale } from "../../settings/local-settings-store.js";
 import type {
   AiCleanupJobRow,
   AiCleanupLeaseRepairSummary,
@@ -57,6 +69,7 @@ export type AiCleanupAutomationSnapshot = {
   message: string;
   userAction: string | null;
   technicalDetail: string | null;
+  display?: HumanStatusDisplay;
   stt: AiCleanupSttTerminalSnapshot | null;
   job: AiCleanupAutomationJobSnapshot | null;
   lastRunStatus: AiCleanupRunResult["status"] | null;
@@ -75,6 +88,7 @@ export type AiCleanupAutomationServiceOptions = {
   sessionBatchLimit: number;
   readinessRetryMs: number;
   runner: Omit<AiCleanupRunOptions, "sessionId" | "dryRun" | "provider">;
+  localeResolver?: AppLocaleResolver;
 };
 
 /**
@@ -95,7 +109,7 @@ export class AiCleanupAutomationService {
     private readonly store: SessionStore,
     private readonly options: AiCleanupAutomationServiceOptions,
   ) {
-    this.snapshot = makeSnapshot({
+    this.snapshot = this.makeSnapshot({
       enabled: options.enabled,
       status: options.enabled ? "idle" : "disabled",
       provider: options.provider.providerName,
@@ -120,7 +134,7 @@ export class AiCleanupAutomationService {
       intervalMs: options.pollIntervalMs,
       runTick: () => this.tick(),
       onScheduledError: (error) => {
-        this.snapshot = makeSnapshot({
+        this.snapshot = this.makeSnapshot({
           ...this.snapshot,
           status: "failed",
           checkedAt: new Date().toISOString(),
@@ -142,7 +156,7 @@ export class AiCleanupAutomationService {
 
   async stop(): Promise<void> {
     await this.loop.stop();
-    this.snapshot = makeSnapshot({
+    this.snapshot = this.makeSnapshot({
       ...this.snapshot,
       status: "stopped",
       checkedAt: new Date().toISOString(),
@@ -153,13 +167,18 @@ export class AiCleanupAutomationService {
     });
   }
 
-  getSnapshot(): AiCleanupAutomationSnapshot {
-    return cloneSnapshot(this.snapshot);
+  getSnapshot(locale?: DirongLocale): AiCleanupAutomationSnapshot {
+    return cloneSnapshot(
+      localizeAiCleanupAutomationSnapshot(
+        this.snapshot,
+        resolveAppLocale({ locale, getLocale: this.options.localeResolver }),
+      ),
+    );
   }
 
   async runOnce(): Promise<AiCleanupAutomationSnapshot> {
     if (!this.options.enabled) {
-      this.snapshot = makeSnapshot({
+      this.snapshot = this.makeSnapshot({
         ...this.snapshot,
         status: "disabled",
         checkedAt: new Date().toISOString(),
@@ -181,7 +200,7 @@ export class AiCleanupAutomationService {
       this.store.repairExpiredAiCleanupProcessingJobs();
 
     if (this.inFlightSessionIds.size > 0) {
-      this.snapshot = makeSnapshot({
+      this.snapshot = this.makeSnapshot({
         ...this.snapshot,
         status: "running",
         checkedAt,
@@ -197,7 +216,7 @@ export class AiCleanupAutomationService {
     const readiness = this.options.lifecycle.getSnapshot();
     if (readiness.status !== "ready") {
       this.maybeRetryReadiness();
-      this.snapshot = makeSnapshot({
+      this.snapshot = this.makeSnapshot({
         ...this.snapshot,
         status: "waiting_for_ai_provider",
         checkedAt,
@@ -225,7 +244,7 @@ export class AiCleanupAutomationService {
       nowIso: checkedAt,
     });
     if (sessions.length === 0) {
-      this.snapshot = makeSnapshot({
+      this.snapshot = this.makeSnapshot({
         ...this.snapshot,
         status: "waiting_for_finalized_session",
         checkedAt,
@@ -254,7 +273,7 @@ export class AiCleanupAutomationService {
         continue;
       }
       if (!stt.isTerminal) {
-        fallbackSnapshot ??= makeSnapshot({
+        fallbackSnapshot ??= this.makeSnapshot({
           ...this.snapshot,
           status: "waiting_for_stt",
           checkedAt,
@@ -285,7 +304,7 @@ export class AiCleanupAutomationService {
       });
 
       if (existingJob?.status === "processing") {
-        this.snapshot = makeSnapshot({
+        this.snapshot = this.makeSnapshot({
           ...this.snapshot,
           status: "running",
           checkedAt,
@@ -307,7 +326,7 @@ export class AiCleanupAutomationService {
         existingJob &&
         existingJob.status !== "queued"
       ) {
-        fallbackSnapshot ??= makeSnapshot({
+        fallbackSnapshot ??= this.makeSnapshot({
           ...this.snapshot,
           status: existingStatusToAutomationStatus(existingJob.status),
           checkedAt,
@@ -329,7 +348,7 @@ export class AiCleanupAutomationService {
         existingJob?.status === "queued" &&
         !isAiCleanupJobReadyToClaim(existingJob, checkedAt)
       ) {
-        fallbackSnapshot ??= makeSnapshot({
+        fallbackSnapshot ??= this.makeSnapshot({
           ...this.snapshot,
           status: "not_claimed",
           checkedAt,
@@ -348,7 +367,7 @@ export class AiCleanupAutomationService {
       }
 
       if (!stt.canInvokeRunner) {
-        fallbackSnapshot ??= makeSnapshot({
+        fallbackSnapshot ??= this.makeSnapshot({
           ...this.snapshot,
           status: "waiting_for_stt",
           checkedAt,
@@ -377,7 +396,7 @@ export class AiCleanupAutomationService {
 
     this.snapshot =
       fallbackSnapshot ??
-      makeSnapshot({
+      this.makeSnapshot({
         ...this.snapshot,
         status: "idle",
         checkedAt,
@@ -403,7 +422,7 @@ export class AiCleanupAutomationService {
     repairedExpiredSttLeases: number,
   ): Promise<AiCleanupAutomationSnapshot> {
     this.inFlightSessionIds.add(sessionId);
-    this.snapshot = makeSnapshot({
+    this.snapshot = this.makeSnapshot({
       ...this.snapshot,
       status: existingJob?.status === "queued" ? "queued" : "running",
       checkedAt: new Date().toISOString(),
@@ -438,13 +457,14 @@ export class AiCleanupAutomationService {
         repairedExpiredJobs,
         repairedExpiredSttLeases,
         inFlightSessionIds: this.getInFlightSessionIds(),
+        locale: this.resolveLocale(),
       });
     } catch (error) {
       const providerFailure = error instanceof AiCleanupProviderError;
       if (providerFailure) {
         this.maybeRetryReadiness();
       }
-      this.snapshot = makeSnapshot({
+      this.snapshot = this.makeSnapshot({
         ...this.snapshot,
         status: providerFailure ? "waiting_for_ai_provider" : "failed",
         checkedAt: new Date().toISOString(),
@@ -465,7 +485,7 @@ export class AiCleanupAutomationService {
       });
     } finally {
       this.inFlightSessionIds.delete(sessionId);
-      this.snapshot = makeSnapshot({
+      this.snapshot = this.makeSnapshot({
         ...this.snapshot,
         inFlightSessionIds: this.getInFlightSessionIds(),
       });
@@ -494,7 +514,7 @@ export class AiCleanupAutomationService {
     ) {
       return;
     }
-    this.snapshot = makeSnapshot({
+    this.snapshot = this.makeSnapshot({
       ...this.snapshot,
       sessionId: progress.sessionId,
       status: progress.phase === "failed" ? "failed" : "running",
@@ -503,13 +523,26 @@ export class AiCleanupAutomationService {
       progress,
     });
   }
+
+  private makeSnapshot(
+    snapshot: AiCleanupAutomationSnapshot,
+  ): AiCleanupAutomationSnapshot {
+    return makeSnapshot(snapshot, this.resolveLocale());
+  }
+
+  private resolveLocale(): DirongLocale {
+    return resolveAppLocale({ getLocale: this.options.localeResolver });
+  }
 }
 
 export function formatAiCleanupAutomationForStatus(
   snapshot: AiCleanupAutomationSnapshot,
+  locale?: DirongLocale,
 ): string {
+  const resolvedLocale = resolveAppLocale({ locale });
+  const localized = localizeAiCleanupAutomationSnapshot(snapshot, resolvedLocale);
   const lines = [
-    `AI cleanup 자동화: ${snapshot.message}`,
+    `AI cleanup 자동화: ${localized.message}`,
     `AI cleanup provider: ${snapshot.provider} / ${snapshot.model}`,
   ];
   if (snapshot.sessionId) {
@@ -544,8 +577,8 @@ export function formatAiCleanupAutomationForStatus(
   if (snapshot.repairedExpiredSttLeases > 0) {
     lines.push(`AI cleanup STT lease 복구: ${snapshot.repairedExpiredSttLeases}개`);
   }
-  if (snapshot.userAction) {
-    lines.push(`AI cleanup 조치: ${snapshot.userAction}`);
+  if (localized.userAction) {
+    lines.push(`AI cleanup 조치: ${localized.userAction}`);
   }
   return lines.join("\n");
 }
@@ -557,6 +590,7 @@ function snapshotFromRunResult(input: {
   repairedExpiredJobs: AiCleanupLeaseRepairSummary;
   repairedExpiredSttLeases: number;
   inFlightSessionIds: string[];
+  locale: DirongLocale;
 }): AiCleanupAutomationSnapshot {
   const { result } = input;
   const status = resultStatusToAutomationStatus(result.status);
@@ -576,7 +610,7 @@ function snapshotFromRunResult(input: {
     inFlightSessionIds: input.inFlightSessionIds,
     warnings: input.stt.warnings,
     progress: input.previous.progress,
-  });
+  }, input.locale);
 }
 
 function resultStatusToAutomationStatus(
@@ -681,14 +715,15 @@ function makeJobSnapshot(job: AiCleanupJobRow): AiCleanupAutomationJobSnapshot {
 
 function makeSnapshot(
   snapshot: AiCleanupAutomationSnapshot,
+  locale: DirongLocale,
 ): AiCleanupAutomationSnapshot {
-  return cloneSnapshot({
+  return cloneSnapshot(localizeAiCleanupAutomationSnapshot({
     ...snapshot,
     technicalDetail:
       snapshot.technicalDetail === null
         ? null
         : redactSensitiveText(snapshot.technicalDetail),
-  });
+  }, locale));
 }
 
 function cloneSnapshot(
@@ -696,6 +731,12 @@ function cloneSnapshot(
 ): AiCleanupAutomationSnapshot {
   return {
     ...snapshot,
+    display: snapshot.display
+      ? {
+          ...snapshot.display,
+          details: snapshot.display.details.map((detail) => ({ ...detail })),
+        }
+      : undefined,
     stt: snapshot.stt
       ? {
           ...snapshot.stt,
@@ -708,4 +749,180 @@ function cloneSnapshot(
     repairedExpiredJobs: { ...snapshot.repairedExpiredJobs },
     warnings: [...snapshot.warnings],
   };
+}
+
+function localizeAiCleanupAutomationSnapshot(
+  snapshot: AiCleanupAutomationSnapshot,
+  locale: DirongLocale,
+): AiCleanupAutomationSnapshot {
+  const message = t(locale, aiCleanupAutomationMessageKey(snapshot.status));
+  const userActionKey = aiCleanupAutomationUserActionKey(snapshot.status);
+  const localized = {
+    ...snapshot,
+    message,
+    userAction: userActionKey ? t(locale, userActionKey) : null,
+  };
+  return {
+    ...localized,
+    display: buildAiCleanupAutomationDisplay(locale, localized),
+  };
+}
+
+function buildAiCleanupAutomationDisplay(
+  locale: DirongLocale,
+  snapshot: AiCleanupAutomationSnapshot,
+): HumanStatusDisplay {
+  return buildHumanStatusDisplay(locale, {
+    ...aiCleanupAutomationDisplayKeys(snapshot.status),
+    status: snapshot.status,
+    message: snapshot.message,
+    userAction: snapshot.userAction,
+    technicalDetail: snapshot.technicalDetail,
+    details: [
+      { label: "provider", value: snapshot.provider },
+      { label: "model", value: snapshot.model },
+      { label: "sessionId", value: snapshot.sessionId },
+      { label: "stt", value: snapshot.stt },
+      { label: "job", value: snapshot.job },
+      { label: "lastRunStatus", value: snapshot.lastRunStatus },
+      { label: "inFlightSessionIds", value: snapshot.inFlightSessionIds },
+      { label: "repairedExpiredJobs", value: snapshot.repairedExpiredJobs },
+      { label: "repairedExpiredSttLeases", value: snapshot.repairedExpiredSttLeases },
+      { label: "warnings", value: snapshot.warnings },
+      { label: "progress", value: snapshot.progress },
+    ],
+  });
+}
+
+function aiCleanupAutomationDisplayKeys(
+  status: AiCleanupAutomationStatus,
+): Pick<
+  HumanStatusDisplayInput,
+  "titleKey" | "descriptionKey" | "nextActionKey"
+> {
+  switch (status) {
+    case "disabled":
+      return {
+        titleKey: "statusDisplay.aiCleanup.disabled.title",
+        descriptionKey: "statusDisplay.aiCleanup.disabled.description",
+        nextActionKey: "statusDisplay.aiCleanup.disabled.nextAction",
+      };
+    case "waiting_for_finalized_session":
+      return {
+        titleKey: "statusDisplay.aiCleanup.waitingForFinalizedSession.title",
+        descriptionKey: "statusDisplay.aiCleanup.waitingForFinalizedSession.description",
+      };
+    case "waiting_for_stt":
+      return {
+        titleKey: "statusDisplay.aiCleanup.waitingForStt.title",
+        descriptionKey: "statusDisplay.aiCleanup.waitingForStt.description",
+      };
+    case "waiting_for_ai_provider":
+      return {
+        titleKey: "statusDisplay.aiCleanup.waitingForAiProvider.title",
+        descriptionKey: "statusDisplay.aiCleanup.waitingForAiProvider.description",
+        nextActionKey: "statusDisplay.aiCleanup.waitingForAiProvider.nextAction",
+      };
+    case "queued":
+      return {
+        titleKey: "statusDisplay.aiCleanup.queued.title",
+        descriptionKey: "statusDisplay.aiCleanup.queued.description",
+      };
+    case "running":
+      return {
+        titleKey: "statusDisplay.aiCleanup.running.title",
+        descriptionKey: "statusDisplay.aiCleanup.running.description",
+      };
+    case "done":
+      return {
+        titleKey: "statusDisplay.aiCleanup.done.title",
+        descriptionKey: "statusDisplay.aiCleanup.done.description",
+      };
+    case "already_done":
+      return {
+        titleKey: "statusDisplay.aiCleanup.alreadyDone.title",
+        descriptionKey: "statusDisplay.aiCleanup.alreadyDone.description",
+      };
+    case "blocked":
+      return {
+        titleKey: "statusDisplay.aiCleanup.blocked.title",
+        descriptionKey: "statusDisplay.aiCleanup.blocked.description",
+        nextActionKey: "statusDisplay.aiCleanup.blocked.nextAction",
+      };
+    case "failed":
+      return {
+        titleKey: "statusDisplay.aiCleanup.failed.title",
+        descriptionKey: "statusDisplay.aiCleanup.failed.description",
+        nextActionKey: "statusDisplay.aiCleanup.failed.nextAction",
+      };
+    case "not_claimed":
+      return {
+        titleKey: "statusDisplay.aiCleanup.notClaimed.title",
+        descriptionKey: "statusDisplay.aiCleanup.notClaimed.description",
+      };
+    case "stopped":
+      return {
+        titleKey: "statusDisplay.aiCleanup.stopped.title",
+        descriptionKey: "statusDisplay.aiCleanup.stopped.description",
+      };
+    case "idle":
+    default:
+      return {
+        titleKey: "statusDisplay.aiCleanup.idle.title",
+        descriptionKey: "statusDisplay.aiCleanup.idle.description",
+      };
+  }
+}
+
+function aiCleanupAutomationMessageKey(
+  status: AiCleanupAutomationStatus,
+): LocaleKey {
+  switch (status) {
+    case "disabled":
+      return "runtimeStatus.aiCleanupAutomation.disabled.message";
+    case "waiting_for_finalized_session":
+      return "runtimeStatus.aiCleanupAutomation.waitingForFinalizedSession.message";
+    case "waiting_for_stt":
+      return "runtimeStatus.aiCleanupAutomation.waitingForStt.message";
+    case "waiting_for_ai_provider":
+      return "runtimeStatus.aiCleanupAutomation.waitingForAiProvider.message";
+    case "queued":
+      return "runtimeStatus.aiCleanupAutomation.queued.message";
+    case "running":
+      return "runtimeStatus.aiCleanupAutomation.running.message";
+    case "done":
+      return "runtimeStatus.aiCleanupAutomation.done.message";
+    case "already_done":
+      return "runtimeStatus.aiCleanupAutomation.alreadyDone.message";
+    case "blocked":
+      return "runtimeStatus.aiCleanupAutomation.blocked.message";
+    case "failed":
+      return "runtimeStatus.aiCleanupAutomation.failed.message";
+    case "not_claimed":
+      return "runtimeStatus.aiCleanupAutomation.notClaimed.message";
+    case "stopped":
+      return "runtimeStatus.aiCleanupAutomation.stopped.message";
+    case "idle":
+    default:
+      return "runtimeStatus.aiCleanupAutomation.idle.message";
+  }
+}
+
+function aiCleanupAutomationUserActionKey(
+  status: AiCleanupAutomationStatus,
+): LocaleKey | null {
+  switch (status) {
+    case "disabled":
+      return "runtimeStatus.aiCleanupAutomation.disabled.action";
+    case "waiting_for_ai_provider":
+      return "runtimeStatus.aiCleanupAutomation.waitingForAiProvider.action";
+    case "blocked":
+      return "runtimeStatus.aiCleanupAutomation.blocked.action";
+    case "failed":
+      return "runtimeStatus.aiCleanupAutomation.failed.action";
+    case "not_claimed":
+      return "runtimeStatus.aiCleanupAutomation.notClaimed.action";
+    default:
+      return null;
+  }
 }

@@ -5,7 +5,13 @@ import {
   type HumanStatusDisplay,
   type HumanStatusDisplayInput,
 } from "../messages/human-status.js";
+import {
+  resolveAppLocale,
+  type AppLocaleResolver,
+} from "../i18n/app-locale.js";
+import { t, type LocaleKey } from "../i18n/catalog.js";
 import { PollingLoop } from "../runtime/polling-loop.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 import type { SessionStore } from "../storage/session-store.js";
 import type { SttProvider } from "./provider.js";
 import { runSttBatch, type SttRunResult } from "./runner.js";
@@ -43,6 +49,7 @@ export type SttAutomationServiceOptions = {
     timeoutMs: number;
     contextSegments: number;
   };
+  localeResolver?: AppLocaleResolver;
 };
 
 export class SttAutomationService {
@@ -53,7 +60,7 @@ export class SttAutomationService {
     private readonly store: SessionStore,
     private readonly options: SttAutomationServiceOptions,
   ) {
-    this.snapshot = makeSnapshot({
+    this.snapshot = this.makeSnapshot({
       enabled: options.enabled,
       status: options.enabled ? "idle" : "disabled",
       provider: options.provider.providerName,
@@ -70,7 +77,7 @@ export class SttAutomationService {
       intervalMs: options.pollIntervalMs,
       runTick: () => this.tick(),
       onScheduledError: (error) => {
-        this.snapshot = makeSnapshot({
+        this.snapshot = this.makeSnapshot({
           ...this.snapshot,
           status: "failed",
           checkedAt: new Date().toISOString(),
@@ -91,7 +98,7 @@ export class SttAutomationService {
 
   async stop(): Promise<void> {
     await this.loop.stop();
-    this.snapshot = makeSnapshot({
+    this.snapshot = this.makeSnapshot({
       ...this.snapshot,
       status: "stopped",
       checkedAt: new Date().toISOString(),
@@ -100,13 +107,16 @@ export class SttAutomationService {
     });
   }
 
-  getSnapshot(): SttAutomationSnapshot {
-    return cloneSnapshot(this.snapshot);
+  getSnapshot(locale?: DirongLocale): SttAutomationSnapshot {
+    return cloneSnapshot(localizeSttAutomationSnapshot(
+      this.snapshot,
+      resolveAppLocale({ locale, getLocale: this.options.localeResolver }),
+    ));
   }
 
   async runOnce(): Promise<SttAutomationSnapshot> {
     if (!this.options.enabled) {
-      this.snapshot = makeSnapshot({
+      this.snapshot = this.makeSnapshot({
         ...this.snapshot,
         status: "disabled",
         checkedAt: new Date().toISOString(),
@@ -120,7 +130,7 @@ export class SttAutomationService {
   }
 
   private async tick(): Promise<SttAutomationSnapshot> {
-    this.snapshot = makeSnapshot({
+    this.snapshot = this.makeSnapshot({
       ...this.snapshot,
       status: "running",
       checkedAt: new Date().toISOString(),
@@ -142,7 +152,7 @@ export class SttAutomationService {
     });
 
     const failed = result.failed + result.missingAudio;
-    this.snapshot = makeSnapshot({
+    this.snapshot = this.makeSnapshot({
       ...this.snapshot,
       status:
         result.examined === 0
@@ -165,12 +175,23 @@ export class SttAutomationService {
 
     return this.getSnapshot();
   }
+
+  private makeSnapshot(snapshot: SttAutomationSnapshot): SttAutomationSnapshot {
+    return makeSnapshot(snapshot, this.resolveLocale());
+  }
+
+  private resolveLocale(): DirongLocale {
+    return resolveAppLocale({ getLocale: this.options.localeResolver });
+  }
 }
 
 export function formatSttAutomationForStatus(
   snapshot: SttAutomationSnapshot,
+  locale?: DirongLocale,
 ): string {
-  const display = snapshot.display ?? buildSttAutomationDisplay(snapshot);
+  const resolvedLocale = resolveAppLocale({ locale });
+  const localized = localizeSttAutomationSnapshot(snapshot, resolvedLocale);
+  const display = localized.display ?? buildSttAutomationDisplay(resolvedLocale, localized);
   const lines = [
     formatHumanStatusDisplayForText(display, {
       title: "STT 자동화",
@@ -218,19 +239,20 @@ function summarizeFailedSamples(result: SttRunResult): string | null {
   return failures.slice(0, 3).join("\n");
 }
 
-function makeSnapshot(snapshot: SttAutomationSnapshot): SttAutomationSnapshot {
+function makeSnapshot(
+  snapshot: SttAutomationSnapshot,
+  locale: DirongLocale,
+): SttAutomationSnapshot {
   const technicalDetail =
     snapshot.technicalDetail === null
       ? null
       : redactSensitiveText(snapshot.technicalDetail);
-  return cloneSnapshot({
-    ...snapshot,
-    technicalDetail,
-    display: buildSttAutomationDisplay({
+  return cloneSnapshot(
+    localizeSttAutomationSnapshot({
       ...snapshot,
       technicalDetail,
-    }),
-  });
+    }, locale),
+  );
 }
 
 function cloneSnapshot(snapshot: SttAutomationSnapshot): SttAutomationSnapshot {
@@ -252,9 +274,10 @@ function cloneSnapshot(snapshot: SttAutomationSnapshot): SttAutomationSnapshot {
 }
 
 function buildSttAutomationDisplay(
+  locale: DirongLocale,
   snapshot: SttAutomationSnapshot,
 ): HumanStatusDisplay {
-  return buildHumanStatusDisplay(undefined, {
+  return buildHumanStatusDisplay(locale, {
     ...sttAutomationDisplayKeys(snapshot.status),
     status: snapshot.status,
     message: snapshot.message,
@@ -266,6 +289,74 @@ function buildSttAutomationDisplay(
       { label: "lastRun", value: snapshot.lastRun },
     ],
   });
+}
+
+function localizeSttAutomationSnapshot(
+  snapshot: SttAutomationSnapshot,
+  locale: DirongLocale,
+): SttAutomationSnapshot {
+  const message = sttAutomationMessage(locale, snapshot);
+  const userAction = sttAutomationUserAction(locale, snapshot);
+  const localized = {
+    ...snapshot,
+    message,
+    userAction,
+  };
+  return {
+    ...localized,
+    display: buildSttAutomationDisplay(locale, localized),
+  };
+}
+
+function sttAutomationMessage(
+  locale: DirongLocale,
+  snapshot: SttAutomationSnapshot,
+): string {
+  if (snapshot.status === "done" && snapshot.lastRun?.remainingQueuedHint) {
+    return t(locale, "runtimeStatus.sttAutomation.doneMore.message");
+  }
+  return t(locale, sttAutomationMessageKey(snapshot.status));
+}
+
+function sttAutomationUserAction(
+  locale: DirongLocale,
+  snapshot: SttAutomationSnapshot,
+): string | null {
+  const key = sttAutomationUserActionKey(snapshot.status);
+  return key ? t(locale, key) : null;
+}
+
+function sttAutomationMessageKey(
+  status: SttAutomationStatus,
+): LocaleKey {
+  if (status === "disabled") {
+    return "runtimeStatus.sttAutomation.disabled.message";
+  }
+  if (status === "running") {
+    return "runtimeStatus.sttAutomation.running.message";
+  }
+  if (status === "done") {
+    return "runtimeStatus.sttAutomation.done.message";
+  }
+  if (status === "failed") {
+    return "runtimeStatus.sttAutomation.failed.message";
+  }
+  if (status === "stopped") {
+    return "runtimeStatus.sttAutomation.stopped.message";
+  }
+  return "runtimeStatus.sttAutomation.idle.message";
+}
+
+function sttAutomationUserActionKey(
+  status: SttAutomationStatus,
+): LocaleKey | null {
+  if (status === "disabled") {
+    return "runtimeStatus.sttAutomation.disabled.action";
+  }
+  if (status === "failed") {
+    return "runtimeStatus.sttAutomation.failed.action";
+  }
+  return null;
 }
 
 function sttAutomationDisplayKeys(

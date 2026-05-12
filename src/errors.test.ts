@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   DEFAULT_REGISTERED_SENSITIVE_VALUE_LIMIT,
   getRegisteredSensitiveValueCount,
+  redactForJson,
   redactSensitiveText,
   registerSensitiveValue,
   summarizeSafeError,
@@ -34,4 +35,35 @@ test("summarizeSafeError redacts and truncates consistently", () => {
     "failed with [REDACTED_SECRET]",
   );
   assert.equal(summarizeSafeText("abcdef", 3), "abc...");
+});
+
+test("redaction keeps instructional token wording and safe secret snapshots", () => {
+  assert.equal(
+    redactSensitiveText("Notion token 또는 디롱이 전용 parent page를 저장해 주세요."),
+    "Notion token 또는 디롱이 전용 parent page를 저장해 주세요.",
+  );
+  assert.equal(
+    redactSensitiveText("token: raw-token-value"),
+    "token: [REDACTED]",
+  );
+  assert.deepEqual(
+    redactForJson({
+      secrets: {
+        discordBot: {
+          configured: true,
+          displayValue: "[REDACTED]",
+        },
+      },
+      token: "raw-token-value",
+    }),
+    {
+      secrets: {
+        discordBot: {
+          configured: true,
+          displayValue: "[REDACTED]",
+        },
+      },
+      token: "[REDACTED]",
+    },
+  );
 });

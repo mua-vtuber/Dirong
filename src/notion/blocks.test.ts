@@ -17,7 +17,7 @@ test("renderNotionBlocks renders deterministic MVP sections", () => {
     "요약",
     "주요 논의",
     "결정사항",
-    "액션 아이템",
+    "할 일 목록",
     "남은 질문",
     "불확실한 내용",
     "노이즈 처리 메모",

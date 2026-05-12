@@ -576,6 +576,25 @@
     .setup-view .setup-panel {
       min-height: 520px;
     }
+    body[data-view="setup"] .app-shell {
+      display: block;
+      min-height: 100vh;
+    }
+    body[data-view="setup"] .sidebar,
+    body[data-view="setup"] .content-header,
+    body[data-view="setup"] #setupIncompleteBanner {
+      display: none;
+    }
+    body[data-view="setup"] .main-shell {
+      min-height: 100vh;
+    }
+    body[data-view="setup"] .setup-view {
+      min-height: 100vh;
+      padding: 24px;
+    }
+    body[data-view="setup"] .setup-view .setup-shell {
+      min-height: calc(100vh - 48px);
+    }
     .label {
       color: var(--paper-faint);
       font-size: 10px;
@@ -916,6 +935,10 @@
       border-color: var(--accent);
       color: var(--accent-strong);
       box-shadow: inset 4px 0 0 var(--accent);
+    }
+    .setup-cards-single {
+      grid-template-columns: minmax(0, 1fr);
+      max-width: 760px;
     }
     .setup-notice {
       margin: 10px 0 0;

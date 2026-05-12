@@ -8,6 +8,7 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
       return ['setup', 'dashboard', 'db', 'logs', 'settings'].includes(view) ? view : 'dashboard';
     }
     let activeView = normalizeActiveView(window.localStorage.getItem('dirong.dashboard.view') ?? 'dashboard');
+    document.body.dataset.view = activeView;
     let activeDbTab = normalizeDbTab(window.localStorage.getItem('dirong.dashboard.dbTab') ?? 'meeting');
     let activeSettingsTab = window.localStorage.getItem('dirong.dashboard.settingsTab') ?? 'discord';
     let activeLogFilter = window.localStorage.getItem('dirong.dashboard.logFilter') ?? 'all';
@@ -95,6 +96,7 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
       refresh();
     }
     function updateVisibleView() {
+      document.body.dataset.view = activeView;
       for (const view of ['setup', 'dashboard', 'db', 'logs', 'settings']) {
         const node = document.getElementById(view + 'View');
         if (node) node.hidden = view !== activeView;

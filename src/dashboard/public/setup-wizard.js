@@ -1,6 +1,6 @@
 const setupStepDefinitions = [
       { id: 'language', title: '언어 선택' },
-      { id: 'welcome', title: '환영/모드 선택' },
+      { id: 'welcome', title: '환영/로컬 개인 모드 확인' },
       { id: 'discord', title: 'Discord 봇 연결' },
       { id: 'guild', title: 'Discord 서버 선택' },
       { id: 'stt', title: 'STT provider/model 선택' },
@@ -111,10 +111,9 @@ const setupStepDefinitions = [
     }
     function renderSetupWelcome() {
       return '<h3>로컬 개인 모드로 시작합니다</h3>' +
-        '<p class="setup-copy">Dirong은 사용자의 PC에서 Discord 녹음, STT, Claude 회의록 생성, Notion 업로드를 연결합니다. Hosted Dirong bot이나 Notion OAuth는 이번 범위에 포함하지 않습니다.</p>' +
-        '<div class="setup-cards">' +
-        '<label class="setup-card is-selected"><input type="radio" checked> <strong>로컬 개인 모드</strong><br><span class="muted">사용자 소유 Discord bot token과 Notion internal connection을 저장합니다.</span></label>' +
-        '<label class="setup-card"><input type="radio" disabled> <strong>Hosted mode</strong><br><span class="muted">후속 제품 결정 뒤 지원합니다.</span></label>' +
+        '<p class="setup-copy">Dirong은 사용자의 PC 안에서 Discord 녹음, STT, Claude 회의록 생성, Notion 업로드를 연결합니다. 중요한 음성 데이터와 token은 사용자가 관리하는 로컬 환경에 둡니다.</p>' +
+        '<div class="setup-cards setup-cards-single">' +
+        '<label class="setup-card is-selected"><input type="radio" checked> <strong>로컬 개인 모드</strong><br><span class="muted">사용자 소유 Discord bot token과 Notion internal connection을 이 PC의 local secret file에 저장합니다.</span></label>' +
         '</div><div class="setup-actions"><button type="button" onclick="setupAcknowledge(&quot;welcomeDone&quot;)">계속</button></div>';
     }
     function renderSetupDiscord(setup) {

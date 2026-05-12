@@ -284,6 +284,7 @@ test("DashboardServer root serves the dashboard HTML without caching", async () 
     assert.match(html, /statusChips/);
     assert.match(html, /id="setupView"/);
     assert.match(html, /id="setupWizard"/);
+    assert.match(html, /body\[data-view="setup"\] \.sidebar/);
     assert.match(html, /\/assets\/dirong\/dirong_head\.png/);
     assert.doesNotMatch(html, /관리 외 삭제/);
     assert.match(html, /window\.__DIRONG_DASHBOARD_TOKEN__/);
@@ -601,9 +602,11 @@ test("DashboardServer serves split dashboard client scripts", async () => {
     assert.match(apiText, /dashboardJsonHeaders/);
     assert.match(apiText, /SETUP_SKIP_DASHBOARD_KEY/);
     assert.match(apiText, /sessionStorage/);
+    assert.match(apiText, /document\.body\.dataset\.view/);
     assert.match(apiText, /syncActiveViewForSetup/);
     assert.match(setupText, /skipSetupToDashboard/);
     assert.match(setupText, /setupCreateManagedDatabases/);
+    assert.doesNotMatch(setupText, /Hosted mode|Hosted Dirong bot|Notion OAuth/);
     assert.match(notionText, /data-notion-action/);
     assert.match(managedDbText, /data-managed-db-action="check"/);
     assert.match(managedDbText, /data-managed-db-action="repair"/);

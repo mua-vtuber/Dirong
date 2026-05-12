@@ -227,6 +227,10 @@
       width: 100%;
       text-align: left;
     }
+    .setup-step {
+      padding: 10px 12px;
+      line-height: 1.35;
+    }
     .setup-progress {
       min-width: 128px;
       text-align: right;
@@ -239,10 +243,12 @@
     .setup-card {
       display: block;
       cursor: pointer;
+      line-height: 1.45;
     }
     .setup-card input,
     .setup-guild input {
       width: auto;
+      margin: 0 7px 0 0;
     }
     .setup-form label {
       display: grid;
@@ -709,6 +715,11 @@
     .setup-result {
       padding: 16px;
     }
+    .setup-card,
+    .setup-guild,
+    .setup-status-card {
+      padding: 12px 14px;
+    }
     .flow-card {
       min-height: 142px;
       padding: 16px;
@@ -744,6 +755,9 @@
       color: var(--muted);
       font-size: 13px;
       line-height: 1.45;
+    }
+    .setup-copy {
+      margin: 8px 0 14px;
     }
     .display-title {
       font-size: 15px;
@@ -939,6 +953,9 @@
     .setup-cards-single {
       grid-template-columns: minmax(0, 1fr);
       max-width: 760px;
+    }
+    .setup-actions {
+      margin-top: 12px;
     }
     .setup-notice {
       margin: 10px 0 0;

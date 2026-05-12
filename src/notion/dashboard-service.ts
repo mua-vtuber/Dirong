@@ -11,7 +11,10 @@ import {
   type NotionClient,
 } from "./client.js";
 import { NotionDraftInputReadModel } from "./draft-input-read-model.js";
-import type { NotionRuntimeSettings } from "./settings.js";
+import type {
+  NotionRuntimeSettings,
+  NotionRuntimeSettingsProvider,
+} from "./settings.js";
 import { snapshotNotionRuntimeSettings } from "./settings.js";
 import {
   buildNotionCustomPropertyPrompt,
@@ -129,6 +132,7 @@ export class NotionDashboardService {
   constructor(
     private readonly input: {
       settings: NotionRuntimeSettings;
+      getSettings?: NotionRuntimeSettingsProvider;
       database: DirongDatabase;
       config: Pick<Phase1Config, "sttLeaseMs">;
       workerId: string;
@@ -140,8 +144,12 @@ export class NotionDashboardService {
     this.registryStore = new NotionRegistryStore(this.runner);
   }
 
+  private getSettings(): NotionRuntimeSettings {
+    return this.input.getSettings?.() ?? this.input.settings;
+  }
+
   getSnapshot(): NotionDashboardSnapshot {
-    const settings = this.input.settings;
+    const settings = this.getSettings();
     const managedRegistry = readManagedNotionRegistrySnapshot(this.registryStore, {
       remoteCheck: this.lastManagedSchemaCheck,
     });
@@ -248,7 +256,7 @@ export class NotionDashboardService {
   }
 
   async checkManagedSchema(): Promise<ManagedNotionSchemaStatusSnapshot> {
-    const settings = this.input.settings;
+    const settings = this.getSettings();
     if (!settings.apiKey) {
       throw new Error("Notion token이 설정된 뒤 managed DB 상태를 확인할 수 있습니다.");
     }
@@ -279,7 +287,7 @@ export class NotionDashboardService {
       };
     }
 
-    const settings = this.input.settings;
+    const settings = this.getSettings();
     const client = settings.apiKey
       ? createNotionClient({
           apiKey: settings.apiKey,
@@ -357,7 +365,7 @@ export class NotionDashboardService {
   }
 
   async syncCustomProperties(): Promise<NotionDashboardCustomPropertyActionResult> {
-    const settings = this.input.settings;
+    const settings = this.getSettings();
     if (!settings.enabled || !settings.apiKey || !settings.targetUrl) {
       return this.customPropertyActionResult({
         ok: false,
@@ -414,7 +422,7 @@ export class NotionDashboardService {
   ): NotionDashboardCustomPropertyActionResult {
     const result = this.propertyRuleStore.saveRules({
       rules,
-      requiredPropertyNames: this.input.settings.propertyNames,
+      requiredPropertyNames: this.getSettings().propertyNames,
       nowIso: new Date().toISOString(),
     });
     return this.customPropertyActionResult({
@@ -478,14 +486,14 @@ export class NotionDashboardService {
       if (Object.keys(properties).length > 0) {
         this.propertyRuleStore.syncDataSourceProperties({
           properties,
-          requiredPropertyNames: this.input.settings.propertyNames,
+          requiredPropertyNames: context.settings.propertyNames,
           nowIso: new Date().toISOString(),
         });
       }
       const after = Object.keys(properties).length > 0
         ? buildNotionSchemaDiff({
             properties,
-            propertyNames: this.input.settings.propertyNames,
+            propertyNames: context.settings.propertyNames,
             customRules: (
               await resolveRelationRuleTargets(
                 context.client,
@@ -545,7 +553,7 @@ export class NotionDashboardService {
     const promptPreview = buildNotionCustomPropertyPrompt(rules);
     return {
       supportedTypes: SUPPORTED_NOTION_CUSTOM_PROPERTY_TYPES,
-      requiredPropertyNames: Object.values(this.input.settings.propertyNames),
+      requiredPropertyNames: Object.values(this.getSettings().propertyNames),
       rules,
       enabledCount,
       promptPreview,
@@ -565,11 +573,12 @@ export class NotionDashboardService {
         ok: true;
         client: NotionClient;
         target: { id: string; dataSource: Record<string, unknown> };
+        settings: NotionRuntimeSettings;
         diff: NotionSchemaDiff;
       }
     | { ok: false; result: NotionDashboardSchemaActionResult }
   > {
-    const settings = this.input.settings;
+    const settings = this.getSettings();
     if (!settings.enabled || !settings.apiKey || !settings.targetUrl) {
       return {
         ok: false,
@@ -614,7 +623,7 @@ export class NotionDashboardService {
       if (relationResolution.warnings.length > 0) {
         diff.warnings.push(...relationResolution.warnings);
       }
-      return { ok: true, client, target, diff };
+      return { ok: true, client, target, settings, diff };
     } catch (error) {
       return {
         ok: false,

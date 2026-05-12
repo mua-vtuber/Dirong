@@ -16,6 +16,7 @@ import { NOTION_MANAGED_SCHEMA_VERSION } from "../notion/managed-schema.js";
 import { NotionRegistryStore } from "../notion/registry-store.js";
 import {
   buildProductSetupStatus,
+  createProductNotionRuntimeSettingsProvider,
   createProductSetupStatusSource,
   loadProductRuntimeSettings,
 } from "./product-settings.js";
@@ -226,6 +227,38 @@ test("ProductSetupStatusSource saves dashboard theme through local settings", ()
 
     assert.equal(status.dashboardTheme, "dark");
     assert.equal(new LocalSettingsStore(paths.settingsFile).read().app.dashboardTheme, "dark");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("createProductNotionRuntimeSettingsProvider reads latest Notion settings and secrets", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-product-"));
+  try {
+    const paths = getDirongUserDataPaths(dir);
+    const settingsStore = new LocalSettingsStore(paths.settingsFile);
+    const secretStore = new LocalSecretStore(paths.secretsFile);
+    const getSettings = createProductNotionRuntimeSettingsProvider({ paths });
+
+    assert.equal(getSettings().enabled, false);
+    assert.equal(getSettings().apiKey, null);
+
+    settingsStore.update((settings) => ({
+      ...settings,
+      notion: {
+        tokenSecretRef: DEFAULT_SECRET_REFS.notionToken,
+        parentPageUrl:
+          "https://www.notion.so/workspace/Dirong-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        uploadMode: "automatic_after_ai_cleanup",
+      },
+    }));
+    secretStore.set(DEFAULT_SECRET_REFS.notionToken, "ntn_test_dynamic_secret");
+
+    const updated = getSettings();
+
+    assert.equal(updated.enabled, true);
+    assert.equal(updated.apiKey, "ntn_test_dynamic_secret");
+    assert.equal(updated.uploadMode, "automatic_after_ai_cleanup");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -33,6 +33,8 @@ export type NotionRuntimeSettings = {
   propertyNames: NotionPropertyNames;
 };
 
+export type NotionRuntimeSettingsProvider = () => NotionRuntimeSettings;
+
 export type SafeNotionRuntimeSettingsSnapshot = Omit<
   NotionRuntimeSettings,
   "apiKey"

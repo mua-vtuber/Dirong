@@ -7,6 +7,7 @@ import {
 } from "../messages/human-status.js";
 import {
   type NotionRuntimeSettings,
+  type NotionRuntimeSettingsProvider,
 } from "../notion/settings.js";
 import {
   readManagedNotionRegistrySnapshot,
@@ -227,6 +228,14 @@ export function createProductSetupStatusSource(input: {
     new LocalSecretStore(input.paths.secretsFile),
     input.registryStore,
   );
+}
+
+export function createProductNotionRuntimeSettingsProvider(input: {
+  paths: DirongUserDataPaths;
+}): NotionRuntimeSettingsProvider {
+  const settingsStore = new LocalSettingsStore(input.paths.settingsFile);
+  const secretStore = new LocalSecretStore(input.paths.secretsFile);
+  return () => buildProductNotionSettings(settingsStore.read(), secretStore);
 }
 
 export function buildProductPhase1Config(

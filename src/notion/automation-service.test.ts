@@ -12,6 +12,7 @@ import type { NotionUploadRetentionHandler } from "./upload-retention.js";
 import {
   DEFAULT_NOTION_PROPERTY_NAMES,
   type NotionRuntimeSettings,
+  type NotionRuntimeSettingsProvider,
 } from "./settings.js";
 import { makeNotionDraftInput } from "./test-fixtures.js";
 import { NotionWriteStore } from "./write-store.js";
@@ -205,6 +206,35 @@ test("NotionAutomationService repairs expired write leases before selecting work
   }
 });
 
+test("NotionAutomationService reads fresh settings at each tick", async () => {
+  const fixture = createFixture();
+  try {
+    let currentSettings = notionSettings({ apiKey: null, targetUrl: null });
+    const client = new FakeNotionClient();
+    const service = createService(fixture, {
+      settings: currentSettings,
+      client: null,
+      getSettings: () => currentSettings,
+      getClient: (settings) => (settings.apiKey ? client : null),
+    });
+
+    const before = await service.runOnce();
+    assert.equal(before.status, "not_configured");
+    assert.equal(client.calls.length, 0);
+
+    currentSettings = notionSettings();
+    const after = await service.runOnce();
+
+    assert.equal(after.status, "done");
+    assert.equal(
+      client.calls.filter((call) => call.method === "createPage").length,
+      1,
+    );
+  } finally {
+    fixture.close();
+  }
+});
+
 class FakeNotionClient implements NotionClient {
   readonly calls: Array<{ method: string; body?: unknown }> = [];
 
@@ -328,14 +358,18 @@ function createService(
   fixture: AutomationFixture,
   options: {
     settings?: NotionRuntimeSettings;
+    getSettings?: NotionRuntimeSettingsProvider;
     client?: NotionClient | null;
+    getClient?: (settings: NotionRuntimeSettings) => NotionClient | null;
     registryStore?: NotionRegistryStore | null;
     retention?: NotionUploadRetentionHandler;
   } = {},
 ): NotionAutomationService {
   return new NotionAutomationService({
     settings: options.settings ?? notionSettings(),
+    getSettings: options.getSettings,
     client: options.client === undefined ? new FakeNotionClient() : options.client,
+    getClient: options.getClient,
     readModel: new NotionDraftInputReadModel(fixture.runner),
     writeStore: fixture.writeStore,
     pollIntervalMs: 5000,

@@ -6,15 +6,20 @@ import {
   type HumanStatusDisplayInput,
 } from "../messages/human-status.js";
 import { PollingLoop } from "../runtime/polling-loop.js";
-import type { NotionClient } from "./client.js";
-import { NotionApiError } from "./client.js";
+import {
+  NotionApiError,
+  type NotionClient,
+} from "./client.js";
 import type { NotionCustomPropertyRule } from "./property-rules.js";
 import type { NotionRegistryStore } from "./registry-store.js";
 import type {
   NotionDraftCandidateRow,
   NotionDraftInputReadModel,
 } from "./draft-input-read-model.js";
-import type { NotionRuntimeSettings } from "./settings.js";
+import type {
+  NotionRuntimeSettings,
+  NotionRuntimeSettingsProvider,
+} from "./settings.js";
 import { parseNotionTargetUrl } from "./target.js";
 import {
   runNotionUpload,
@@ -67,7 +72,9 @@ export type NotionAutomationSnapshot = {
 
 export type NotionAutomationServiceOptions = {
   settings: NotionRuntimeSettings;
-  client: NotionClient | null;
+  getSettings?: NotionRuntimeSettingsProvider;
+  client?: NotionClient | null;
+  getClient?: (settings: NotionRuntimeSettings) => NotionClient | null;
   readModel: NotionDraftInputReadModel;
   writeStore: NotionWriteStore;
   pollIntervalMs: number;
@@ -79,25 +86,31 @@ export type NotionAutomationServiceOptions = {
   retention?: NotionUploadRetentionHandler;
 };
 
+type NotionAutomationRuntime = {
+  settings: NotionRuntimeSettings;
+  client: NotionClient | null;
+};
+
 export class NotionAutomationService {
   private readonly loop: PollingLoop<NotionAutomationSnapshot>;
   private readonly inFlightDraftIds = new Set<string>();
   private snapshot: NotionAutomationSnapshot;
 
   constructor(private readonly options: NotionAutomationServiceOptions) {
+    const runtime = this.getRuntime();
     this.snapshot = makeSnapshot({
-      enabled: options.settings.enabled,
-      configured: isConfigured(options),
-      uploadMode: options.settings.uploadMode,
-      status: initialStatus(options),
+      enabled: runtime.settings.enabled,
+      configured: isConfigured(runtime, options.registryStore ?? null),
+      uploadMode: runtime.settings.uploadMode,
+      status: initialStatus(runtime, options.registryStore ?? null),
       checkedAt: null,
       sessionId: null,
       draftId: null,
       targetId: null,
       writeId: null,
       pageUrl: null,
-      message: initialMessage(options),
-      userAction: initialUserAction(options),
+      message: initialMessage(runtime, options.registryStore ?? null),
+      userAction: initialUserAction(runtime, options.registryStore ?? null),
       technicalDetail: null,
       lastRunStatus: null,
       inFlightDraftIds: [],
@@ -120,7 +133,7 @@ export class NotionAutomationService {
   }
 
   start(): void {
-    if (!shouldRun(this.options)) {
+    if (!shouldRun(this.getRuntime(), this.options.registryStore ?? null)) {
       return;
     }
     this.loop.start();
@@ -143,7 +156,11 @@ export class NotionAutomationService {
   }
 
   async runOnce(): Promise<NotionAutomationSnapshot> {
-    const blocked = blockedSnapshot(this.options, this.snapshot);
+    const blocked = blockedSnapshot(
+      this.getRuntime(),
+      this.options.registryStore ?? null,
+      this.snapshot,
+    );
     if (blocked) {
       this.snapshot = blocked;
       return this.getSnapshot();
@@ -153,6 +170,7 @@ export class NotionAutomationService {
   }
 
   private async tick(): Promise<NotionAutomationSnapshot> {
+    const runtime = this.getRuntime();
     const checkedAt = new Date().toISOString();
     const repairedExpiredLeases =
       this.options.writeStore.releaseExpiredLeases(checkedAt);
@@ -171,8 +189,8 @@ export class NotionAutomationService {
     }
 
     const target = await resolveAutomationTargetId(
-      this.options.settings,
-      this.options.client,
+      runtime.settings,
+      runtime.client,
       this.options.registryStore ?? null,
     );
     if (!target.ok) {
@@ -218,13 +236,19 @@ export class NotionAutomationService {
       return this.getSnapshot();
     }
 
-    return await this.runForDraft(candidate, target.targetId, repairedExpiredLeases);
+    return await this.runForDraft(
+      candidate,
+      target.targetId,
+      repairedExpiredLeases,
+      runtime,
+    );
   }
 
   private async runForDraft(
     candidate: NotionDraftCandidateRow,
     targetId: string,
     repairedExpiredLeases: number,
+    runtime: NotionAutomationRuntime,
   ): Promise<NotionAutomationSnapshot> {
     this.inFlightDraftIds.add(candidate.id);
     this.snapshot = makeSnapshot({
@@ -243,13 +267,13 @@ export class NotionAutomationService {
 
     try {
       const result = await runNotionUpload({
-        settings: this.options.settings,
+        settings: runtime.settings,
         selector: { kind: "draft", draftId: candidate.id },
         dryRun: false,
         force: false,
         workerId: this.options.workerId,
-        leaseMs: this.options.leaseMs,
-        client: this.options.client,
+        leaseMs: runtime.settings.leaseMs || this.options.leaseMs,
+        client: runtime.client,
         readModel: this.options.readModel,
         writeStore: this.options.writeStore,
         registryStore: this.options.registryStore ?? null,
@@ -288,6 +312,14 @@ export class NotionAutomationService {
 
   private getInFlightDraftIds(): string[] {
     return [...this.inFlightDraftIds].sort();
+  }
+
+  private getRuntime(): NotionAutomationRuntime {
+    const settings = this.options.getSettings?.() ?? this.options.settings;
+    const client = this.options.getClient
+      ? this.options.getClient(settings)
+      : this.options.client ?? null;
+    return { settings, client };
   }
 }
 
@@ -459,16 +491,17 @@ function uploadStatusToAutomationStatus(
 }
 
 function blockedSnapshot(
-  options: NotionAutomationServiceOptions,
+  runtime: NotionAutomationRuntime,
+  registryStore: NotionRegistryStore | null,
   previous: NotionAutomationSnapshot,
 ): NotionAutomationSnapshot | null {
   const checkedAt = new Date().toISOString();
-  if (!options.settings.enabled) {
+  if (!runtime.settings.enabled) {
     return makeSnapshot({
       ...previous,
       enabled: false,
-      configured: isConfigured(options),
-      uploadMode: options.settings.uploadMode,
+      configured: isConfigured(runtime, registryStore),
+      uploadMode: runtime.settings.uploadMode,
       status: "disabled",
       checkedAt,
       message: "Notion export is disabled.",
@@ -476,12 +509,12 @@ function blockedSnapshot(
       technicalDetail: null,
     });
   }
-  if (options.settings.uploadMode !== "automatic_after_ai_cleanup") {
+  if (runtime.settings.uploadMode !== "automatic_after_ai_cleanup") {
     return makeSnapshot({
       ...previous,
       enabled: true,
-      configured: isConfigured(options),
-      uploadMode: options.settings.uploadMode,
+      configured: isConfigured(runtime, registryStore),
+      uploadMode: runtime.settings.uploadMode,
       status: "manual",
       checkedAt,
       message: "Notion upload is in manual mode.",
@@ -490,12 +523,12 @@ function blockedSnapshot(
       technicalDetail: null,
     });
   }
-  if (!isConfigured(options)) {
+  if (!isConfigured(runtime, registryStore)) {
     return makeSnapshot({
       ...previous,
       enabled: true,
       configured: false,
-      uploadMode: options.settings.uploadMode,
+      uploadMode: runtime.settings.uploadMode,
       status: "not_configured",
       checkedAt,
       message: "Notion automatic upload settings are incomplete.",
@@ -507,59 +540,72 @@ function blockedSnapshot(
   return null;
 }
 
-function shouldRun(options: NotionAutomationServiceOptions): boolean {
+function shouldRun(
+  runtime: NotionAutomationRuntime,
+  registryStore: NotionRegistryStore | null,
+): boolean {
   return (
-    options.settings.enabled &&
-    options.settings.uploadMode === "automatic_after_ai_cleanup" &&
-    isConfigured(options)
+    runtime.settings.enabled &&
+    runtime.settings.uploadMode === "automatic_after_ai_cleanup" &&
+    isConfigured(runtime, registryStore)
   );
 }
 
-function isConfigured(options: NotionAutomationServiceOptions): boolean {
+function isConfigured(
+  runtime: NotionAutomationRuntime,
+  registryStore: NotionRegistryStore | null,
+): boolean {
   return Boolean(
-    options.settings.apiKey &&
-      (options.settings.targetUrl ||
-        hasCompleteManagedNotionUploadRegistry(options.registryStore ?? null)) &&
-      options.client,
+    runtime.settings.apiKey &&
+      (runtime.settings.targetUrl ||
+        hasCompleteManagedNotionUploadRegistry(registryStore)) &&
+      runtime.client,
   );
 }
 
 function initialStatus(
-  options: NotionAutomationServiceOptions,
+  runtime: NotionAutomationRuntime,
+  registryStore: NotionRegistryStore | null,
 ): NotionAutomationStatus {
-  if (!options.settings.enabled) {
+  if (!runtime.settings.enabled) {
     return "disabled";
   }
-  if (options.settings.uploadMode !== "automatic_after_ai_cleanup") {
+  if (runtime.settings.uploadMode !== "automatic_after_ai_cleanup") {
     return "manual";
   }
-  if (!isConfigured(options)) {
+  if (!isConfigured(runtime, registryStore)) {
     return "not_configured";
   }
   return "idle";
 }
 
-function initialMessage(options: NotionAutomationServiceOptions): string {
-  if (!options.settings.enabled) {
+function initialMessage(
+  runtime: NotionAutomationRuntime,
+  registryStore: NotionRegistryStore | null,
+): string {
+  if (!runtime.settings.enabled) {
     return "Notion export is disabled.";
   }
-  if (options.settings.uploadMode !== "automatic_after_ai_cleanup") {
+  if (runtime.settings.uploadMode !== "automatic_after_ai_cleanup") {
     return "Notion upload is in manual mode.";
   }
-  if (!isConfigured(options)) {
+  if (!isConfigured(runtime, registryStore)) {
     return "Notion automatic upload settings are incomplete.";
   }
   return "Notion 자동 업로드 대기 중";
 }
 
-function initialUserAction(options: NotionAutomationServiceOptions): string | null {
-  if (!options.settings.enabled) {
+function initialUserAction(
+  runtime: NotionAutomationRuntime,
+  registryStore: NotionRegistryStore | null,
+): string | null {
+  if (!runtime.settings.enabled) {
     return "자동 업로드를 쓰려면 NOTION_EXPORT_ENABLED=true로 켜 주세요.";
   }
-  if (options.settings.uploadMode !== "automatic_after_ai_cleanup") {
+  if (runtime.settings.uploadMode !== "automatic_after_ai_cleanup") {
     return "자동 업로드를 쓰려면 NOTION_UPLOAD_MODE=automatic_after_ai_cleanup으로 설정해 주세요.";
   }
-  if (!isConfigured(options)) {
+  if (!isConfigured(runtime, registryStore)) {
     return "NOTION_API_KEY와 NOTION_TARGET_URL을 설정한 뒤 다시 시작해 주세요.";
   }
   return null;

@@ -20,6 +20,7 @@ import {
   canStartDiscordRuntime,
   canStartNotionAutomation,
   canStartSttAutomation,
+  createProductNotionRuntimeSettingsProvider,
   createProductSetupStatusSource,
   loadProductRuntimeSettings,
 } from "../settings/product-settings.js";
@@ -52,7 +53,8 @@ import {
   NotionAutomationService,
   formatNotionAutomationForStatus,
 } from "../notion/automation-service.js";
-import { createNotionClient } from "../notion/client.js";
+import { createNotionClient, type NotionClient } from "../notion/client.js";
+import type { NotionRuntimeSettings } from "../notion/settings.js";
 import { NotionDashboardService } from "../notion/dashboard-service.js";
 import { NotionDraftInputReadModel } from "../notion/draft-input-read-model.js";
 import type { NotionUploadRetentionHandler } from "../notion/upload-retention.js";
@@ -108,6 +110,9 @@ const sttAutomation = createSttAutomationService(
 const notionSqlRunner = new SqlRunner(database);
 const notionPropertyRuleStore = new NotionCustomPropertyRuleStore(notionSqlRunner);
 const notionRegistryStore = new NotionRegistryStore(notionSqlRunner);
+const getNotionRuntimeSettings = createProductNotionRuntimeSettingsProvider({
+  paths: productRuntime.paths,
+});
 const setupStatus = createProductSetupStatusSource({
   paths: productRuntime.paths,
   registryStore: notionRegistryStore,
@@ -125,6 +130,7 @@ const aiCleanupAutomation = createAiCleanupAutomationService(
 const notionUploadRetention = createNotionUploadRetentionHandler();
 const notionDashboard = new NotionDashboardService({
   settings: appSettings.notion,
+  getSettings: getNotionRuntimeSettings,
   database,
   config,
   workerId: `phase5-notion-dashboard-${process.pid}`,
@@ -539,18 +545,12 @@ function createAiCleanupAutomationService(
 function createNotionAutomationService(
   runner: SqlRunner,
 ): NotionAutomationService {
-  const settings = appSettings.notion;
-  const notionClient = settings.apiKey
-      ? createNotionClient({
-          apiKey: settings.apiKey,
-          apiVersion: settings.apiVersion,
-          baseUrl: settings.baseUrl,
-          requestTimeoutMs: settings.requestTimeoutMs,
-        })
-    : null;
+  const settings = getNotionRuntimeSettings();
   return new NotionAutomationService({
     settings,
-    client: notionClient,
+    getSettings: getNotionRuntimeSettings,
+    client: createNotionClientForSettings(settings),
+    getClient: createNotionClientForSettings,
     readModel: new NotionDraftInputReadModel(runner),
     writeStore: new NotionWriteStore(runner),
     pollIntervalMs: settings.autoPollMs,
@@ -561,6 +561,19 @@ function createNotionAutomationService(
     customPropertyRules: () => notionPropertyRuleStore.listEnabledRules(),
     retention: notionUploadRetention,
   });
+}
+
+function createNotionClientForSettings(
+  settings: NotionRuntimeSettings,
+): NotionClient | null {
+  return settings.apiKey
+    ? createNotionClient({
+        apiKey: settings.apiKey,
+        apiVersion: settings.apiVersion,
+        baseUrl: settings.baseUrl,
+        requestTimeoutMs: settings.requestTimeoutMs,
+      })
+    : null;
 }
 
 function createNotionUploadRetentionHandler(): NotionUploadRetentionHandler {

@@ -44,6 +44,9 @@ export type NotionSemanticPageProperties = Partial<
   Record<NotionPropertySemanticKey, NotionSemanticPageProperty>
 >;
 
+export type NotionActionItemDraft =
+  NotionDraftInput["draftContent"]["actionItems"][number];
+
 export function buildNotionPagePropertyValues(input: {
   draftInput: NotionDraftInput;
   status?: NotionPageStatus;
@@ -176,6 +179,61 @@ export function renderNotionPagePropertiesFromSemanticMappings(input: {
   return rendered;
 }
 
+export function buildNotionTaskSourceActionId(input: {
+  draftId: string;
+  actionItemId: string;
+}): string {
+  return `${input.draftId}:${input.actionItemId}`;
+}
+
+export function renderNotionTaskPageProperties(input: {
+  actionItem: NotionActionItemDraft;
+  propertiesBySemanticKey: NotionSemanticPageProperties;
+  meetingPageId: string;
+  workerRelationPageId?: string | null;
+  sourceActionId: string;
+}): NotionPageProperties {
+  const title = requireSemanticProperty(input.propertiesBySemanticKey, "task.title");
+  const meeting = requireSemanticProperty(input.propertiesBySemanticKey, "task.meeting");
+  const workerRelation = input.propertiesBySemanticKey["task.workerRelation"];
+  const dueDate = requireSemanticProperty(input.propertiesBySemanticKey, "task.dueDate");
+  const status = requireSemanticProperty(input.propertiesBySemanticKey, "task.status");
+  const evidence = requireSemanticProperty(input.propertiesBySemanticKey, "task.evidence");
+  const sourceActionId = requireSemanticProperty(
+    input.propertiesBySemanticKey,
+    "task.sourceActionId",
+  );
+
+  const properties: NotionPageProperties = {
+    [title.name]: {
+      title: [{ text: { content: cleanInline(input.actionItem.task) || "작업" } }],
+    },
+    [meeting.name]: {
+      relation: [{ id: input.meetingPageId }],
+    },
+    [status.name]: renderTaskStatusProperty(status.type),
+    [evidence.name]: {
+      rich_text: richText(renderActionItemEvidence(input.actionItem)),
+    },
+    [sourceActionId.name]: {
+      rich_text: richText(input.sourceActionId),
+    },
+  };
+
+  if (input.actionItem.dueDate.status === "explicit" && input.actionItem.dueDate.isoDate) {
+    properties[dueDate.name] = {
+      date: { start: input.actionItem.dueDate.isoDate },
+    };
+  }
+  if (workerRelation && input.workerRelationPageId) {
+    properties[workerRelation.name] = {
+      relation: [{ id: input.workerRelationPageId }],
+    };
+  }
+
+  return properties;
+}
+
 function renderStatusProperty(
   propertyType: NotionStatusPropertyType,
   status: NotionPageStatus,
@@ -231,11 +289,18 @@ function requireSemanticPropertyName(
   propertiesBySemanticKey: NotionSemanticPageProperties,
   semanticKey: NotionPropertySemanticKey,
 ): string {
+  return requireSemanticProperty(propertiesBySemanticKey, semanticKey).name;
+}
+
+function requireSemanticProperty(
+  propertiesBySemanticKey: NotionSemanticPageProperties,
+  semanticKey: NotionPropertySemanticKey,
+): NotionSemanticPageProperty {
   const property = propertiesBySemanticKey[semanticKey];
   if (!property?.name) {
     throw new Error(`Notion semantic property mapping is missing: ${semanticKey}`);
   }
-  return property.name;
+  return property;
 }
 
 function readStatusPropertyType(
@@ -261,6 +326,27 @@ export function richText(content: string): NotionRichText {
     parts.push({ text: { content: cleaned.slice(index, index + 2000) } });
   }
   return parts;
+}
+
+function renderTaskStatusProperty(propertyType: string): unknown {
+  const name = "할 일";
+  return propertyType === "status" ? { status: { name } } : { select: { name } };
+}
+
+function renderActionItemEvidence(actionItem: NotionActionItemDraft): string {
+  const references = actionItem.references
+    .map((reference) =>
+      `${reference.speaker} ${formatReferenceTime(reference.startMs)}-${formatReferenceTime(reference.endMs)}`,
+    )
+    .join(", ");
+  return references || "근거 없음";
+}
+
+function formatReferenceTime(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 export function sanitizeParticipantNames(

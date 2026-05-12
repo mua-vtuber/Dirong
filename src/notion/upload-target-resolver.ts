@@ -56,6 +56,11 @@ export type ManagedResolvedTarget = ResolvedTargetBase & {
   memberDatabase: NotionManagedDatabase;
   meetingProperties: NotionSemanticResolvedProperties;
   memberDiscordNameProperty: NotionSemanticResolvedProperty;
+  actionItemTarget: {
+    database: NotionManagedDatabase;
+    properties: NotionSemanticResolvedProperties;
+  } | null;
+  actionItemWarnings: string[];
 };
 
 export type ResolvedTarget = LegacyResolvedTarget | ManagedResolvedTarget;
@@ -63,6 +68,7 @@ export type ResolvedTarget = LegacyResolvedTarget | ManagedResolvedTarget;
 type ManagedUploadRegistryCandidate = {
   meetingDatabase: NotionManagedDatabase;
   memberDatabase: NotionManagedDatabase;
+  taskDatabase: NotionManagedDatabase | null;
   managedDatabases: NotionManagedDatabase[];
   allMappings: NotionPropertyMapping[];
   meetingMappings: NotionPropertyMapping[];
@@ -86,6 +92,18 @@ const MANAGED_MEETING_UPLOAD_SEMANTIC_KEYS = [
 
 const MANAGED_MEMBER_UPLOAD_SEMANTIC_KEYS = [
   "member.discordName",
+] as const satisfies readonly NotionPropertySemanticKey[];
+
+const MANAGED_TASK_UPLOAD_SEMANTIC_KEYS = [
+  "task.title",
+  "task.meeting",
+  "task.workerRelation",
+  "task.assignee",
+  "task.role",
+  "task.dueDate",
+  "task.status",
+  "task.evidence",
+  "task.sourceActionId",
 ] as const satisfies readonly NotionPropertySemanticKey[];
 
 export async function resolveUploadTarget(input: {
@@ -262,6 +280,10 @@ async function resolveManagedUploadTarget(input: {
     meetingValidation.propertyIds,
     "meeting.sessionId",
   );
+  const actionItems = await resolveManagedActionItemTarget({
+    client: input.client,
+    candidate: input.candidate,
+  });
   return {
     ok: true,
     target: {
@@ -279,8 +301,61 @@ async function resolveManagedUploadTarget(input: {
         memberValidation.propertyIds,
         "member.discordName",
       ),
+      actionItemTarget: actionItems.target,
+      actionItemWarnings: actionItems.warnings,
     },
   };
+}
+
+async function resolveManagedActionItemTarget(input: {
+  client: NotionClient;
+  candidate: ManagedUploadRegistryCandidate;
+}): Promise<{
+  target: ManagedResolvedTarget["actionItemTarget"];
+  warnings: string[];
+}> {
+  const warnings: string[] = [];
+  if (!input.candidate.taskDatabase) {
+    return {
+      target: null,
+      warnings: ["Notion 액션 아이템 DB 연결 정보가 없어 task page 생성을 건너뜁니다."],
+    };
+  }
+
+  try {
+    const taskDataSource = await input.client.retrieveDataSource(
+      input.candidate.taskDatabase.dataSourceId,
+    );
+    const taskValidation = validateManagedDataSourceSchemaForUpload({
+      databaseRole: "task",
+      properties: readDataSourceProperties(taskDataSource),
+      mappings: input.candidate.allMappings,
+      managedDatabases: input.candidate.managedDatabases,
+      requiredSemanticKeys: MANAGED_TASK_UPLOAD_SEMANTIC_KEYS,
+    });
+    if (!taskValidation.ok) {
+      return {
+        target: null,
+        warnings: [
+          `Notion 액션 아이템 DB 스키마가 건강하지 않아 task page 생성을 건너뜁니다. ${taskValidation.userAction}`,
+        ],
+      };
+    }
+    return {
+      target: {
+        database: input.candidate.taskDatabase,
+        properties: taskValidation.propertyIds,
+      },
+      warnings,
+    };
+  } catch (error) {
+    return {
+      target: null,
+      warnings: [
+        `Notion 액션 아이템 DB 상태를 확인하지 못해 task page 생성을 건너뜁니다 (${error instanceof Error ? error.message : String(error)}).`,
+      ],
+    };
+  }
 }
 
 function loadManagedUploadRegistryCandidate(
@@ -292,6 +367,7 @@ function loadManagedUploadRegistryCandidate(
 
   const meetingDatabase = registryStore.getManagedDatabase("meeting");
   const memberDatabase = registryStore.getManagedDatabase("member");
+  const taskDatabase = registryStore.getManagedDatabase("task");
   if (!meetingDatabase || !memberDatabase) {
     return null;
   }
@@ -310,6 +386,7 @@ function loadManagedUploadRegistryCandidate(
   return {
     meetingDatabase,
     memberDatabase,
+    taskDatabase,
     managedDatabases,
     allMappings,
     meetingMappings,

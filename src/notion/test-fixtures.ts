@@ -12,6 +12,7 @@ export type MakeNotionDraftInputOptions = {
   speakers?: SpeakerFixture[];
   timelineEntries?: TranscriptSegmentRow[];
   emptyDraftArrays?: boolean;
+  actionItems?: MeetingNotesDraftV1["actionItems"];
   notionProperties?: MeetingNotesDraftV1["notionProperties"];
 };
 
@@ -99,7 +100,7 @@ function makeDraftContent(
             references: [reference],
           },
         ],
-    actionItems: options.emptyDraftArrays
+    actionItems: options.actionItems ?? (options.emptyDraftArrays
       ? []
       : [
           {
@@ -119,7 +120,7 @@ function makeDraftContent(
             },
             references: [reference],
           },
-        ],
+        ]),
     unresolvedItems: options.emptyDraftArrays
       ? []
       : [

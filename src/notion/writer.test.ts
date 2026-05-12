@@ -341,6 +341,168 @@ test("runNotionUpload renders managed properties from semantic mappings", async 
   }
 });
 
+test("runNotionUpload creates managed task pages for action items", async () => {
+  const fixture = createFixture({ actionItems: managedActionItems() });
+  seedManagedRegistry(fixture.registryStore);
+  try {
+    const client = new FakeNotionClient();
+    const result = await runNotionUpload({
+      settings: notionSettings({ targetUrl: null }),
+      selector: { kind: "draft", draftId: fixture.draftId },
+      dryRun: false,
+      force: false,
+      workerId: "writer-test",
+      leaseMs: 60000,
+      nowIso,
+      client,
+      readModel: new NotionDraftInputReadModel(fixture.runner),
+      writeStore: fixture.writeStore,
+      registryStore: fixture.registryStore,
+    });
+    const meetingProperties = client.createPageBodies[0]?.properties as Record<
+      string,
+      unknown
+    >;
+    const firstTaskProperties = client.taskCreatePageBodies[0]?.properties as Record<
+      string,
+      unknown
+    >;
+    const secondTaskProperties = client.taskCreatePageBodies[1]?.properties as Record<
+      string,
+      unknown
+    >;
+
+    assert.equal(result.status, "done");
+    assert.equal(client.taskCreatePageBodies.length, 2);
+    assert.equal("액션 아이템" in meetingProperties, false);
+    assert.deepEqual(firstTaskProperties["작업"], {
+      title: [{ text: { content: "Notion writer 테스트를 추가한다." } }],
+    });
+    assert.deepEqual(firstTaskProperties["회의록"], {
+      relation: [{ id: "page-1" }],
+    });
+    assert.deepEqual(firstTaskProperties["작업자 연결"], {
+      relation: [{ id: "member-taniar" }],
+    });
+    assert.deepEqual(firstTaskProperties["Dirong 액션 ID"], {
+      rich_text: [{ text: { content: "draft-1:action-1" } }],
+    });
+    assert.deepEqual(secondTaskProperties["작업자 연결"], {
+      relation: [{ id: "member-ari" }],
+    });
+    assert.deepEqual(secondTaskProperties["마감일"], {
+      date: { start: "2026-05-15" },
+    });
+  } finally {
+    fixture.close();
+  }
+});
+
+test("runNotionUpload updates existing managed task pages by source action id", async () => {
+  const fixture = createFixture({ actionItems: managedActionItems() });
+  seedManagedRegistry(fixture.registryStore);
+  try {
+    const client = new FakeNotionClient({
+      taskQueryResultsBySourceId: {
+        "draft-1:action-1": [{ id: "task-existing-1" }],
+        "draft-1:action-2": [{ id: "task-existing-2" }],
+      },
+    });
+    const result = await runNotionUpload({
+      settings: notionSettings({ targetUrl: null }),
+      selector: { kind: "draft", draftId: fixture.draftId },
+      dryRun: false,
+      force: false,
+      workerId: "writer-test",
+      leaseMs: 60000,
+      nowIso,
+      client,
+      readModel: new NotionDraftInputReadModel(fixture.runner),
+      writeStore: fixture.writeStore,
+      registryStore: fixture.registryStore,
+    });
+    const taskUpdateIds = client.calls
+      .filter((call) => call.method === "updatePage")
+      .map((call) => call.pageId)
+      .filter((pageId) => pageId?.startsWith("task-existing"));
+
+    assert.equal(result.status, "done");
+    assert.equal(client.taskCreatePageBodies.length, 0);
+    assert.deepEqual(taskUpdateIds, ["task-existing-1", "task-existing-2"]);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("runNotionUpload leaves task worker relation empty when action owner is unmatched", async () => {
+  const fixture = createFixture({ actionItems: managedActionItems().slice(0, 1) });
+  seedManagedRegistry(fixture.registryStore);
+  try {
+    const client = new FakeNotionClient({
+      memberQueryResultsByName: {
+        Taniar: [],
+        Ari: [{ id: "member-ari" }],
+      },
+    });
+    const result = await runNotionUpload({
+      settings: notionSettings({ targetUrl: null }),
+      selector: { kind: "draft", draftId: fixture.draftId },
+      dryRun: false,
+      force: false,
+      workerId: "writer-test",
+      leaseMs: 60000,
+      nowIso,
+      client,
+      readModel: new NotionDraftInputReadModel(fixture.runner),
+      writeStore: fixture.writeStore,
+      registryStore: fixture.registryStore,
+    });
+    const taskProperties = client.taskCreatePageBodies[0]?.properties as Record<
+      string,
+      unknown
+    >;
+
+    assert.equal(result.status, "done");
+    assert.equal("작업자 연결" in taskProperties, false);
+    assert.match(result.warnings.join("\n"), /작업자 "Taniar".*찾지 못해/);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("runNotionUpload keeps meeting upload done when managed task schema is unhealthy", async () => {
+  const fixture = createFixture({ actionItems: managedActionItems() });
+  const managedTaskProperties = koreanManagedTaskProperties();
+  delete managedTaskProperties["Dirong 액션 ID"];
+  seedManagedRegistry(fixture.registryStore);
+  try {
+    const client = new FakeNotionClient({ managedTaskProperties });
+    const result = await runNotionUpload({
+      settings: notionSettings({ targetUrl: null }),
+      selector: { kind: "draft", draftId: fixture.draftId },
+      dryRun: false,
+      force: false,
+      workerId: "writer-test",
+      leaseMs: 60000,
+      nowIso,
+      client,
+      readModel: new NotionDraftInputReadModel(fixture.runner),
+      writeStore: fixture.writeStore,
+      registryStore: fixture.registryStore,
+    });
+
+    assert.equal(result.status, "done");
+    assert.equal(client.createPageBodies.length, 1);
+    assert.equal(client.taskCreatePageBodies.length, 0);
+    assert.match(
+      result.warnings.join("\n"),
+      /액션 아이템 DB 스키마가 건강하지 않아/,
+    );
+  } finally {
+    fixture.close();
+  }
+});
+
 test("runNotionUpload resolves relation custom properties and auto-creates missing pages", async () => {
   const fixture = createFixture({
     notionProperties: {
@@ -690,8 +852,9 @@ test("runNotionUpload blocks on schema mismatch before local write creation", as
 });
 
 class FakeNotionClient implements NotionClient {
-  readonly calls: Array<{ method: string; body?: unknown }> = [];
+  readonly calls: Array<{ method: string; body?: unknown; pageId?: string }> = [];
   readonly createPageBodies: Array<Record<string, unknown>> = [];
+  readonly taskCreatePageBodies: Array<Record<string, unknown>> = [];
   readonly relationCreateBodies: Array<Record<string, unknown>> = [];
 
   constructor(
@@ -700,10 +863,12 @@ class FakeNotionClient implements NotionClient {
       queryResultsByProperty?: Record<string, unknown[]>;
       relationQueryResults?: unknown[];
       memberQueryResultsByName?: Record<string, unknown[]>;
+      taskQueryResultsBySourceId?: Record<string, unknown[]>;
       appendError?: NotionApiError;
       properties?: NotionDataSourceProperties;
       managedMeetingProperties?: NotionDataSourceProperties;
       managedMemberProperties?: NotionDataSourceProperties;
+      managedTaskProperties?: NotionDataSourceProperties;
     } = {},
   ) {}
 
@@ -754,6 +919,14 @@ class FakeNotionClient implements NotionClient {
           this.options.managedMemberProperties ?? koreanManagedMemberProperties(),
       };
     }
+    if (dataSourceId === managedTaskDataSourceId) {
+      return {
+        id: managedTaskDataSourceId,
+        name: "액션 아이템",
+        properties:
+          this.options.managedTaskProperties ?? koreanManagedTaskProperties(),
+      };
+    }
     return {
       id: targetId,
       name: "회의록",
@@ -789,6 +962,13 @@ class FakeNotionClient implements NotionClient {
           (this.options.memberQueryResultsByName ?? fallback)[value ?? ""] ?? [],
       };
     }
+    if (dataSourceId === managedTaskDataSourceId) {
+      const value = readFilterEquals(body);
+      return {
+        results:
+          this.options.taskQueryResultsBySourceId?.[value ?? ""] ?? [],
+      };
+    }
     if (dataSourceId === relationTargetId) {
       return { results: this.options.relationQueryResults ?? [] };
     }
@@ -812,16 +992,26 @@ class FakeNotionClient implements NotionClient {
         url: "https://notion.so/created-relation-page",
       };
     }
+    if (
+      isRecord(parent) &&
+      parent.data_source_id === managedTaskDataSourceId
+    ) {
+      this.taskCreatePageBodies.push(body);
+      return {
+        id: `task-page-${this.taskCreatePageBodies.length}`,
+        url: `https://notion.so/task-page-${this.taskCreatePageBodies.length}`,
+      };
+    }
     this.createPageBodies.push(body);
     return { id: "page-1", url: "https://notion.so/page-1" };
   }
 
   async updatePage(
-    _pageId: string,
+    pageId: string,
     body: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    this.calls.push({ method: "updatePage", body });
-    return { id: "page-1", url: "https://notion.so/page-1" };
+    this.calls.push({ method: "updatePage", pageId, body });
+    return { id: pageId, url: `https://notion.so/${pageId}` };
   }
 
   async appendBlockChildren(
@@ -921,6 +1111,61 @@ function completeProperties(): Record<string, { id: string; type: string }> {
   };
 }
 
+function managedActionItems(): ReturnType<
+  typeof makeNotionDraftInput
+>["draftContent"]["actionItems"] {
+  const taniarReference = {
+    chunkId: "chunk-1",
+    sttJobId: "stt-1",
+    startMs: 0,
+    endMs: 60000,
+    speaker: "Taniar",
+  };
+  const ariReference = {
+    chunkId: "chunk-2",
+    sttJobId: "stt-2",
+    startMs: 62000,
+    endMs: 90000,
+    speaker: "Ari",
+  };
+  return [
+    {
+      id: "action-1",
+      task: "Notion writer 테스트를 추가한다.",
+      owner: {
+        status: "explicit",
+        name: "Taniar",
+        userId: "user-0",
+        evidence: [taniarReference],
+      },
+      dueDate: {
+        status: "unspecified",
+        rawText: null,
+        isoDate: null,
+        evidence: [],
+      },
+      references: [taniarReference],
+    },
+    {
+      id: "action-2",
+      task: "대시보드 복구 버튼을 확인한다.",
+      owner: {
+        status: "explicit",
+        name: "Ari",
+        userId: "user-1",
+        evidence: [ariReference],
+      },
+      dueDate: {
+        status: "explicit",
+        rawText: "2026-05-15",
+        isoDate: "2026-05-15",
+        evidence: [ariReference],
+      },
+      references: [ariReference],
+    },
+  ];
+}
+
 function koreanManagedMeetingProperties(
   rename: Record<string, string> = {},
 ): NotionDataSourceProperties {
@@ -970,6 +1215,57 @@ function koreanManagedMemberProperties(): NotionDataSourceProperties {
     "노션 연결": { id: "member-notion-person-id", type: "people" },
     "소속": { id: "member-organization-id", type: "select" },
     "담당": { id: "member-roles-id", type: "multi_select" },
+  };
+}
+
+function koreanManagedTaskProperties(
+  overrides: Partial<NotionDataSourceProperties> = {},
+): NotionDataSourceProperties {
+  return {
+    작업: { id: "task-title-id", type: "title" },
+    회의록: {
+      id: "task-meeting-id",
+      type: "relation",
+      relation: { data_source_id: managedMeetingDataSourceId },
+    },
+    "작업자 연결": {
+      id: "task-worker-relation-id",
+      type: "relation",
+      relation: { data_source_id: managedMemberDataSourceId },
+    },
+    담당자: {
+      id: "task-assignee-id",
+      type: "rollup",
+      rollup: {
+        function: "show_original",
+        relation_property_id: "task-worker-relation-id",
+        relation_property_name: "작업자 연결",
+        rollup_property_id: "member-notion-person-id",
+        rollup_property_name: "노션 연결",
+      },
+    },
+    담당: {
+      id: "task-role-id",
+      type: "rollup",
+      rollup: {
+        function: "show_original",
+        relation_property_id: "task-worker-relation-id",
+        relation_property_name: "작업자 연결",
+        rollup_property_id: "member-roles-id",
+        rollup_property_name: "담당",
+      },
+    },
+    마감일: { id: "task-due-date-id", type: "date" },
+    상태: {
+      id: "task-status-id",
+      type: "select",
+      select: {
+        options: ["할 일", "진행 중", "완료"].map((name) => ({ name })),
+      },
+    },
+    근거: { id: "task-evidence-id", type: "rich_text" },
+    "Dirong 액션 ID": { id: "task-source-action-id", type: "rich_text" },
+    ...overrides,
   };
 }
 

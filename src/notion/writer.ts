@@ -16,6 +16,10 @@ import {
   readResults,
 } from "./data-source-readers.js";
 import {
+  buildNotionTaskSourceActionId,
+  renderNotionTaskPageProperties,
+} from "./page-properties.js";
+import {
   createBaseResult,
   createWriterValidationError,
   doneResult,
@@ -25,6 +29,7 @@ import {
 } from "./upload-result.js";
 import {
   resolveUploadTarget,
+  type ManagedResolvedTarget,
   type ResolvedTarget,
 } from "./upload-target-resolver.js";
 import { renderUploadPlan } from "./upload-plan-renderer.js";
@@ -129,7 +134,10 @@ export async function runNotionUpload(
       targetId: target.id,
       target,
       memberRelationPageIds: memberRelations.pageIds,
-      extraWarnings: memberRelations.warnings,
+      extraWarnings: [
+        ...memberRelations.warnings,
+        ...(target.kind === "managed" ? target.actionItemWarnings : []),
+      ],
     });
 
     if (options.dryRun) {
@@ -265,9 +273,20 @@ async function executeWrite(input: {
     await options.client?.updatePage(page.id, {
       properties: { ...renderPlan.doneProperties, ...customProperties },
     });
+    const actionItemWarnings = target.kind === "managed"
+      ? await syncManagedActionItemPages({
+          client: options.client,
+          target,
+          draftInput,
+          meetingPageId: page.id,
+        })
+      : [];
+    const warnings = [...renderPlan.warnings, ...actionItemWarnings];
     writeStore.markDone({
       id: claimed.id,
-      statusMessage: "Notion upload complete",
+      statusMessage: actionItemWarnings.length > 0
+        ? `Notion upload complete with ${actionItemWarnings.length} action item warning(s)`
+        : "Notion upload complete",
       nowIso,
     });
 
@@ -281,7 +300,7 @@ async function executeWrite(input: {
       blockCount: renderPlan.blocks.length,
       dbChanged: true,
       message: "Notion upload complete.",
-      warnings: renderPlan.warnings,
+      warnings,
     });
   } catch (error) {
     if (error instanceof NotionApiErrorClass) {
@@ -385,6 +404,165 @@ async function ensurePage(input: {
     nowIso: input.nowIso,
   });
   return page;
+}
+
+async function syncManagedActionItemPages(input: {
+  client: NotionClient | null;
+  target: ManagedResolvedTarget;
+  draftInput: NotionDraftInput;
+  meetingPageId: string;
+}): Promise<string[]> {
+  const warnings: string[] = [];
+  if (!input.client || !input.target.actionItemTarget) {
+    return warnings;
+  }
+
+  for (const actionItem of input.draftInput.draftContent.actionItems) {
+    const sourceActionId = buildNotionTaskSourceActionId({
+      draftId: input.draftInput.draft.id,
+      actionItemId: actionItem.id,
+    });
+    try {
+      const workerPageId = await resolveActionItemWorkerPage({
+        client: input.client,
+        target: input.target,
+        ownerName: actionItem.owner.status === "explicit"
+          ? actionItem.owner.name
+          : null,
+        sourceActionId,
+      });
+      const properties = renderNotionTaskPageProperties({
+        actionItem,
+        propertiesBySemanticKey: input.target.actionItemTarget.properties,
+        meetingPageId: input.meetingPageId,
+        workerRelationPageId: workerPageId.pageId,
+        sourceActionId,
+      });
+      warnings.push(...workerPageId.warnings);
+      const existing = await findExistingActionItemPage({
+        client: input.client,
+        target: input.target,
+        sourceActionId,
+      });
+      if (existing.status === "ambiguous") {
+        warnings.push(
+          `${sourceActionId}: 같은 Dirong 액션 ID를 가진 task page가 여러 개라 업데이트를 건너뜁니다.`,
+        );
+        continue;
+      }
+      if (existing.pageId) {
+        await input.client.updatePage(existing.pageId, { properties });
+        continue;
+      }
+      await input.client.createPage({
+        parent: {
+          data_source_id: input.target.actionItemTarget.database.dataSourceId,
+        },
+        properties,
+      });
+    } catch (error) {
+      warnings.push(
+        `${sourceActionId}: task page 동기화 중 오류가 발생했습니다 (${error instanceof Error ? error.message : String(error)}).`,
+      );
+    }
+  }
+
+  return warnings;
+}
+
+async function findExistingActionItemPage(input: {
+  client: NotionClient;
+  target: ManagedResolvedTarget;
+  sourceActionId: string;
+}): Promise<{ status: "none" | "found" | "ambiguous"; pageId: string | null }> {
+  const sourceProperty =
+    input.target.actionItemTarget?.properties["task.sourceActionId"];
+  if (!input.target.actionItemTarget || !sourceProperty) {
+    return { status: "none", pageId: null };
+  }
+  const response = await input.client.queryDataSource(
+    input.target.actionItemTarget.database.dataSourceId,
+    {
+      filter: {
+        property: sourceProperty.name,
+        rich_text: { equals: input.sourceActionId },
+      },
+      page_size: 2,
+    },
+  );
+  const results = readResults(response);
+  if (results.length > 1) {
+    return { status: "ambiguous", pageId: null };
+  }
+  if (results.length === 1) {
+    return { status: "found", pageId: readId(results[0]) };
+  }
+  return { status: "none", pageId: null };
+}
+
+async function resolveActionItemWorkerPage(input: {
+  client: NotionClient;
+  target: ManagedResolvedTarget;
+  ownerName: string | null;
+  sourceActionId: string;
+}): Promise<{ pageId: string | null; warnings: string[] }> {
+  const ownerName = input.ownerName?.trim();
+  if (!ownerName) {
+    return { pageId: null, warnings: [] };
+  }
+  const filter = buildManagedMemberMatchFilter(
+    input.target.memberDiscordNameProperty,
+    ownerName,
+  );
+  if (!filter) {
+    return {
+      pageId: null,
+      warnings: [
+        `${input.sourceActionId}: 작업자 매칭 속성 타입을 지원하지 않아 담당자 relation을 비웠습니다.`,
+      ],
+    };
+  }
+  const response = await input.client.queryDataSource(
+    input.target.memberDatabase.dataSourceId,
+    { filter, page_size: 2 },
+  );
+  const results = readResults(response);
+  if (results.length === 1) {
+    return { pageId: readId(results[0]), warnings: [] };
+  }
+  if (results.length > 1) {
+    return {
+      pageId: null,
+      warnings: [
+        `${input.sourceActionId}: 작업자 "${ownerName}"와 일치하는 Notion page가 여러 개라 담당자 relation을 비웠습니다.`,
+      ],
+    };
+  }
+  return {
+    pageId: null,
+    warnings: [
+      `${input.sourceActionId}: 작업자 "${ownerName}"를 Notion 작업자 DB에서 찾지 못해 담당자 relation을 비웠습니다.`,
+    ],
+  };
+}
+
+function buildManagedMemberMatchFilter(
+  property: ManagedResolvedTarget["memberDiscordNameProperty"],
+  value: string,
+): Record<string, unknown> | null {
+  if (property.type === "title") {
+    return {
+      property: property.name,
+      title: { equals: value },
+    };
+  }
+  if (property.type === "rich_text") {
+    return {
+      property: property.name,
+      rich_text: { equals: value },
+    };
+  }
+  return null;
 }
 
 function loadDraftInput(

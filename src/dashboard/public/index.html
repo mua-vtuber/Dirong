@@ -245,61 +245,184 @@
     }
     .setup-result:empty { display: none; }
     .display-details-table pre { max-height: 180px; }
-    /* Phase 6C: Washed Blocks visual pass. Dusty operational blocks, angular chrome. */
-    :root,
-    body[data-theme="light"],
-    body[data-theme="system"],
-    body[data-theme="dark"] {
-      color-scheme: dark;
-      --bg: #1a1b1f;
-      --bg-alt: #16171b;
-      --panel: #23242a;
-      --panel-soft: #2c2d34;
-      --ink: #e9e8e3;
-      --muted: #8a8d96;
-      --line: #33343a;
-      --line-soft: rgba(233, 232, 227, 0.1);
-      --line-strong: #494b55;
-      --accent: #8a9bc4;
-      --accent-strong: #cbc4ad;
-      --accent-soft: #2a2f3d;
-      --warn: #d49a6a;
-      --error: #d96262;
-      --success: #9bb088;
-      --neutral: #727681;
-      --paper-ink: #e9e8e3;
-      --paper-muted: #a7a8ad;
-      --paper-faint: #8a8d96;
-      --paper-line: #33343a;
-      --card-line: #33343a;
-      --inner-frame-line: #3c3e46;
-      --sidebar: #16171b;
-      --sidebar-line: #33343a;
-      --sidebar-ink: #e9e8e3;
-      --sidebar-muted: #8a8d96;
-      --sidebar-active: #8a9bc4;
-      --card-shadow: none;
-      --card-shadow-soft: none;
-      --control-bg: #23242a;
-      --control-hover: #2c2d34;
-      --control-line: #3c3e46;
-      --control-ink: #e9e8e3;
-      --chip-bg: #23242a;
-      --ready-bg: #253224;
-      --ready-ink: #b8c7aa;
-      --ready-paper-ink: #b8c7aa;
-      --progress-bg: #33291f;
-      --progress-ink: #e2ae79;
-      --progress-paper-ink: #e2ae79;
-      --danger-bg: #3a2325;
-      --danger-ink: #f08f8a;
-      --danger-paper-ink: #f08f8a;
-      --muted-bg: #26272d;
-      --muted-ink: #a2a4ad;
+    :root {
       --font-body: "Archivo", "Inter", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
       --font-display: "Archivo", "Inter", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
       --font-heavy: "Archivo Black", "Archivo", "Inter", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
       --font-mono: "IBM Plex Mono", Consolas, ui-monospace, monospace;
+    }
+    /* Phase 6C: Washed Blocks visual pass. Dusty operational blocks, angular chrome. */
+    :root,
+    body[data-theme="system"],
+    body[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #15161b;
+      --bg-alt: #191b21;
+      --panel: #24262e;
+      --panel-soft: #30323b;
+      --ink: #f2f0ea;
+      --muted: #aeb3bf;
+      --line: #444750;
+      --line-soft: rgba(242, 240, 234, 0.16);
+      --line-strong: #5c606b;
+      --accent: #9fb4df;
+      --accent-strong: #e1d7bd;
+      --accent-soft: #30394c;
+      --on-accent: #121318;
+      --warn: #d49a6a;
+      --error: #d96262;
+      --success: #9bb088;
+      --neutral: #969ca8;
+      --paper-ink: #f2f0ea;
+      --paper-muted: #c4c5ca;
+      --paper-faint: #aeb3bf;
+      --paper-line: #444750;
+      --card-line: #444750;
+      --inner-frame-line: #555965;
+      --sidebar: #121318;
+      --sidebar-line: #444750;
+      --sidebar-ink: #f2f0ea;
+      --sidebar-muted: #aeb3bf;
+      --sidebar-active: #9fb4df;
+      --card-shadow: none;
+      --card-shadow-soft: none;
+      --control-bg: #24262e;
+      --control-hover: #30323b;
+      --control-line: #555965;
+      --control-ink: #f2f0ea;
+      --disabled-bg: #1f2027;
+      --disabled-ink: #8f95a3;
+      --chip-bg: #24262e;
+      --ready-bg: #263725;
+      --ready-line: #516846;
+      --ready-ink: #d1e2c2;
+      --ready-paper-ink: #d1e2c2;
+      --progress-bg: #3b2e21;
+      --progress-line: #7a5a3d;
+      --progress-ink: #ffd19a;
+      --progress-paper-ink: #ffd19a;
+      --danger-bg: #43272a;
+      --danger-line: #7b474a;
+      --danger-ink: #ffb0aa;
+      --danger-paper-ink: #ffb0aa;
+      --muted-bg: #30323b;
+      --muted-ink: #c0c4cd;
+      --header-bg: #101116;
+      --row-hover: rgba(159, 180, 223, 0.1);
+    }
+    body[data-theme="light"] {
+      color-scheme: light;
+      --bg: #eef1f5;
+      --bg-alt: #e3e8ef;
+      --panel: #f8fafc;
+      --panel-soft: #edf2f7;
+      --ink: #171a20;
+      --muted: #566070;
+      --line: #b7c0ce;
+      --line-soft: rgba(23, 26, 32, 0.12);
+      --line-strong: #8f9bad;
+      --accent: #476ea8;
+      --accent-strong: #244f8f;
+      --accent-soft: #dbe6f6;
+      --on-accent: #ffffff;
+      --warn: #936034;
+      --error: #ad3939;
+      --success: #4f7547;
+      --neutral: #667084;
+      --paper-ink: #171a20;
+      --paper-muted: #384253;
+      --paper-faint: #596373;
+      --paper-line: #b7c0ce;
+      --card-line: #c7d0de;
+      --inner-frame-line: #9ba8ba;
+      --sidebar: #f8fafc;
+      --sidebar-line: #c7d0de;
+      --sidebar-ink: #1d2633;
+      --sidebar-muted: #626d7c;
+      --sidebar-active: #476ea8;
+      --card-shadow: none;
+      --card-shadow-soft: none;
+      --control-bg: #ffffff;
+      --control-hover: #edf2f7;
+      --control-line: #9ba8ba;
+      --control-ink: #171a20;
+      --disabled-bg: #e1e6ee;
+      --disabled-ink: #5d687a;
+      --chip-bg: #ffffff;
+      --ready-bg: #e2f0dc;
+      --ready-line: #8bb37d;
+      --ready-ink: #244f22;
+      --ready-paper-ink: #244f22;
+      --progress-bg: #fff0d8;
+      --progress-line: #d59b5b;
+      --progress-ink: #6e431f;
+      --progress-paper-ink: #6e431f;
+      --danger-bg: #ffe4e2;
+      --danger-line: #e28c87;
+      --danger-ink: #7f2528;
+      --danger-paper-ink: #7f2528;
+      --muted-bg: #e8edf4;
+      --muted-ink: #475366;
+      --header-bg: #ffffff;
+      --row-hover: rgba(71, 110, 168, 0.1);
+    }
+    @media (prefers-color-scheme: light) {
+      body[data-theme="system"] {
+        color-scheme: light;
+        --bg: #eef1f5;
+        --bg-alt: #e3e8ef;
+        --panel: #f8fafc;
+        --panel-soft: #edf2f7;
+        --ink: #171a20;
+        --muted: #566070;
+        --line: #b7c0ce;
+        --line-soft: rgba(23, 26, 32, 0.12);
+        --line-strong: #8f9bad;
+        --accent: #476ea8;
+        --accent-strong: #244f8f;
+        --accent-soft: #dbe6f6;
+        --on-accent: #ffffff;
+        --warn: #936034;
+        --error: #ad3939;
+        --success: #4f7547;
+        --neutral: #667084;
+        --paper-ink: #171a20;
+        --paper-muted: #384253;
+        --paper-faint: #596373;
+        --paper-line: #b7c0ce;
+        --card-line: #c7d0de;
+        --inner-frame-line: #9ba8ba;
+        --sidebar: #f8fafc;
+        --sidebar-line: #c7d0de;
+        --sidebar-ink: #1d2633;
+        --sidebar-muted: #626d7c;
+        --sidebar-active: #476ea8;
+        --card-shadow: none;
+        --card-shadow-soft: none;
+        --control-bg: #ffffff;
+        --control-hover: #edf2f7;
+        --control-line: #9ba8ba;
+        --control-ink: #171a20;
+        --disabled-bg: #e1e6ee;
+        --disabled-ink: #5d687a;
+        --chip-bg: #ffffff;
+        --ready-bg: #e2f0dc;
+        --ready-line: #8bb37d;
+        --ready-ink: #244f22;
+        --ready-paper-ink: #244f22;
+        --progress-bg: #fff0d8;
+        --progress-line: #d59b5b;
+        --progress-ink: #6e431f;
+        --progress-paper-ink: #6e431f;
+        --danger-bg: #ffe4e2;
+        --danger-line: #e28c87;
+        --danger-ink: #7f2528;
+        --danger-paper-ink: #7f2528;
+        --muted-bg: #e8edf4;
+        --muted-ink: #475366;
+        --header-bg: #ffffff;
+        --row-hover: rgba(71, 110, 168, 0.1);
+      }
     }
     body {
       background: var(--bg);
@@ -391,7 +514,7 @@
     }
     .server-button {
       border-color: var(--sidebar-line);
-      background: #1d1e24;
+      background: var(--bg-alt);
       color: var(--sidebar-ink);
     }
     .nav-button:hover,
@@ -403,7 +526,7 @@
     .nav-button.is-active {
       background: var(--sidebar-active);
       border-color: var(--sidebar-active);
-      color: #16171b;
+      color: var(--on-accent);
       font-weight: 700;
       box-shadow: none;
     }
@@ -414,7 +537,7 @@
     .content-header {
       margin: 0;
       padding: 14px 22px;
-      background: #101115;
+      background: var(--header-bg);
       border-bottom: 1px solid var(--line);
       align-items: center;
     }
@@ -475,9 +598,9 @@
       box-shadow: none;
     }
     button:disabled {
-      background: #1d1e24;
+      background: var(--disabled-bg);
       border-color: var(--line);
-      color: #686b75;
+      color: var(--disabled-ink);
     }
     .status-chip {
       min-height: 32px;
@@ -500,9 +623,9 @@
       border: 0;
       box-shadow: none;
     }
-    .status-chip.tone-ready { background: var(--ready-bg); border-color: #34432f; color: var(--ready-ink); }
-    .status-chip.tone-progress { background: var(--progress-bg); border-color: #4a3928; color: var(--progress-ink); }
-    .status-chip.tone-danger { background: var(--danger-bg); border-color: #553033; color: var(--danger-ink); }
+    .status-chip.tone-ready { background: var(--ready-bg); border-color: var(--ready-line); color: var(--ready-ink); }
+    .status-chip.tone-progress { background: var(--progress-bg); border-color: var(--progress-line); color: var(--progress-ink); }
+    .status-chip.tone-danger { background: var(--danger-bg); border-color: var(--danger-line); color: var(--danger-ink); }
     .status-chip.tone-muted { background: var(--muted-bg); border-color: var(--line); color: var(--muted-ink); }
     .tone-ready .status-dot,
     .card-state-ready { background: var(--success); }
@@ -594,16 +717,16 @@
       font-family: var(--font-heavy);
       font-size: 28px;
       font-weight: 900;
-      letter-spacing: -0.02em;
+      letter-spacing: 0;
       line-height: 1.1;
     }
     .flow-card .value {
       color: var(--paper-muted);
       font-size: 13px;
     }
-    .flow-card.tone-ready { background: #232a25; border-color: #34432f; }
-    .flow-card.tone-progress { background: #2b261f; border-color: #4a3928; }
-    .flow-card.tone-danger { background: #302225; border-color: #553033; }
+    .flow-card.tone-ready { background: var(--ready-bg); border-color: var(--ready-line); }
+    .flow-card.tone-progress { background: var(--progress-bg); border-color: var(--progress-line); }
+    .flow-card.tone-danger { background: var(--danger-bg); border-color: var(--danger-line); }
     .flow-card.tone-muted { background: var(--panel); border-color: var(--line); }
     .card-state {
       width: 10px;
@@ -661,7 +784,7 @@
       box-shadow: none;
     }
     th {
-      background: #1a1b20;
+      background: var(--bg-alt);
       color: var(--paper-faint);
       font-size: 10px;
       font-weight: 900;
@@ -673,10 +796,10 @@
       color: var(--paper-muted);
     }
     tr:hover td {
-      background: rgba(138, 155, 196, 0.06);
+      background: var(--row-hover);
     }
     pre {
-      background: #1a1b20;
+      background: var(--bg-alt);
       border: 1px solid var(--line);
       color: var(--paper-muted);
     }
@@ -698,7 +821,7 @@
     .required-field.is-missing,
     #dbPanel .required-field.is-missing {
       background: var(--danger-bg);
-      border: 1px solid #553033;
+      border: 1px solid var(--danger-line);
       color: var(--danger-ink);
       box-shadow: none;
     }
@@ -710,7 +833,7 @@
     }
     .locked-card {
       background: var(--danger-bg);
-      border: 1px solid #553033;
+      border: 1px solid var(--danger-line);
       color: var(--danger-ink);
     }
     .locked-card .label,
@@ -723,19 +846,19 @@
       z-index: 5;
       margin: 0;
       padding: 12px 22px;
-      background: #3a2325;
-      border-bottom: 1px solid #553033;
-      color: #f0c0b8;
+      background: var(--danger-bg);
+      border-bottom: 1px solid var(--danger-line);
+      color: var(--danger-ink);
       box-shadow: none;
     }
     .sticky-warning strong,
     .sticky-warning span {
-      color: #f0c0b8;
+      color: var(--danger-ink);
     }
     .sticky-warning button {
-      border-color: #765052;
+      border-color: var(--danger-line);
       background: transparent;
-      color: #f0c0b8;
+      color: var(--danger-ink);
     }
     .tab-row {
       gap: 0;
@@ -759,7 +882,7 @@
     .tab-button.is-active {
       background: var(--accent);
       border-color: var(--accent);
-      color: #16171b;
+      color: var(--on-accent);
       box-shadow: none;
     }
     .theme-options label {

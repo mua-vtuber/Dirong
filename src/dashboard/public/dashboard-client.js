@@ -29,6 +29,7 @@ async function refresh() {
     }
     function renderState(state, setup) {
       const setupSnapshot = setup ?? state.setup ?? null;
+      syncActiveViewForSetup(setupSnapshot);
       const runtime = state.runtime ?? {};
       const theme =
         setupSnapshot?.dashboardTheme ??
@@ -93,6 +94,7 @@ async function refresh() {
       updateVisibleView();
     }
     function titleForView(view) {
+      if (view === 'setup') return tr('dashboard.common.openWizard');
       if (view === 'db') return tr('dashboard.nav.databaseSettings');
       if (view === 'logs') return tr('dashboard.nav.logs');
       if (view === 'settings') return tr('dashboard.nav.settings');
@@ -112,6 +114,7 @@ async function refresh() {
         i18n('dashboard.server.add.action') + '</button>'
       );
       const nav = [
+        ...(setupIsIncomplete(setup) ? [['setup', 'dashboard.common.openWizard']] : []),
         ['dashboard', 'dashboard.nav.dashboard'],
         ['db', 'dashboard.nav.databaseSettings'],
         ['logs', 'dashboard.nav.logs'],
@@ -129,7 +132,7 @@ async function refresh() {
     }
     function renderSetupIncompleteBanner(setup) {
       const root = document.getElementById('setupIncompleteBanner');
-      if (!setup || setup.status === 'ready') {
+      if (!setup || setup.status === 'ready' || activeView === 'setup') {
         root.classList.remove('is-visible');
         root.innerHTML = '';
         return;
@@ -138,7 +141,7 @@ async function refresh() {
       root.innerHTML =
         '<div><strong>' + i18n('dashboard.setupIncomplete.banner.title') + '</strong> ' +
         '<span>' + i18n('dashboard.setupIncomplete.banner.description') + '</span></div>' +
-        '<button type="button" onclick="setActiveView(\'settings\')">' +
+        '<button type="button" onclick="openSetupWizard()">' +
         i18n('dashboard.setupIncomplete.banner.action') + '</button>';
     }
     function renderStatusChips(state, setup) {

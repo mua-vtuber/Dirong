@@ -282,6 +282,8 @@ test("DashboardServer root serves the dashboard HTML without caching", async () 
     assert.match(html, /Dirong Recording \+ STT Dashboard/);
     assert.match(html, /app-shell/);
     assert.match(html, /statusChips/);
+    assert.match(html, /id="setupView"/);
+    assert.match(html, /id="setupWizard"/);
     assert.match(html, /\/assets\/dirong\/dirong_head\.png/);
     assert.doesNotMatch(html, /관리 외 삭제/);
     assert.match(html, /window\.__DIRONG_DASHBOARD_TOKEN__/);
@@ -597,6 +599,10 @@ test("DashboardServer serves split dashboard client scripts", async () => {
     assert.match(api.headers.get("content-type") ?? "", /text\/javascript/);
     assert.equal(api.headers.get("cache-control"), "no-store");
     assert.match(apiText, /dashboardJsonHeaders/);
+    assert.match(apiText, /SETUP_SKIP_DASHBOARD_KEY/);
+    assert.match(apiText, /sessionStorage/);
+    assert.match(apiText, /syncActiveViewForSetup/);
+    assert.match(setupText, /skipSetupToDashboard/);
     assert.match(setupText, /setupCreateManagedDatabases/);
     assert.match(notionText, /data-notion-action/);
     assert.match(managedDbText, /data-managed-db-action="check"/);
@@ -606,6 +612,7 @@ test("DashboardServer serves split dashboard client scripts", async () => {
     assert.match(managedDbText, /relation_target_mismatch: 'dashboard\.db\.requiredFields\.issue\.relationTarget'/);
     assert.doesNotMatch(managedDbText, /technicalDetail/);
     assert.match(dashboardText, /fetch\('\/api\/state'/);
+    assert.match(dashboardText, /openSetupWizard/);
     assert.doesNotMatch(notionText, /onclick=/);
     assert.doesNotMatch(notionText, /onchange=/);
     assert.doesNotMatch(notionText, /oninput=/);

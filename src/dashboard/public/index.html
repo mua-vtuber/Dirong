@@ -231,6 +231,11 @@
       min-width: 128px;
       text-align: right;
     }
+    .setup-progress-panel {
+      display: grid;
+      gap: 8px;
+      justify-items: end;
+    }
     .setup-card {
       display: block;
       cursor: pointer;
@@ -555,6 +560,21 @@
     }
     .app-view {
       padding: 18px 22px 24px;
+    }
+    .setup-view {
+      min-height: calc(100vh - 64px);
+    }
+    .setup-view .setup-shell {
+      min-height: calc(100vh - 106px);
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 16px;
+    }
+    .setup-view .setup-layout {
+      min-height: 0;
+    }
+    .setup-view .setup-panel {
+      min-height: 520px;
     }
     .label {
       color: var(--paper-faint);
@@ -978,6 +998,7 @@
       .setup-cards { grid-template-columns: 1fr; }
       .setup-status-grid { grid-template-columns: 1fr; }
       .setup-progress { text-align: left; }
+      .setup-progress-panel { justify-items: start; margin-top: 10px; }
       .setup-top { display: block; }
       main { padding: 14px; }
       th, td { font-size: 12px; padding: 7px; }
@@ -1028,6 +1049,10 @@
         </div>
         <div class="status-chip-row" id="statusChips"></div>
       </header>
+
+      <section id="setupView" class="app-view setup-view" hidden>
+        <section id="setupWizard" class="setup-shell"></section>
+      </section>
 
       <section id="dashboardView" class="app-view">
         <div id="lockedCards"></div>
@@ -1087,7 +1112,6 @@
       <section id="settingsView" class="app-view" hidden>
         <div class="tab-row" id="settingsTabs"></div>
         <section class="content-band" id="settingsPanel"></section>
-        <section id="setupWizard" class="setup-shell"></section>
       </section>
     </main>
   </div>

@@ -3,7 +3,11 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
     }[ch]));
     let i18nMessages = {};
     let i18nLocale = 'ko';
-    let activeView = window.localStorage.getItem('dirong.dashboard.view') ?? 'dashboard';
+    const SETUP_SKIP_DASHBOARD_KEY = 'dirong.setup.skipToDashboard';
+    function normalizeActiveView(view) {
+      return ['setup', 'dashboard', 'db', 'logs', 'settings'].includes(view) ? view : 'dashboard';
+    }
+    let activeView = normalizeActiveView(window.localStorage.getItem('dirong.dashboard.view') ?? 'dashboard');
     let activeDbTab = normalizeDbTab(window.localStorage.getItem('dirong.dashboard.dbTab') ?? 'meeting');
     let activeSettingsTab = window.localStorage.getItem('dirong.dashboard.settingsTab') ?? 'discord';
     let activeLogFilter = window.localStorage.getItem('dirong.dashboard.logFilter') ?? 'all';
@@ -28,11 +32,40 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
       });
       document.title = tr('dashboard.app.title');
     }
+    function setupIsIncomplete(setup) {
+      return Boolean(setup && setup.status !== 'ready');
+    }
+    function setupDashboardSkipped() {
+      return window.sessionStorage.getItem(SETUP_SKIP_DASHBOARD_KEY) === 'true';
+    }
+    function syncActiveViewForSetup(setup) {
+      if (!setup) return;
+      if (!setupIsIncomplete(setup)) {
+        window.sessionStorage.removeItem(SETUP_SKIP_DASHBOARD_KEY);
+        if (activeView === 'setup') {
+          activeView = 'dashboard';
+          window.localStorage.setItem('dirong.dashboard.view', activeView);
+        }
+        return;
+      }
+      if (activeView !== 'setup' && !setupDashboardSkipped()) {
+        activeView = 'setup';
+        window.localStorage.setItem('dirong.dashboard.view', activeView);
+      }
+    }
     function setActiveView(view) {
-      activeView = view;
-      window.localStorage.setItem('dirong.dashboard.view', view);
+      activeView = normalizeActiveView(view);
+      window.localStorage.setItem('dirong.dashboard.view', activeView);
       updateVisibleView();
       refresh();
+    }
+    function openSetupWizard() {
+      window.sessionStorage.removeItem(SETUP_SKIP_DASHBOARD_KEY);
+      setActiveView('setup');
+    }
+    function skipSetupToDashboard() {
+      window.sessionStorage.setItem(SETUP_SKIP_DASHBOARD_KEY, 'true');
+      setActiveView('dashboard');
     }
     function normalizeDbTab(tab) {
       if (tab === 'customFields') return 'meeting';
@@ -62,7 +95,7 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
       refresh();
     }
     function updateVisibleView() {
-      for (const view of ['dashboard', 'db', 'logs', 'settings']) {
+      for (const view of ['setup', 'dashboard', 'db', 'logs', 'settings']) {
         const node = document.getElementById(view + 'View');
         if (node) node.hidden = view !== activeView;
       }

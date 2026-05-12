@@ -40,6 +40,9 @@ const setupStepDefinitions = [
       }
       const activeStep = setupStepDefinitions[setupLocalState.stepIndex] ?? setupStepDefinitions[0];
       const progress = setupStepDefinitions.filter((step) => isSetupStepReady(setup, step.id)).length;
+      const setupAction = setup.status === 'ready'
+        ? '<button type="button" onclick="setActiveView(&quot;dashboard&quot;)">대시보드로 가기</button>'
+        : '<button type="button" onclick="skipSetupToDashboard()">나중에 설정하고 대시보드 보기</button>';
       const stepButtons = setupStepDefinitions.map((step, index) => {
         const ready = isSetupStepReady(setup, step.id);
         const current = index === setupLocalState.stepIndex;
@@ -53,8 +56,8 @@ const setupStepDefinitions = [
       setHtml('setupWizard',
         '<div class="setup-top"><div><h2 class="setup-title">첫 설정 위자드</h2>' +
         '<p class="setup-copy">비개발자도 token, 서버 선택, STT, Claude, Notion 생성까지 대시보드에서 끝낼 수 있게 안내합니다.</p>' +
-        '</div><div class="setup-progress">' + escapeHtml(progress) + ' / ' + escapeHtml(setupStepDefinitions.length) +
-        '<br>' + escapeHtml(setup.status ?? 'not_configured') + '</div></div>' +
+        '</div><div class="setup-progress-panel"><div class="setup-progress">' + escapeHtml(progress) + ' / ' + escapeHtml(setupStepDefinitions.length) +
+        '<br>' + escapeHtml(setup.status ?? 'not_configured') + '</div>' + setupAction + '</div></div>' +
         '<div class="setup-layout"><nav class="setup-steps">' + stepButtons + '</nav>' +
         '<div class="setup-panel">' + renderSetupStepContent(activeStep.id, setup) +
         renderSetupResult() + '</div></div>'
@@ -228,7 +231,8 @@ const setupStepDefinitions = [
       return '<h3>최종 점검</h3>' +
         '<p class="setup-copy">기능별 상태가 모두 ready이면 녹음부터 Notion 업로드까지 사용할 준비가 된 상태입니다.</p>' +
         renderSetupFeatureGrid(setup) +
-        '<div class="setup-actions"><button type="button" onclick="setSetupStep(0)">처음부터 다시 보기</button></div>';
+        '<div class="setup-actions"><button type="button" onclick="setSetupStep(0)">처음부터 다시 보기</button>' +
+        '<button type="button" onclick="setActiveView(&quot;dashboard&quot;)">대시보드로 가기</button></div>';
     }
     function setupRadioCard(name, value, current, title, body, handler) {
       const selected = current === value;

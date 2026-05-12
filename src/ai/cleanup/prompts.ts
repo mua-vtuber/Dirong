@@ -22,9 +22,13 @@ export function buildPhase4SystemPrompt(): string {
 
 export function buildPhase4UserPrompt(
   input: Phase4TimelineInput,
-  options: { notionCustomPropertyPrompt?: string } = {},
+  options: {
+    notionCustomPropertyPrompt?: string;
+    memberRosterPrompt?: string;
+  } = {},
 ): string {
   const notionCustomPropertyPrompt = options.notionCustomPropertyPrompt?.trim() ?? "";
+  const memberRosterPrompt = options.memberRosterPrompt?.trim() ?? "";
   return [
     "Task: Create a Korean meeting-notes draft from this Discord transcript timeline.",
     "",
@@ -101,6 +105,13 @@ export function buildPhase4UserPrompt(
           "",
           "Notion custom property extraction:",
           notionCustomPropertyPrompt,
+        ]
+      : []),
+    ...(memberRosterPrompt
+      ? [
+          "",
+          "Member roster assignment hints:",
+          memberRosterPrompt,
         ]
       : []),
     "",

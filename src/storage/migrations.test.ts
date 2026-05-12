@@ -22,6 +22,7 @@ const EXPECTED_MIGRATION_IDS = [
   "006_notion_custom_property_value_source",
   "007_notion_registry",
   "008_notion_custom_property_rule_roles",
+  "009_notion_member_roster_cache",
 ];
 
 test("DirongDatabase upgrades legacy transcript_segments speech_status", () => {
@@ -42,6 +43,8 @@ test("DirongDatabase upgrades legacy transcript_segments speech_status", () => {
       assert.equal(tableExists(database.db, "notion_workspace_settings"), true);
       assert.equal(tableExists(database.db, "notion_managed_databases"), true);
       assert.equal(tableExists(database.db, "notion_property_mappings"), true);
+      assert.equal(tableExists(database.db, "notion_member_roster_entries"), true);
+      assert.equal(tableExists(database.db, "notion_member_roster_syncs"), true);
     } finally {
       database.close();
     }
@@ -171,6 +174,16 @@ test("DirongDatabase records migrations on a fresh baseline schema", () => {
       assert.ok(
         getColumnNames(database.db, "notion_property_mappings").includes(
           "semantic_key",
+        ),
+      );
+      assert.ok(
+        getColumnNames(database.db, "notion_member_roster_entries").includes(
+          "normalized_roles_json",
+        ),
+      );
+      assert.ok(
+        getColumnNames(database.db, "notion_member_roster_syncs").includes(
+          "warnings_json",
         ),
       );
     } finally {

@@ -1,6 +1,7 @@
 import { NOTION_WRITES_SCHEMA_SQL } from "./schema-fragments/notion-002.js";
 import { NOTION_CUSTOM_PROPERTY_RULES_SCHEMA_SQL } from "./schema-fragments/notion-003.js";
 import { NOTION_REGISTRY_SCHEMA_SQL } from "./schema-fragments/notion-007.js";
+import { NOTION_MEMBER_ROSTER_SCHEMA_SQL } from "./schema-fragments/notion-009.js";
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS dirong_migrations (
@@ -193,6 +194,8 @@ ${NOTION_WRITES_SCHEMA_SQL}
 ${NOTION_CUSTOM_PROPERTY_RULES_SCHEMA_SQL}
 
 ${NOTION_REGISTRY_SCHEMA_SQL}
+
+${NOTION_MEMBER_ROSTER_SCHEMA_SQL}
 
 CREATE TABLE IF NOT EXISTS connection_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

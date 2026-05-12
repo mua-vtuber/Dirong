@@ -17,6 +17,7 @@ import {
   type NotionClient,
 } from "./client.js";
 import type { NotionCustomPropertyRule } from "./property-rules.js";
+import type { NotionMemberRosterStore } from "./member-roster-store.js";
 import type { NotionRegistryStore } from "./registry-store.js";
 import type {
   NotionDraftCandidateRow,
@@ -88,6 +89,7 @@ export type NotionAutomationServiceOptions = {
   workerId: string;
   leaseMs: number;
   registryStore?: NotionRegistryStore | null;
+  memberRosterStore?: NotionMemberRosterStore | null;
   customPropertyRules?: () => readonly NotionCustomPropertyRule[];
   retention?: NotionUploadRetentionHandler;
   localeResolver?: AppLocaleResolver;
@@ -302,6 +304,7 @@ export class NotionAutomationService {
         readModel: this.options.readModel,
         writeStore: this.options.writeStore,
         registryStore: this.options.registryStore ?? null,
+        memberRosterStore: this.options.memberRosterStore ?? null,
         customPropertyRules: this.options.customPropertyRules?.() ?? [],
       });
       await applyRetentionAfterSuccessfulUpload(

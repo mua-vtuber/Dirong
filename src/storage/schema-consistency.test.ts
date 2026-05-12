@@ -14,6 +14,8 @@ const CRITICAL_NOTION_TABLES = [
   "notion_workspace_settings",
   "notion_managed_databases",
   "notion_property_mappings",
+  "notion_member_roster_entries",
+  "notion_member_roster_syncs",
 ] as const;
 
 test("fresh schema and migration-only schema keep critical Notion tables aligned", () => {

@@ -89,6 +89,7 @@ export type AiCleanupRunOptions = {
   maxOutputBytes: number;
   includeFakeStt?: boolean;
   customNotionPropertyPrompt?: () => string;
+  memberRosterPrompt?: () => string;
   backup?: () => string[];
   progress?: AiCleanupProgressObserver;
 };
@@ -128,14 +129,22 @@ async function runAiCleanupForSessionCore(
     );
   }
 
-  const timelineInput = buildPhase4TimelineInput(store, {
+  const baseTimelineInput = buildPhase4TimelineInput(store, {
     sessionId: options.sessionId,
     includeFakeStt: options.includeFakeStt ?? false,
   });
   const systemPrompt = buildPhase4SystemPrompt();
   const notionCustomPropertyPrompt = options.customNotionPropertyPrompt?.() ?? "";
+  const memberRosterPrompt = options.memberRosterPrompt?.() ?? "";
+  const timelineInput = {
+    ...baseTimelineInput,
+    inputHash: buildPhase4ContextualInputHash(baseTimelineInput.inputHash, {
+      memberRosterPrompt,
+    }),
+  };
   const userPrompt = buildPhase4UserPrompt(timelineInput, {
     notionCustomPropertyPrompt,
+    memberRosterPrompt,
   });
   const inputChars = timelineInput.canonicalJson.length + timelineInput.markdown.length;
   let progressContext = makeAiCleanupProgressContext({
@@ -616,6 +625,22 @@ async function runAiCleanupForSessionCore(
     job: store.getAiCleanupJob(claimed.id),
     draft: savedDraft,
   };
+}
+
+export function buildPhase4ContextualInputHash(
+  baseInputHash: string,
+  context: { memberRosterPrompt?: string },
+): string {
+  const memberRosterPrompt = context.memberRosterPrompt?.trim() ?? "";
+  if (!memberRosterPrompt) {
+    return baseInputHash;
+  }
+  return sha256Text(
+    stableStringify({
+      baseInputHash,
+      memberRosterPromptHash: sha256Text(memberRosterPrompt),
+    }),
+  );
 }
 
 async function resetProviderAfterRun(

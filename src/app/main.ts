@@ -62,6 +62,10 @@ import {
   buildNotionCustomPropertyPrompt,
   NotionCustomPropertyRuleStore,
 } from "../notion/property-rules.js";
+import {
+  buildNotionMemberRosterPrompt,
+  NotionMemberRosterStore,
+} from "../notion/member-roster-store.js";
 import { NotionRegistryStore } from "../notion/registry-store.js";
 import { NotionWriteStore } from "../notion/write-store.js";
 import { RecordingProducer } from "../recording/recording-producer.js";
@@ -113,6 +117,7 @@ const sttAutomation = createSttAutomationService(
 const notionSqlRunner = new SqlRunner(database);
 const notionPropertyRuleStore = new NotionCustomPropertyRuleStore(notionSqlRunner);
 const notionRegistryStore = new NotionRegistryStore(notionSqlRunner);
+const notionMemberRosterStore = new NotionMemberRosterStore(notionSqlRunner);
 const getNotionRuntimeSettings = createProductNotionRuntimeSettingsProvider({
   paths: productRuntime.paths,
 });
@@ -538,6 +543,10 @@ function createAiCleanupAutomationService(
         buildNotionCustomPropertyPrompt(
           notionPropertyRuleStore.listEnabledRules("meeting"),
         ),
+      memberRosterPrompt: () =>
+        buildNotionMemberRosterPrompt(
+          notionMemberRosterStore.listLatestForPrompt(),
+        ),
       backup: () =>
         backupDatabaseSnapshot(config.dbPath, {
           busyTimeoutMs: config.dbBusyTimeoutMs,
@@ -563,6 +572,7 @@ function createNotionAutomationService(
     workerId: `phase5-notion-auto-${process.pid}`,
     leaseMs: settings.leaseMs || config.sttLeaseMs,
     registryStore: new NotionRegistryStore(runner),
+    memberRosterStore: new NotionMemberRosterStore(runner),
     customPropertyRules: () => notionPropertyRuleStore.listEnabledRules("meeting"),
     retention: notionUploadRetention,
     localeResolver: resolveAppLocale,

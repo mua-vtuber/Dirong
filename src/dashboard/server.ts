@@ -13,6 +13,7 @@ import type {
   NotionDashboardSchemaActionResult,
   NotionDashboardSnapshot,
 } from "../notion/dashboard-service.js";
+import type { NotionMemberRosterSyncResult } from "../notion/member-roster-sync.js";
 import type { NotionCustomPropertyRuleInput } from "../notion/property-rules.js";
 import type { NotionDatabaseRole } from "../notion/schema-presets.js";
 import type { NotionSchemaApplyOptions } from "../notion/schema-manager.js";
@@ -60,6 +61,7 @@ export type DashboardNotionSource = {
   syncCustomProperties(input: {
     role: NotionDatabaseRole;
   }): Promise<NotionDashboardCustomPropertyActionResult>;
+  syncMemberRoster(): Promise<NotionMemberRosterSyncResult>;
   saveCustomPropertyRules(input: {
     role: NotionDatabaseRole;
     rules: readonly NotionCustomPropertyRuleInput[];

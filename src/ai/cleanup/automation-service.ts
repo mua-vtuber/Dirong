@@ -23,6 +23,7 @@ import type { AiCleanupProvider } from "./provider.js";
 import { AiCleanupProviderError } from "./provider.js";
 import { PHASE4_AI_CLEANUP_PROMPT_VERSION } from "./prompts.js";
 import {
+  buildPhase4ContextualInputHash,
   runAiCleanupForSession,
   type AiCleanupRunOptions,
   type AiCleanupRunResult,
@@ -295,12 +296,18 @@ export class AiCleanupAutomationService {
         sessionId: session.id,
         includeFakeStt: false,
       });
+      const effectiveInputHash = buildPhase4ContextualInputHash(
+        timelineInput.inputHash,
+        {
+          memberRosterPrompt: this.options.runner.memberRosterPrompt?.() ?? "",
+        },
+      );
       const existingJob = this.store.getAiCleanupJobByIdentity({
         sessionId: session.id,
         provider: this.options.provider.providerName,
         model: this.options.provider.modelName,
         promptVersion: PHASE4_AI_CLEANUP_PROMPT_VERSION,
-        inputHash: timelineInput.inputHash,
+        inputHash: effectiveInputHash,
       });
 
       if (existingJob?.status === "processing") {

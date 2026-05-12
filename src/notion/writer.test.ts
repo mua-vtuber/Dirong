@@ -11,6 +11,7 @@ import {
   KOREAN_NOTION_SCHEMA_PRESET,
   NOTION_MEETING_STATUS_OPTIONS,
 } from "./schema-presets.js";
+import { NotionMemberRosterStore } from "./member-roster-store.js";
 import { NotionRegistryStore } from "./registry-store.js";
 import { makeNotionDraftInput } from "./test-fixtures.js";
 import { runNotionUpload } from "./writer.js";
@@ -465,6 +466,101 @@ test("runNotionUpload leaves task worker relation empty when action owner is unm
     assert.equal(result.status, "done");
     assert.equal("작업자 연결" in taskProperties, false);
     assert.match(result.warnings.join("\n"), /작업자 "Taniar".*찾지 못해/);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("runNotionUpload resolves a managed task worker from roster role fallback", async () => {
+  const fixture = createFixture({ actionItems: roleActionItems("UI") });
+  seedManagedRegistry(fixture.registryStore);
+  fixture.memberRosterStore.replaceForDataSource({
+    dataSourceId: managedMemberDataSourceId,
+    syncedAt: nowIso,
+    warningCount: 0,
+    entries: [
+      {
+        pageId: "member-taniar",
+        discordName: "Taniar",
+        organization: "Product",
+        roles: ["UI"],
+      },
+    ],
+  });
+  try {
+    const client = new FakeNotionClient({
+      memberQueryResultsByName: {
+        UI: [],
+      },
+    });
+    const result = await runNotionUpload({
+      settings: notionSettings({ targetUrl: null }),
+      selector: { kind: "draft", draftId: fixture.draftId },
+      dryRun: false,
+      force: false,
+      workerId: "writer-test",
+      leaseMs: 60000,
+      nowIso,
+      client,
+      readModel: new NotionDraftInputReadModel(fixture.runner),
+      writeStore: fixture.writeStore,
+      registryStore: fixture.registryStore,
+      memberRosterStore: fixture.memberRosterStore,
+    });
+    const taskProperties = client.taskCreatePageBodies[0]?.properties as Record<
+      string,
+      unknown
+    >;
+
+    assert.equal(result.status, "done");
+    assert.deepEqual(taskProperties["작업자 연결"], {
+      relation: [{ id: "member-taniar" }],
+    });
+  } finally {
+    fixture.close();
+  }
+});
+
+test("runNotionUpload leaves worker relation empty when roster role fallback is ambiguous", async () => {
+  const fixture = createFixture({ actionItems: roleActionItems("UI") });
+  seedManagedRegistry(fixture.registryStore);
+  fixture.memberRosterStore.replaceForDataSource({
+    dataSourceId: managedMemberDataSourceId,
+    syncedAt: nowIso,
+    warningCount: 0,
+    entries: [
+      { pageId: "member-taniar", discordName: "Taniar", roles: ["UI"] },
+      { pageId: "member-ari", discordName: "Ari", roles: ["UI"] },
+    ],
+  });
+  try {
+    const client = new FakeNotionClient({
+      memberQueryResultsByName: {
+        UI: [],
+      },
+    });
+    const result = await runNotionUpload({
+      settings: notionSettings({ targetUrl: null }),
+      selector: { kind: "draft", draftId: fixture.draftId },
+      dryRun: false,
+      force: false,
+      workerId: "writer-test",
+      leaseMs: 60000,
+      nowIso,
+      client,
+      readModel: new NotionDraftInputReadModel(fixture.runner),
+      writeStore: fixture.writeStore,
+      registryStore: fixture.registryStore,
+      memberRosterStore: fixture.memberRosterStore,
+    });
+    const taskProperties = client.taskCreatePageBodies[0]?.properties as Record<
+      string,
+      unknown
+    >;
+
+    assert.equal(result.status, "done");
+    assert.equal("작업자 연결" in taskProperties, false);
+    assert.match(result.warnings.join("\n"), /역할 "UI".*여러 명/);
   } finally {
     fixture.close();
   }
@@ -1040,6 +1136,7 @@ type WriterFixture = {
   runner: SqlRunner;
   writeStore: NotionWriteStore;
   registryStore: NotionRegistryStore;
+  memberRosterStore: NotionMemberRosterStore;
   sessionId: string;
   draftId: string;
   close: () => void;
@@ -1053,6 +1150,7 @@ function createFixture(
   const runner = new SqlRunner(database);
   const writeStore = new NotionWriteStore(runner);
   const registryStore = new NotionRegistryStore(runner);
+  const memberRosterStore = new NotionMemberRosterStore(runner);
   const draftInput = makeNotionDraftInput(options);
   insertSession(database, dir, draftInput);
   insertSpeaker(database, draftInput);
@@ -1065,6 +1163,7 @@ function createFixture(
     runner,
     writeStore,
     registryStore,
+    memberRosterStore,
     sessionId: draftInput.session.id,
     draftId: draftInput.draft.id,
     close: () => {
@@ -1162,6 +1261,37 @@ function managedActionItems(): ReturnType<
         evidence: [ariReference],
       },
       references: [ariReference],
+    },
+  ];
+}
+
+function roleActionItems(
+  role: string,
+): ReturnType<typeof makeNotionDraftInput>["draftContent"]["actionItems"] {
+  const reference = {
+    chunkId: "chunk-1",
+    sttJobId: "stt-1",
+    startMs: 0,
+    endMs: 60000,
+    speaker: "Taniar",
+  };
+  return [
+    {
+      id: "action-1",
+      task: "역할 기반 담당자 매칭을 확인한다.",
+      owner: {
+        status: "explicit",
+        name: role,
+        userId: null,
+        evidence: [reference],
+      },
+      dueDate: {
+        status: "unspecified",
+        rawText: null,
+        isoDate: null,
+        evidence: [],
+      },
+      references: [reference],
     },
   ];
 }

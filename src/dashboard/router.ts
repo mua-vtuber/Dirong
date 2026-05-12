@@ -14,6 +14,7 @@ import {
 import { sendHtml, sendJson, sendText } from "./http.js";
 import {
   handleNotionAction,
+  handleNotionMemberRosterSync,
   handleNotionManagedSchemaCheck,
   handleNotionManagedSchemaRepair,
   handleNotionPropertiesSave,
@@ -123,6 +124,18 @@ export async function routeDashboardRequest(
   ) {
     await handleNotionPropertiesSync(
       request,
+      response,
+      context.runtimeSources,
+      locale,
+    );
+    return;
+  }
+
+  if (
+    request.method === "POST" &&
+    url.pathname === "/api/notion/member-roster/sync"
+  ) {
+    await handleNotionMemberRosterSync(
       response,
       context.runtimeSources,
       locale,

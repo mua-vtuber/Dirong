@@ -99,6 +99,48 @@ export async function handleNotionPropertiesSync(
   }
 }
 
+export async function handleNotionMemberRosterSync(
+  response: ServerResponse,
+  sources: DashboardRuntimeSources,
+  locale: DirongLocale,
+): Promise<void> {
+  if (!sources.notion) {
+    sendJson(response, withMessageKeys(locale, {
+      ok: false,
+      status: "not_configured",
+      messageKey: "error.dashboard.notionActionSourceMissing.message",
+      userActionKey: "error.dashboard.notionActionSourceMissing.action",
+      dataSourceId: null,
+      syncedAt: null,
+      memberCount: 0,
+      roleCount: 0,
+      warnings: [],
+    }));
+    return;
+  }
+
+  try {
+    sendJson(response, await sources.notion.syncMemberRoster());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const localized = withMessageKeys(locale, {
+      messageKey: "error.dashboard.requestInvalid.message",
+      userActionKey: "action.request.retry",
+      status: "failed",
+      technicalDetail: message,
+    });
+    sendJson(response, {
+      ok: false,
+      dataSourceId: null,
+      syncedAt: null,
+      memberCount: 0,
+      roleCount: 0,
+      warnings: [],
+      ...localized,
+    }, 400);
+  }
+}
+
 export async function handleNotionPropertiesSave(
   request: IncomingMessage,
   response: ServerResponse,

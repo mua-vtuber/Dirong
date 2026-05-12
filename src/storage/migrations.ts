@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { NOTION_WRITES_SCHEMA_SQL } from "./schema-fragments/notion-002.js";
 import { NOTION_CUSTOM_PROPERTY_RULES_SCHEMA_SQL } from "./schema-fragments/notion-003.js";
 import { NOTION_REGISTRY_SCHEMA_SQL } from "./schema-fragments/notion-007.js";
+import { NOTION_MEMBER_ROSTER_SCHEMA_SQL } from "./schema-fragments/notion-009.js";
 
 type SchemaMigration = {
   id: string;
@@ -40,6 +41,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   {
     id: "008_notion_custom_property_rule_roles",
     apply: migrateNotionCustomPropertyRuleRoles,
+  },
+  {
+    id: "009_notion_member_roster_cache",
+    apply: migrateNotionMemberRosterCache,
   },
 ];
 
@@ -269,4 +274,8 @@ ALTER TABLE notion_custom_property_rules_new RENAME TO notion_custom_property_ru
 CREATE INDEX idx_notion_custom_property_rules_enabled
   ON notion_custom_property_rules(database_role, enabled, property_name);
 `);
+}
+
+function migrateNotionMemberRosterCache(db: DatabaseSync): void {
+  db.exec(NOTION_MEMBER_ROSTER_SCHEMA_SQL);
 }

@@ -6,10 +6,13 @@ import test from "node:test";
 import { DirongDatabase } from "../storage/sqlite.js";
 import { NotionDashboardService } from "./dashboard-service.js";
 import type { NotionClient } from "./client.js";
+import { NotionRegistryStore } from "./registry-store.js";
+import { KOREAN_NOTION_SCHEMA_PRESET } from "./schema-presets.js";
 import {
   DEFAULT_NOTION_PROPERTY_NAMES,
   type NotionRuntimeSettings,
 } from "./settings.js";
+import { SqlRunner } from "../storage/sql-runner.js";
 
 test("NotionDashboardService reads latest settings for snapshots", () => {
   const fixture = createFixture();
@@ -81,7 +84,66 @@ test("NotionDashboardService manual upload uses the latest settings client", asy
   }
 });
 
+test("NotionDashboardService syncs member roster by semantic mappings with pagination", async () => {
+  const fixture = createFixture();
+  try {
+    seedManagedRegistry(new NotionRegistryStore(new SqlRunner(fixture.database)));
+    const client = new FakeNotionClient({
+      memberPages: [
+        memberPage("page-empty", "", ["UI"]),
+        memberPage("page-taniar", "Taniar", ["UI"]),
+        memberPage("page-taniar-dup", "Taniar", ["QA"]),
+        memberPage("page-ari", "Ari", []),
+      ],
+    });
+    const service = new NotionDashboardService({
+      settings: notionSettings({
+        apiKey: "ntn_test_dashboard_secret",
+        targetUrl: null,
+      }),
+      notionClientFactory: () => client,
+      database: fixture.database,
+      config: { sttLeaseMs: 60000 },
+      workerId: "notion-dashboard-test",
+    });
+
+    const result = await service.syncMemberRoster();
+    const snapshot = service.getSnapshot().memberRoster;
+
+    assert.equal(result.status, "done");
+    assert.equal(result.memberCount, 3);
+    assert.equal(result.roleCount, 2);
+    assert.equal(
+      result.warnings.filter((warning) => warning.code === "emptyDiscordName")
+        .length,
+      1,
+    );
+    assert.equal(
+      result.warnings.filter((warning) => warning.code === "duplicateDiscordName")
+        .length,
+      1,
+    );
+    assert.deepEqual(client.queryBodies.map((body) => body.start_cursor ?? null), [
+      null,
+      "cursor-2",
+    ]);
+    assert.equal(snapshot.memberCount, 3);
+    assert.equal(snapshot.roleCount, 2);
+    assert.equal(snapshot.warningCount, 2);
+  } finally {
+    fixture.close();
+  }
+});
+
 class FakeNotionClient implements NotionClient {
+  readonly queryBodies: Record<string, unknown>[] = [];
+
+  constructor(
+    private readonly options: {
+      memberPages?: readonly Record<string, unknown>[];
+    } = {},
+  ) {}
+
   async retrievePage(): Promise<Record<string, unknown>> {
     return { id: "page-1", object: "page" };
   }
@@ -98,7 +160,18 @@ class FakeNotionClient implements NotionClient {
     return { id: "data-source-1", properties: {} };
   }
 
-  async retrieveDataSource(): Promise<Record<string, unknown>> {
+  async retrieveDataSource(dataSourceId = "01234567-89ab-cdef-0123-456789abcdef"): Promise<Record<string, unknown>> {
+    if (dataSourceId === "member-data-source") {
+      return {
+        id: "member-data-source",
+        name: "작업자",
+        properties: {
+          "디스코드 닉네임": { id: "member-discord-name-id", type: "title" },
+          소속: { id: "member-organization-id", type: "select" },
+          담당: { id: "member-roles-id", type: "multi_select" },
+        },
+      };
+    }
     return {
       id: "01234567-89ab-cdef-0123-456789abcdef",
       name: "회의록",
@@ -114,7 +187,26 @@ class FakeNotionClient implements NotionClient {
     };
   }
 
-  async queryDataSource(): Promise<Record<string, unknown>> {
+  async queryDataSource(
+    dataSourceId: string,
+    body: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    this.queryBodies.push(body);
+    if (dataSourceId === "member-data-source") {
+      const pages = this.options.memberPages ?? [];
+      if (body.start_cursor === "cursor-2") {
+        return {
+          results: pages.slice(2),
+          has_more: false,
+          next_cursor: null,
+        };
+      }
+      return {
+        results: pages.slice(0, 2),
+        has_more: pages.length > 2,
+        next_cursor: pages.length > 2 ? "cursor-2" : null,
+      };
+    }
     return { results: [] };
   }
 
@@ -184,5 +276,63 @@ function completeProperties(): Record<string, { id: string; type: string }> {
     "Draft ID": { id: "draft-id", type: "rich_text" },
     "Dirong Content Hash": { id: "content-hash-id", type: "rich_text" },
     "Local Status": { id: "local-status-id", type: "rich_text" },
+  };
+}
+
+function seedManagedRegistry(store: NotionRegistryStore): void {
+  store.saveWorkspaceSettings({
+    locale: "ko",
+    parentPageUrl:
+      "https://www.notion.so/workspace/Dirong-99999999999999999999999999999999",
+    parentPageId: "99999999-9999-9999-9999-999999999999",
+    nowIso: "2026-05-13T00:00:00.000Z",
+  });
+  store.upsertManagedDatabase({
+    role: "member",
+    locale: "ko",
+    databaseId: "member-db",
+    dataSourceId: "member-data-source",
+    url: "https://notion.so/member-db",
+    name: "작업자",
+    createdByDirong: true,
+    schemaVersion: "notion-managed-db-v1",
+    nowIso: "2026-05-13T00:00:00.000Z",
+  });
+  for (const property of KOREAN_NOTION_SCHEMA_PRESET.databases.member.properties) {
+    store.upsertPropertyMapping({
+      databaseRole: "member",
+      semanticKey: property.key,
+      propertyName: property.name,
+      propertyId: null,
+      propertyType: property.type,
+      locked: property.locked,
+      sourceKind: "system",
+      nowIso: "2026-05-13T00:00:00.000Z",
+    });
+  }
+}
+
+function memberPage(
+  id: string,
+  discordName: string,
+  roles: readonly string[],
+): Record<string, unknown> {
+  return {
+    id,
+    last_edited_time: "2026-05-13T00:00:00.000Z",
+    properties: {
+      "디스코드 닉네임": {
+        type: "title",
+        title: [{ plain_text: discordName }],
+      },
+      소속: {
+        type: "select",
+        select: { name: "Product" },
+      },
+      담당: {
+        type: "multi_select",
+        multi_select: roles.map((name) => ({ name })),
+      },
+    },
   };
 }

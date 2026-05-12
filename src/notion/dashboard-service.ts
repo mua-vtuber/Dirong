@@ -35,6 +35,15 @@ import {
   runNotionUpload,
   type NotionDraftSelector,
 } from "./writer.js";
+import {
+  syncNotionMemberRoster,
+  type NotionMemberRosterSyncResult,
+} from "./member-roster-sync.js";
+import {
+  NotionMemberRosterStore,
+  type NotionMemberRosterStoredWarning,
+  type NotionMemberRosterSyncStatus,
+} from "./member-roster-store.js";
 import { hasCompleteManagedNotionUploadRegistry } from "./managed-registry-policy.js";
 import {
   readDataSourceProperties,
@@ -95,8 +104,20 @@ export type NotionDashboardSnapshot = {
   userAction: string | null;
   display?: HumanStatusDisplay;
   managedRegistry?: ManagedNotionRegistrySnapshot;
+  memberRoster: NotionMemberRosterDashboardSnapshot;
   settings: ReturnType<typeof snapshotNotionRuntimeSettings>;
   customProperties: NotionCustomPropertiesDashboardSnapshot;
+};
+
+export type NotionMemberRosterDashboardSnapshot = {
+  dataSourceId: string | null;
+  status: NotionMemberRosterSyncStatus | "not_synced" | "not_configured";
+  syncedAt: string | null;
+  memberCount: number;
+  roleCount: number;
+  warningCount: number;
+  warnings: NotionMemberRosterStoredWarning[];
+  lastError: string | null;
 };
 
 export type NotionDashboardActionInput = {
@@ -165,6 +186,7 @@ export class NotionDashboardService {
   private readonly runner: SqlRunner;
   private readonly propertyRuleStore: NotionCustomPropertyRuleStore;
   private readonly registryStore: NotionRegistryStore;
+  private readonly memberRosterStore: NotionMemberRosterStore;
   private lastManagedSchemaCheck: ManagedNotionSchemaStatusSnapshot | null = null;
 
   constructor(
@@ -183,6 +205,7 @@ export class NotionDashboardService {
     this.runner = new SqlRunner(input.database);
     this.propertyRuleStore = new NotionCustomPropertyRuleStore(this.runner);
     this.registryStore = new NotionRegistryStore(this.runner);
+    this.memberRosterStore = new NotionMemberRosterStore(this.runner);
   }
 
   private getSettings(): NotionRuntimeSettings {
@@ -225,6 +248,7 @@ export class NotionDashboardService {
     const managedRegistry = readManagedNotionRegistrySnapshot(this.registryStore, {
       remoteCheck: this.lastManagedSchemaCheck,
     });
+    const memberRoster = this.getMemberRosterSnapshot();
     const configured = Boolean(
       settings.apiKey &&
         (settings.targetUrl ||
@@ -250,6 +274,7 @@ export class NotionDashboardService {
           targetUrl: settings.targetUrl,
         }),
         managedRegistry,
+        memberRoster,
         settings: snapshotNotionRuntimeSettings(settings),
         customProperties,
       };
@@ -275,6 +300,7 @@ export class NotionDashboardService {
           managedRegistry,
         }),
         managedRegistry,
+        memberRoster,
         settings: snapshotNotionRuntimeSettings(settings),
         customProperties,
       };
@@ -300,6 +326,7 @@ export class NotionDashboardService {
           managedRegistry,
         }),
         managedRegistry,
+        memberRoster,
         settings: snapshotNotionRuntimeSettings(settings),
         customProperties,
       };
@@ -322,6 +349,7 @@ export class NotionDashboardService {
         managedRegistry,
       }),
       managedRegistry,
+      memberRoster,
       settings: snapshotNotionRuntimeSettings(settings),
       customProperties,
     };
@@ -452,6 +480,7 @@ export class NotionDashboardService {
       readModel: new NotionDraftInputReadModel(this.runner),
       writeStore: new NotionWriteStore(this.runner),
       registryStore: this.registryStore,
+      memberRosterStore: this.memberRosterStore,
       customPropertyRules: this.propertyRuleStore.listEnabledRules("meeting"),
     });
     try {
@@ -507,6 +536,69 @@ export class NotionDashboardService {
       technicalDetail: result.technicalDetail,
       pageUrl: result.pageUrl,
     };
+  }
+
+  async syncMemberRoster(): Promise<NotionMemberRosterSyncResult> {
+    const settings = this.getSettings();
+    if (!settings.enabled || !settings.apiKey) {
+      return {
+        ok: false,
+        status: "not_configured",
+        messageKey: "dashboard.db.memberRoster.status.notConfigured",
+        userActionKey: "dashboard.db.memberRoster.action.configureNotion",
+        dataSourceId: null,
+        syncedAt: null,
+        memberCount: 0,
+        roleCount: 0,
+        warnings: [],
+      };
+    }
+
+    const client = this.createClient(settings);
+    if (!client) {
+      return {
+        ok: false,
+        status: "not_configured",
+        messageKey: "dashboard.db.memberRoster.status.notConfigured",
+        userActionKey: "dashboard.db.memberRoster.action.configureNotion",
+        dataSourceId: null,
+        syncedAt: null,
+        memberCount: 0,
+        roleCount: 0,
+        warnings: [],
+      };
+    }
+
+    try {
+      return await syncNotionMemberRoster({
+        client,
+        registryStore: this.registryStore,
+        rosterStore: this.memberRosterStore,
+      });
+    } catch (error) {
+      const memberDatabase = this.registryStore.getManagedDatabase("member");
+      if (memberDatabase) {
+        this.memberRosterStore.recordSyncSnapshot({
+          dataSourceId: memberDatabase.dataSourceId,
+          status: "failed",
+          memberCount: 0,
+          warningCount: 0,
+          lastError: summarizeSafeError(error),
+          nowIso: new Date().toISOString(),
+        });
+      }
+      return {
+        ok: false,
+        status: "failed",
+        messageKey: "dashboard.db.memberRoster.status.failed",
+        userActionKey: "dashboard.db.memberRoster.action.checkMemberDb",
+        dataSourceId: memberDatabase?.dataSourceId ?? null,
+        syncedAt: null,
+        memberCount: 0,
+        roleCount: 0,
+        warnings: [],
+      };
+    }
   }
 
   async syncCustomProperties(input: {
@@ -722,6 +814,52 @@ export class NotionDashboardService {
     return {
       ...roles.meeting,
       roles,
+    };
+  }
+
+  private getMemberRosterSnapshot(): NotionMemberRosterDashboardSnapshot {
+    const memberDatabase = this.registryStore.getManagedDatabase("member");
+    if (!memberDatabase) {
+      return {
+        dataSourceId: null,
+        status: "not_configured",
+        syncedAt: null,
+        memberCount: 0,
+        roleCount: 0,
+        warningCount: 0,
+        warnings: [],
+        lastError: null,
+      };
+    }
+
+    const sync = this.memberRosterStore.getSyncSnapshot(
+      memberDatabase.dataSourceId,
+    );
+    if (!sync) {
+      return {
+        dataSourceId: memberDatabase.dataSourceId,
+        status: "not_synced",
+        syncedAt: null,
+        memberCount: 0,
+        roleCount: 0,
+        warningCount: 0,
+        warnings: [],
+        lastError: null,
+      };
+    }
+
+    const entries = this.memberRosterStore.listForDataSource(
+      memberDatabase.dataSourceId,
+    );
+    return {
+      dataSourceId: memberDatabase.dataSourceId,
+      status: sync.status,
+      syncedAt: sync.syncedAt,
+      memberCount: sync.memberCount,
+      roleCount: countRosterRoles(entries),
+      warningCount: sync.warningCount,
+      warnings: sync.warnings,
+      lastError: sync.lastError,
     };
   }
 
@@ -1105,6 +1243,20 @@ function schemaDiffUserAction(diff: NotionSchemaDiff): string | null {
       : null;
   }
   return "스키마 맞추기를 누르면 누락 속성과 이름 변경, select 옵션 보강을 자동 적용합니다.";
+}
+
+function countRosterRoles(
+  entries: readonly { normalizedRoles: readonly string[] }[],
+): number {
+  const roles = new Set<string>();
+  for (const entry of entries) {
+    for (const role of entry.normalizedRoles) {
+      if (role) {
+        roles.add(role);
+      }
+    }
+  }
+  return roles.size;
 }
 
 function buildNotionDashboardDisplay(input: {

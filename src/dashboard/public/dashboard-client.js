@@ -459,6 +459,7 @@ async function refresh() {
         blocked: 'dashboard.status.value.blocked',
         repair_required: 'dashboard.status.value.warning',
         not_configured: 'dashboard.status.value.notConfigured',
+        not_synced: 'dashboard.status.value.notConfigured',
         idle: 'dashboard.status.value.idle',
         recording: 'dashboard.status.value.recording',
         done: 'dashboard.status.value.done',

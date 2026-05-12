@@ -2,19 +2,70 @@ document.addEventListener('click', onManagedDbClick);
 
 let managedDbCheckResult = null;
 let managedDbBusyAction = null;
+let memberRosterSyncResult = null;
 
 function clearManagedDbCheckResult() {
       managedDbCheckResult = null;
       managedDbBusyAction = null;
+      memberRosterSyncResult = null;
     }
 
 function renderManagedDbPanel(state, setup, role) {
       const registry = state.notion?.managedRegistry ?? setup?.features?.notion?.managedRegistry ?? null;
       const remoteCheck = managedDbCheckResult?.snapshot ?? registry?.remoteCheck ?? null;
       return renderManagedDatabaseStatus(registry, remoteCheck, role) +
+        renderMemberRosterPanel(state, registry, role) +
         renderManagedRequiredFields(registry, remoteCheck, role) +
         renderManagedSchemaActions(registry, role) +
         renderManagedRepairPlan(role);
+    }
+
+function renderMemberRosterPanel(state, registry, role) {
+      if (role !== 'member') return '';
+      const roster = memberRosterSyncResult ?? state.notion?.memberRoster ?? null;
+      const database = managedRegistryDatabase(registry, role);
+      const hasToken = state.notion?.settings?.apiKey === '[REDACTED]';
+      const disabled = managedDbBusyAction !== null || !state.notion || !hasToken || !database?.hasDatabase;
+      const disabledAttr = disabled ? ' disabled' : '';
+      const status = memberRosterSyncResult?.status ?? roster?.status ?? 'not_synced';
+      const lastSynced = roster?.syncedAt
+        ? escapeHtml(roster.syncedAt)
+        : i18n('dashboard.db.memberRoster.notSynced');
+      const warnings = Array.isArray(roster?.warnings) ? roster.warnings : [];
+      const duplicateCount = countMemberRosterWarnings(warnings, 'duplicateDiscordName');
+      const emptyCount = countMemberRosterWarnings(warnings, 'emptyDiscordName');
+      const warningDetails = warnings.length
+        ? '<details><summary class="muted">' + i18n('dashboard.db.memberRoster.warningCount', {
+            count: roster?.warningCount ?? warnings.length
+          }) + '</summary><div class="muted">' +
+          warnings.map(memberRosterWarningText).join('<br>') + '</div></details>'
+        : '';
+      const error = roster?.lastError
+        ? '<div class="display-next">' + escapeHtml(roster.lastError) + '</div>'
+        : '';
+      const statusText = memberRosterSyncResult
+        ? memberRosterActionStatusText(memberRosterSyncResult)
+        : tr('dashboard.db.memberRoster.status.' + memberRosterStatusKey(status));
+      return '<div class="metric" style="margin-top:12px"><div class="label">' +
+        i18n('dashboard.db.memberRoster.title') + '</div>' +
+        '<div class="muted">' + i18n('dashboard.db.memberRoster.description') + '</div>' +
+        '<div class="value ' + runtimeValueClass(status) + '">' + escapeHtml(statusText) + '</div>' +
+        '<div class="muted">' + i18n('dashboard.db.memberRoster.lastSynced') + ': ' + lastSynced + '</div>' +
+        '<div class="required-field-grid" style="margin-top:10px">' +
+        '<div class="required-field"><div class="label">' + i18n('dashboard.db.memberRoster.loadedCount') +
+        '</div><div class="value">' + escapeHtml(roster?.memberCount ?? 0) + '</div></div>' +
+        '<div class="required-field"><div class="label">' + i18n('dashboard.db.memberRoster.roleCount') +
+        '</div><div class="value">' + escapeHtml(roster?.roleCount ?? 0) + '</div></div>' +
+        '<div class="required-field"><div class="label">' + i18n('dashboard.db.memberRoster.warning.duplicateDiscordName') +
+        '</div><div class="value">' + escapeHtml(duplicateCount) + '</div></div>' +
+        '<div class="required-field"><div class="label">' + i18n('dashboard.db.memberRoster.warning.emptyDiscordName') +
+        '</div><div class="value">' + escapeHtml(emptyCount) + '</div></div>' +
+        '</div>' + warningDetails + error +
+        '<div class="toolbar" style="margin-top:10px"><button type="button" data-managed-db-action="member-roster-sync"' +
+        disabledAttr + '>' + i18n(managedDbBusyAction === 'member-roster-sync'
+          ? 'dashboard.db.memberRoster.syncing'
+          : 'dashboard.db.memberRoster.syncAction') + '</button>' +
+        '<span class="muted" id="memberRosterActionStatus"></span></div></div>';
     }
 
 function renderManagedDatabaseStatus(registry, remoteCheck, role) {
@@ -262,6 +313,32 @@ async function onManagedDbClick(event) {
       }
       if (action === 'repair') {
         await repairManagedSchema(button);
+        return;
+      }
+      if (action === 'member-roster-sync') {
+        await syncMemberRoster();
+      }
+    }
+
+async function syncMemberRoster() {
+      const statusEl = document.getElementById('memberRosterActionStatus');
+      managedDbBusyAction = 'member-roster-sync';
+      if (statusEl) statusEl.textContent = tr('dashboard.db.memberRoster.syncing');
+      try {
+        const res = await fetch('/api/notion/member-roster/sync', {
+          method: 'POST',
+          headers: dashboardJsonHeaders(),
+          body: '{}'
+        });
+        memberRosterSyncResult = await res.json();
+        if (statusEl) statusEl.textContent = memberRosterActionStatusText(memberRosterSyncResult);
+        managedDbBusyAction = null;
+        await refresh();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (statusEl) statusEl.textContent = message;
+      } finally {
+        managedDbBusyAction = null;
       }
     }
 
@@ -285,6 +362,30 @@ async function checkManagedSchema() {
       } finally {
         managedDbBusyAction = null;
       }
+    }
+
+function memberRosterStatusKey(status) {
+      if (status === 'done') return 'done';
+      if (status === 'blocked') return 'blocked';
+      if (status === 'failed') return 'failed';
+      return 'notConfigured';
+    }
+
+function memberRosterActionStatusText(result) {
+      const label = statusLabel(result?.status);
+      const message = result?.message ?? (result?.messageKey ? tr(result.messageKey) : '');
+      return message ? label + ': ' + message : label;
+    }
+
+function countMemberRosterWarnings(warnings, code) {
+      return warnings.filter((warning) => warning?.code === code).length;
+    }
+
+function memberRosterWarningText(warning) {
+      const code = warning?.code ?? 'unsupportedPropertyType';
+      const key = 'dashboard.db.memberRoster.warning.' + code;
+      const text = tr(key, warning?.params ?? {});
+      return escapeHtml(text === key ? code : text);
     }
 
 async function repairManagedSchema(button) {

@@ -37,6 +37,7 @@ import {
   renderNotionCustomPageProperties,
   resolveManagedMemberRelations,
 } from "./relation-resolver.js";
+import type { NotionMemberRosterStore } from "./member-roster-store.js";
 import type { NotionWriteRow, NotionWriteStore } from "./write-store.js";
 
 export type {
@@ -60,6 +61,7 @@ export type RunNotionUploadOptions = {
   readModel: NotionDraftInputReadModel;
   writeStore: NotionWriteStore | null;
   registryStore?: NotionRegistryStore | null;
+  memberRosterStore?: NotionMemberRosterStore | null;
   customPropertyRules?: readonly NotionCustomPropertyRule[];
 };
 
@@ -279,6 +281,7 @@ async function executeWrite(input: {
           target,
           draftInput,
           meetingPageId: page.id,
+          memberRosterStore: options.memberRosterStore ?? null,
         })
       : [];
     const warnings = [...renderPlan.warnings, ...actionItemWarnings];
@@ -411,6 +414,7 @@ async function syncManagedActionItemPages(input: {
   target: ManagedResolvedTarget;
   draftInput: NotionDraftInput;
   meetingPageId: string;
+  memberRosterStore: NotionMemberRosterStore | null;
 }): Promise<string[]> {
   const warnings: string[] = [];
   if (!input.client || !input.target.actionItemTarget) {
@@ -430,6 +434,7 @@ async function syncManagedActionItemPages(input: {
           ? actionItem.owner.name
           : null,
         sourceActionId,
+        memberRosterStore: input.memberRosterStore,
       });
       const properties = renderNotionTaskPageProperties({
         actionItem,
@@ -505,6 +510,7 @@ async function resolveActionItemWorkerPage(input: {
   target: ManagedResolvedTarget;
   ownerName: string | null;
   sourceActionId: string;
+  memberRosterStore: NotionMemberRosterStore | null;
 }): Promise<{ pageId: string | null; warnings: string[] }> {
   const ownerName = input.ownerName?.trim();
   if (!ownerName) {
@@ -535,6 +541,45 @@ async function resolveActionItemWorkerPage(input: {
       pageId: null,
       warnings: [
         `${input.sourceActionId}: 작업자 "${ownerName}"와 일치하는 Notion page가 여러 개라 담당자 relation을 비웠습니다.`,
+      ],
+    };
+  }
+  if (input.memberRosterStore) {
+    const cachedNameMatches = input.memberRosterStore.findByDiscordName(
+      input.target.memberDatabase.dataSourceId,
+      ownerName,
+    );
+    if (cachedNameMatches.length === 1) {
+      return { pageId: cachedNameMatches[0]?.pageId ?? null, warnings: [] };
+    }
+    if (cachedNameMatches.length > 1) {
+      return {
+        pageId: null,
+        warnings: [
+          `${input.sourceActionId}: 작업자 "${ownerName}"와 일치하는 roster 캐시 항목이 여러 개라 담당자 relation을 비웠습니다.`,
+        ],
+      };
+    }
+
+    const cachedRoleMatches = input.memberRosterStore.findByRole(
+      input.target.memberDatabase.dataSourceId,
+      ownerName,
+    );
+    if (cachedRoleMatches.length === 1) {
+      return { pageId: cachedRoleMatches[0]?.pageId ?? null, warnings: [] };
+    }
+    if (cachedRoleMatches.length > 1) {
+      return {
+        pageId: null,
+        warnings: [
+          `${input.sourceActionId}: 역할 "${ownerName}"와 일치하는 작업자가 여러 명이라 담당자 relation을 비웠습니다.`,
+        ],
+      };
+    }
+    return {
+      pageId: null,
+      warnings: [
+        `${input.sourceActionId}: 작업자 또는 역할 "${ownerName}"와 일치하는 roster 캐시 항목을 찾지 못해 담당자 relation을 비웠습니다.`,
       ],
     };
   }

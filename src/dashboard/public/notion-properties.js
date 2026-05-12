@@ -315,7 +315,7 @@ function renderNotionPropertyRules(state, role = 'meeting') {
     }
     function actionStatusText(result) {
       const label = statusLabel(result?.status);
-      const message = result?.message ?? '';
+      const message = result?.message ?? (result?.messageKey ? tr(result.messageKey) : '');
       return message ? label + ': ' + message : label;
     }
     async function saveNotionPropertyRules(options = {}) {

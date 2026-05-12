@@ -10,6 +10,10 @@ import {
   buildNotionCustomPropertyPrompt,
   NotionCustomPropertyRuleStore,
 } from "../notion/property-rules.js";
+import {
+  buildNotionMemberRosterPrompt,
+  NotionMemberRosterStore,
+} from "../notion/member-roster-store.js";
 import type { AiCleanupRuntimeSettings } from "../settings/app-settings.js";
 import { SessionStore } from "../storage/session-store.js";
 import { SqlRunner } from "../storage/sql-runner.js";
@@ -37,6 +41,9 @@ try {
   const notionPropertyRuleStore = new NotionCustomPropertyRuleStore(
     new SqlRunner(database),
   );
+  const notionMemberRosterStore = new NotionMemberRosterStore(
+    new SqlRunner(database),
+  );
 
   const result = await runAiCleanupForSession(store, {
     sessionId: options.sessionId,
@@ -59,6 +66,10 @@ try {
     customNotionPropertyPrompt: () =>
       buildNotionCustomPropertyPrompt(
         notionPropertyRuleStore.listEnabledRules("meeting"),
+      ),
+    memberRosterPrompt: () =>
+      buildNotionMemberRosterPrompt(
+        notionMemberRosterStore.listLatestForPrompt(),
       ),
     includeFakeStt: options.includeFakeStt,
     backup:

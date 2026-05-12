@@ -83,6 +83,34 @@ test("runAiCleanupForSession with fake provider creates job and draft", async ()
   }
 });
 
+test("runAiCleanupForSession includes roster prompt in prompt artifact and input hash", async () => {
+  const fixture = createFinalizedTranscriptFixture();
+  try {
+    const baseTimelineInput = buildPhase4TimelineInput(fixture.store, {
+      sessionId: fixture.sessionId,
+    });
+    const result = await runAiCleanupForSession(fixture.store, {
+      ...baseRunOptions(fixture.sessionId),
+      provider: new FakeAiCleanupProvider(),
+      memberRosterPrompt: () =>
+        [
+          "Known member roles for assignment hints:",
+          "- Taniar: roles=UI; organization=Product",
+        ].join("\n"),
+      backup: () => [],
+    });
+    const prompt = readFileSync(result.job?.prompt_path ?? "", "utf8");
+
+    assert.equal(result.status, "done");
+    assert.notEqual(result.inputHash, baseTimelineInput.inputHash);
+    assert.match(prompt, /Member roster assignment hints/);
+    assert.match(prompt, /Taniar: roles=UI/);
+    assert.doesNotMatch(prompt, /page-id|ntn_/);
+  } finally {
+    fixture.close();
+  }
+});
+
 test("runAiCleanupForSession resets provider after a completed session", async () => {
   const fixture = createFinalizedTranscriptFixture();
   const provider = new ResetCountingFakeAiCleanupProvider();

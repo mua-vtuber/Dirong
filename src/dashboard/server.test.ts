@@ -984,6 +984,35 @@ test("DashboardServer Notion managed schema check and repair routes through dash
   }
 });
 
+test("DashboardServer Notion member roster sync routes through dashboard source", async () => {
+  const memberRosterSyncs: string[] = [];
+  const fixture = await startDashboardFixture({
+    notion: makeNotionSource([], [], [], [], [], memberRosterSyncs),
+  });
+  try {
+    const response = await postJson(
+      fixture.baseUrl,
+      "/api/notion/member-roster/sync",
+      {},
+    );
+    const body = await response.json() as {
+      ok: boolean;
+      status: string;
+      messageKey: string;
+      memberCount: number;
+    };
+
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.status, "done");
+    assert.equal(body.messageKey, "dashboard.db.memberRoster.status.done");
+    assert.equal(body.memberCount, 2);
+    assert.deepEqual(memberRosterSyncs, ["sync"]);
+  } finally {
+    await fixture.close();
+  }
+});
+
 type AudioFixture = {
   chunkId: string;
   raw?: { path: string; format: string };
@@ -1102,6 +1131,7 @@ function makeNotionSource(
     expectedPlanHash: string;
     operations?: readonly string[];
   }> = [],
+  memberRosterSyncs: string[] = [],
 ): DashboardNotionSource {
   return {
     getSnapshot: () => ({
@@ -1112,6 +1142,16 @@ function makeNotionSource(
       targetUrl: "https://notion.so/db",
       message: "Notion upload is configured.",
       userAction: null,
+      memberRoster: {
+        dataSourceId: "member-data-source",
+        status: "not_synced",
+        syncedAt: null,
+        memberCount: 0,
+        roleCount: 0,
+        warningCount: 0,
+        warnings: [],
+        lastError: null,
+      },
       settings: {
         enabled: true,
         apiKey: "[REDACTED]",
@@ -1237,6 +1277,20 @@ function makeNotionSource(
       warnings: [],
       customProperties: makeNotionSource().getSnapshot().customProperties,
     }),
+    syncMemberRoster: async () => {
+      memberRosterSyncs.push("sync");
+      return {
+        ok: true,
+        status: "done",
+        messageKey: "dashboard.db.memberRoster.status.done",
+        userActionKey: null,
+        dataSourceId: "member-data-source",
+        syncedAt: "2026-05-13T00:00:00.000Z",
+        memberCount: 2,
+        roleCount: 2,
+        warnings: [],
+      };
+    },
     saveCustomPropertyRules: (input) => {
       savedRules.push(
         ...input.rules.map((rule) => ({

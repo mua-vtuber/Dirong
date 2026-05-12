@@ -7,6 +7,9 @@ import type { NotionAutomationSnapshot } from "../notion/automation-service.js";
 import type {
   NotionDashboardActionResult,
   NotionDashboardCustomPropertyActionResult,
+  NotionDashboardManagedSchemaCheckResult,
+  NotionDashboardManagedSchemaRepairInput,
+  NotionDashboardManagedSchemaRepairResult,
   NotionDashboardSchemaActionResult,
   NotionDashboardSnapshot,
 } from "../notion/dashboard-service.js";
@@ -59,6 +62,10 @@ export type DashboardNotionSource = {
   ): NotionDashboardCustomPropertyActionResult;
   inspectSchema(): Promise<NotionDashboardSchemaActionResult>;
   applySchema(input: NotionSchemaApplyOptions): Promise<NotionDashboardSchemaActionResult>;
+  checkManagedSchemaWithPlans(): Promise<NotionDashboardManagedSchemaCheckResult>;
+  repairManagedSchema(
+    input: NotionDashboardManagedSchemaRepairInput,
+  ): Promise<NotionDashboardManagedSchemaRepairResult>;
 };
 
 export type DashboardNotionAutomationSource = {

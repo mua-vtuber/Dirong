@@ -14,6 +14,8 @@ import {
 import { sendHtml, sendJson, sendText } from "./http.js";
 import {
   handleNotionAction,
+  handleNotionManagedSchemaCheck,
+  handleNotionManagedSchemaRepair,
   handleNotionPropertiesSave,
   handleNotionPropertiesSync,
   handleNotionSchemaApply,
@@ -146,6 +148,31 @@ export async function routeDashboardRequest(
     url.pathname === "/api/notion/schema/apply"
   ) {
     await handleNotionSchemaApply(
+      request,
+      response,
+      context.runtimeSources,
+      locale,
+    );
+    return;
+  }
+
+  if (
+    request.method === "POST" &&
+    url.pathname === "/api/notion/managed-schema/check"
+  ) {
+    await handleNotionManagedSchemaCheck(
+      response,
+      context.runtimeSources,
+      locale,
+    );
+    return;
+  }
+
+  if (
+    request.method === "POST" &&
+    url.pathname === "/api/notion/managed-schema/repair"
+  ) {
+    await handleNotionManagedSchemaRepair(
       request,
       response,
       context.runtimeSources,

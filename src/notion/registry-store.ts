@@ -155,6 +155,10 @@ type NotionPropertyMappingRow = {
 export class NotionRegistryStore {
   constructor(private readonly runner: SqlRunner) {}
 
+  transaction<T>(fn: () => T): T {
+    return this.runner.transaction(fn);
+  }
+
   saveWorkspaceSettings(
     input: SaveNotionWorkspaceSettingsInput,
   ): NotionWorkspaceSettings {

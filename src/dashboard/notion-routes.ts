@@ -1,6 +1,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { ManagedSchemaRepairStalePlanError } from "../notion/managed-schema-repair.js";
 import type { NotionCustomPropertyRuleInput } from "../notion/property-rules.js";
 import type { NotionSchemaApplyOptions } from "../notion/schema-manager.js";
+import {
+  NOTION_DATABASE_ROLES,
+  type NotionDatabaseRole,
+} from "../notion/schema-presets.js";
 import {
   isRecord,
   readJsonBody,
@@ -180,6 +185,95 @@ export async function handleNotionSchemaApply(
   }
 }
 
+export async function handleNotionManagedSchemaCheck(
+  response: ServerResponse,
+  sources: DashboardRuntimeSources,
+  locale: DirongLocale,
+): Promise<void> {
+  if (!sources.notion) {
+    sendJson(response, withMessageKeys(locale, {
+      ok: false,
+      status: "not_configured",
+      messageKey: "error.dashboard.notionActionSourceMissing.message",
+      userActionKey: "error.dashboard.notionActionSourceMissing.action",
+      snapshot: null,
+      plans: null,
+    }));
+    return;
+  }
+
+  try {
+    sendJson(response, await sources.notion.checkManagedSchemaWithPlans());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const localized = withMessageKeys(locale, {
+      messageKey: "error.dashboard.requestInvalid.message",
+      userActionKey: "action.request.retry",
+      status: "failed",
+      technicalDetail: message,
+    });
+    sendJson(response, {
+      ok: false,
+      snapshot: null,
+      plans: null,
+      ...localized,
+    }, 400);
+  }
+}
+
+export async function handleNotionManagedSchemaRepair(
+  request: IncomingMessage,
+  response: ServerResponse,
+  sources: DashboardRuntimeSources,
+  locale: DirongLocale,
+): Promise<void> {
+  if (!sources.notion) {
+    sendJson(response, withMessageKeys(locale, {
+      ok: false,
+      status: "not_configured",
+      messageKey: "error.dashboard.notionActionSourceMissing.message",
+      userActionKey: "error.dashboard.notionActionSourceMissing.action",
+      snapshot: null,
+    }));
+    return;
+  }
+
+  try {
+    const body = await readJsonBody(request);
+    sendJson(response, await sources.notion.repairManagedSchema({
+      role: readNotionDatabaseRole(body),
+      confirm: isRecord(body) && body.confirm === true,
+      expectedPlanHash: readRequiredBodyString(body, "expectedPlanHash"),
+      operations: readOptionalStringArray(body, "operations"),
+    }));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof ManagedSchemaRepairStalePlanError) {
+      sendJson(response, {
+        ok: false,
+        status: "stale_plan",
+        message: "Managed schema repair plan이 최신 상태가 아닙니다.",
+        userAction: "Notion 상태를 다시 확인한 뒤 복구 계획을 다시 적용해 주세요.",
+        expectedPlanHash: error.expectedPlanHash,
+        actualPlanHash: error.actualPlanHash,
+        snapshot: null,
+      }, 409);
+      return;
+    }
+    const localized = withMessageKeys(locale, {
+      messageKey: "error.dashboard.requestInvalid.message",
+      userActionKey: "action.request.retry",
+      status: "failed",
+      technicalDetail: message,
+    });
+    sendJson(response, {
+      ok: false,
+      snapshot: null,
+      ...localized,
+    }, 400);
+  }
+}
+
 function readCustomPropertyRuleInputs(
   body: unknown,
 ): NotionCustomPropertyRuleInput[] {
@@ -246,4 +340,30 @@ function readNotionSchemaApplyOptions(body: unknown): NotionSchemaApplyOptions {
     deleteExtra: false,
     confirmDeleteExtra: false,
   };
+}
+
+function readNotionDatabaseRole(body: unknown): NotionDatabaseRole {
+  if (!isRecord(body) || typeof body.role !== "string") {
+    throw new Error("role is required.");
+  }
+  if ((NOTION_DATABASE_ROLES as readonly string[]).includes(body.role)) {
+    return body.role as NotionDatabaseRole;
+  }
+  throw new Error(`Invalid Notion database role: ${body.role}`);
+}
+
+function readRequiredBodyString(body: unknown, key: string): string {
+  if (!isRecord(body) || typeof body[key] !== "string" || !body[key].trim()) {
+    throw new Error(`${key} is required.`);
+  }
+  return body[key].trim();
+}
+
+function readOptionalStringArray(body: unknown, key: string): string[] | undefined {
+  if (!isRecord(body) || !Array.isArray(body[key])) {
+    return undefined;
+  }
+  return body[key]
+    .map((value) => typeof value === "string" ? value.trim() : "")
+    .filter((value): value is string => value.length > 0);
 }

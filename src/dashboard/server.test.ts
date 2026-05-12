@@ -892,6 +892,55 @@ test("DashboardServer Notion schema apply posts safe options", async () => {
   }
 });
 
+test("DashboardServer Notion managed schema check and repair routes through dashboard source", async () => {
+  const managedChecks: string[] = [];
+  const managedRepairs: Array<{
+    role: string;
+    confirm: boolean;
+    expectedPlanHash: string;
+    operations?: readonly string[];
+  }> = [];
+  const fixture = await startDashboardFixture({
+    notion: makeNotionSource([], [], [], managedChecks, managedRepairs),
+  });
+  try {
+    const check = await postJson(
+      fixture.baseUrl,
+      "/api/notion/managed-schema/check",
+      {},
+    );
+    const checkBody = await check.json() as { ok: boolean; status: string };
+    const repair = await postJson(
+      fixture.baseUrl,
+      "/api/notion/managed-schema/repair",
+      {
+        role: "meeting",
+        confirm: true,
+        expectedPlanHash: "hash-1",
+        operations: ["create_property:meeting.date"],
+      },
+    );
+    const repairBody = await repair.json() as { ok: boolean; status: string };
+
+    assert.equal(check.status, 200);
+    assert.deepEqual(checkBody, { ok: true, status: "healthy", message: "checked", userAction: null, snapshot: null, plans: null });
+    assert.equal(repair.status, 200);
+    assert.equal(repairBody.ok, true);
+    assert.equal(repairBody.status, "done");
+    assert.deepEqual(managedChecks, ["check"]);
+    assert.deepEqual(managedRepairs, [
+      {
+        role: "meeting",
+        confirm: true,
+        expectedPlanHash: "hash-1",
+        operations: ["create_property:meeting.date"],
+      },
+    ]);
+  } finally {
+    await fixture.close();
+  }
+});
+
 type AudioFixture = {
   chunkId: string;
   raw?: { path: string; format: string };
@@ -1001,6 +1050,13 @@ function makeNotionSource(
     updateTypes: boolean;
     deleteExtra: boolean;
     confirmDeleteExtra: boolean;
+  }> = [],
+  managedChecks: string[] = [],
+  managedRepairs: Array<{
+    role: string;
+    confirm: boolean;
+    expectedPlanHash: string;
+    operations?: readonly string[];
   }> = [],
 ): DashboardNotionSource {
   return {
@@ -1133,6 +1189,31 @@ function makeNotionSource(
           updateOptions: 0,
           delete: 0,
         },
+      };
+    },
+    checkManagedSchemaWithPlans: async () => {
+      managedChecks.push("check");
+      return {
+        ok: true,
+        status: "healthy",
+        message: "checked",
+        userAction: null,
+        snapshot: null as never,
+        plans: null as never,
+      };
+    },
+    repairManagedSchema: async (input) => {
+      managedRepairs.push(input);
+      return {
+        ok: true,
+        status: "done",
+        message: "repaired",
+        userAction: null,
+        plan: null as never,
+        appliedOperationIds: [],
+        registryUpdated: [],
+        diff: null as never,
+        snapshot: null as never,
       };
     },
   };

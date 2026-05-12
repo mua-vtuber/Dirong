@@ -43,11 +43,13 @@ export type ManagedSchemaIssue = {
   databaseRole: NotionDatabaseRole;
   semanticKey: NotionPropertySemanticKey | null;
   propertyName: string;
+  propertyId?: string | null;
   expected: string | null;
   actual: string | null;
   expectedDataSourceId?: string | null;
   actualDataSourceId?: string | null;
   missingOptions?: string[];
+  existingOptions?: Array<Record<string, string>>;
   message: string;
 };
 
@@ -188,6 +190,7 @@ function collectRequiredPropertyIssues(input: {
       databaseRole: input.databaseRole,
       semanticKey: expected.key,
       propertyName,
+      propertyId: null,
       expected: expected.name,
       actual: null,
       message: `${expected.key}: SQLite property mapping이 없습니다.`,
@@ -201,6 +204,7 @@ function collectRequiredPropertyIssues(input: {
       databaseRole: input.databaseRole,
       semanticKey: expected.key,
       propertyName,
+      propertyId: null,
       expected: expected.type,
       actual: null,
       message:
@@ -218,6 +222,7 @@ function collectRequiredPropertyIssues(input: {
       databaseRole: input.databaseRole,
       semanticKey: expected.key,
       propertyName: actual.name,
+      propertyId: actual.id,
       expected: expected.type,
       actual: actual.type,
       message: `${expected.key}: Notion property type이 다릅니다 (${actual.type} -> ${expected.type}).`,
@@ -232,6 +237,7 @@ function collectRequiredPropertyIssues(input: {
       databaseRole: input.databaseRole,
       semanticKey: expected.key,
       propertyName: actual.name,
+      propertyId: actual.id,
       expected: mapping.propertyName,
       actual: actual.name,
       message: `${expected.key}: 연결된 Notion property 이름이 바뀌었습니다.`,
@@ -245,6 +251,7 @@ function collectRequiredPropertyIssues(input: {
       databaseRole: input.databaseRole,
       semanticKey: expected.key,
       propertyName: actual.name,
+      propertyId: actual.id,
       expected: mapping.propertyId,
       actual: actual.id,
       message: `${expected.key}: registry의 property id와 일치하는 Notion property를 찾지 못했고 이름 후보만 찾았습니다.`,
@@ -297,6 +304,7 @@ function collectRelationIssue(input: {
       databaseRole: input.databaseRole,
       semanticKey: input.expected.key,
       propertyName: input.actual.name,
+      propertyId: input.actual.id,
       expected: input.expected.relation.targetDatabase,
       actual: actualDataSourceId,
       expectedDataSourceId,
@@ -334,6 +342,7 @@ function collectRollupIssue(input: {
       databaseRole: input.databaseRole,
       semanticKey: input.expected.key,
       propertyName: input.actual.name,
+      propertyId: input.actual.id,
       expected: `${input.expected.rollup.relationProperty} -> ${input.expected.rollup.targetProperty}`,
       actual: rollup
         ? `${rollup.relationPropertyName ?? rollup.relationPropertyId ?? "unknown"} -> ${rollup.rollupPropertyName ?? rollup.rollupPropertyId ?? "unknown"}`
@@ -376,6 +385,7 @@ function collectOptionIssue(input: {
     expected: expectedOptions.join(", "),
     actual: [...optionNames].join(", "),
     missingOptions,
+    existingOptions: readExistingOptionRefs(input.actual.property, input.actual.type),
     message: `${input.expected.key}: Notion option이 부족합니다 (${missingOptions.join(", ")}).`,
   });
 }
@@ -403,6 +413,7 @@ function collectExtraIssues(input: {
       databaseRole: input.databaseRole,
       semanticKey: null,
       propertyName: actual.name,
+      propertyId: actual.id,
       expected: null,
       actual: actual.type,
       message: `${actual.name}: Dirong managed registry에 없는 Notion property입니다. 자동 삭제하지 않습니다.`,
@@ -528,6 +539,34 @@ function readOptionNames(
       )
       .filter((name): name is string => name !== null),
   );
+}
+
+function readExistingOptionRefs(
+  property: NotionDataSourceProperty,
+  type: "select" | "status" | "multi_select",
+): Array<Record<string, string>> {
+  const config = property[type];
+  if (!isRecord(config) || !Array.isArray(config.options)) {
+    return [];
+  }
+  const refs: Array<Record<string, string>> = [];
+  for (const option of config.options) {
+    if (!isRecord(option)) {
+      continue;
+    }
+    if (typeof option.id === "string") {
+      refs.push({ id: option.id });
+      continue;
+    }
+    if (typeof option.name === "string") {
+      refs.push(
+        typeof option.color === "string"
+          ? { name: option.name, color: option.color }
+          : { name: option.name },
+      );
+    }
+  }
+  return refs;
 }
 
 function readOptionalString(

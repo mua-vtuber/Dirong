@@ -1,5 +1,5 @@
 import type { Phase1Config } from "../config.js";
-import { summarizeSafeError } from "../errors.js";
+import { redactForJson, summarizeSafeError } from "../errors.js";
 import {
   buildHumanStatusDisplay,
   type HumanStatusDisplay,
@@ -53,6 +53,14 @@ import {
   ManagedNotionSchemaStatusService,
   type ManagedNotionSchemaStatusSnapshot,
 } from "./managed-schema-status.js";
+import {
+  applyManagedSchemaRepair,
+  buildManagedSchemaRepairPlan,
+  ManagedSchemaRepairStalePlanError,
+  type ManagedSchemaRepairPlan,
+  type ManagedSchemaRepairResult,
+} from "./managed-schema-repair.js";
+import type { NotionDatabaseRole } from "./schema-presets.js";
 import { NotionRegistryStore } from "./registry-store.js";
 import { NotionWriteStore } from "./write-store.js";
 import { SqlRunner } from "../storage/sql-runner.js";
@@ -123,6 +131,27 @@ export type NotionDashboardSchemaActionResult = {
   } | null;
 };
 
+export type NotionDashboardManagedSchemaCheckResult = {
+  ok: boolean;
+  status: string;
+  message: string;
+  userAction: string | null;
+  snapshot: ManagedNotionSchemaStatusSnapshot;
+  plans: Record<NotionDatabaseRole, ManagedSchemaRepairPlan>;
+};
+
+export type NotionDashboardManagedSchemaRepairInput = {
+  role: NotionDatabaseRole;
+  confirm: boolean;
+  expectedPlanHash: string;
+  operations?: readonly string[];
+};
+
+export type NotionDashboardManagedSchemaRepairResult =
+  ManagedSchemaRepairResult & {
+    snapshot: ManagedNotionSchemaStatusSnapshot;
+  };
+
 export class NotionDashboardService {
   private readonly runner: SqlRunner;
   private readonly propertyRuleStore: NotionCustomPropertyRuleStore;
@@ -146,6 +175,37 @@ export class NotionDashboardService {
 
   private getSettings(): NotionRuntimeSettings {
     return this.input.getSettings?.() ?? this.input.settings;
+  }
+
+  private recordManagedSchemaRepairItem(input: {
+    role: NotionDatabaseRole;
+    status: "open" | "repaired";
+    severity: "info" | "warn" | "error";
+    details: unknown;
+  }): void {
+    const nowIso = new Date().toISOString();
+    this.runner.run(
+      `INSERT INTO repair_items (
+         dedupe_key, session_id, item_type, status, severity, path,
+         chunk_id, stt_job_id, details_json, created_at, updated_at
+       ) VALUES (?, NULL, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?)
+       ON CONFLICT(dedupe_key) DO UPDATE SET
+         status = excluded.status,
+         severity = excluded.severity,
+         details_json = excluded.details_json,
+         updated_at = excluded.updated_at,
+         resolved_at = CASE
+           WHEN excluded.status IN ('repaired', 'ignored') THEN excluded.updated_at
+           ELSE repair_items.resolved_at
+         END`,
+      `notion_managed_schema:${input.role}`,
+      "notion_managed_schema",
+      input.status,
+      input.severity,
+      JSON.stringify(redactForJson({ role: input.role, ...asRecord(input.details) })),
+      nowIso,
+      nowIso,
+    );
   }
 
   getSnapshot(): NotionDashboardSnapshot {
@@ -271,6 +331,89 @@ export class NotionDashboardService {
     });
     this.lastManagedSchemaCheck = await service.checkAll();
     return this.lastManagedSchemaCheck;
+  }
+
+  async checkManagedSchemaWithPlans(): Promise<NotionDashboardManagedSchemaCheckResult> {
+    const snapshot = await this.checkManagedSchema();
+    const mappings = this.registryStore.listPropertyMappings();
+    const managedDatabases = this.registryStore.listManagedDatabases();
+    const plans = Object.fromEntries(
+      snapshot.databases.map((database) => [
+        database.role,
+        database.remote.diff
+          ? buildManagedSchemaRepairPlan({
+              role: database.role,
+              diff: database.remote.diff,
+              mappings,
+              managedDatabases,
+            })
+          : emptyManagedSchemaRepairPlan(database.role),
+      ]),
+    ) as Record<NotionDatabaseRole, ManagedSchemaRepairPlan>;
+    return {
+      ok: snapshot.status !== "failed",
+      status: snapshot.status,
+      message: managedSchemaCheckMessage(snapshot.status),
+      userAction:
+        snapshot.status === "healthy"
+          ? null
+          : "복구 계획을 확인한 뒤 적용할 항목을 선택해 주세요.",
+      snapshot,
+      plans,
+    };
+  }
+
+  async repairManagedSchema(
+    input: NotionDashboardManagedSchemaRepairInput,
+  ): Promise<NotionDashboardManagedSchemaRepairResult> {
+    if (!input.confirm) {
+      throw new Error("managed schema repair에는 confirm=true가 필요합니다.");
+    }
+    const settings = this.getSettings();
+    if (!settings.apiKey) {
+      throw new Error("Notion token이 설정된 뒤 managed DB를 복구할 수 있습니다.");
+    }
+    const client = createNotionClient({
+      apiKey: settings.apiKey,
+      apiVersion: settings.apiVersion,
+      baseUrl: settings.baseUrl,
+      requestTimeoutMs: settings.requestTimeoutMs,
+    });
+
+    try {
+      const result = await applyManagedSchemaRepair({
+        client,
+        registryStore: this.registryStore,
+        role: input.role,
+        expectedPlanHash: input.expectedPlanHash,
+        operationIds: input.operations,
+      });
+      this.recordManagedSchemaRepairItem({
+        role: input.role,
+        status: result.ok ? "repaired" : "open",
+        severity: result.ok ? "info" : "warn",
+        details: result,
+      });
+      this.lastManagedSchemaCheck = await new ManagedNotionSchemaStatusService({
+        client,
+        registryStore: this.registryStore,
+      }).checkAll();
+      return {
+        ...result,
+        snapshot: this.lastManagedSchemaCheck,
+      };
+    } catch (error) {
+      if (error instanceof ManagedSchemaRepairStalePlanError) {
+        throw error;
+      }
+      this.recordManagedSchemaRepairItem({
+        role: input.role,
+        status: "open",
+        severity: "error",
+        details: { error: summarizeSafeError(error) },
+      });
+      throw error;
+    }
   }
 
   async runManualUpload(
@@ -762,6 +905,36 @@ function schemaActionErrorResult(input: {
   };
 }
 
+function emptyManagedSchemaRepairPlan(
+  role: NotionDatabaseRole,
+): ManagedSchemaRepairPlan {
+  return {
+    role,
+    status: "empty",
+    planHash: "",
+    operations: [],
+    blocked: [],
+    warnings: [],
+    body: null,
+  };
+}
+
+function managedSchemaCheckMessage(status: string): string {
+  if (status === "healthy") {
+    return "Managed Notion schema가 마지막 확인 기준으로 정상입니다.";
+  }
+  if (status === "needs_repair") {
+    return "Managed Notion schema에 자동 복구 가능한 항목이 있습니다.";
+  }
+  if (status === "manual_required") {
+    return "Managed Notion schema에 수동 확인이 필요한 항목이 있습니다.";
+  }
+  if (status === "failed") {
+    return "Managed Notion schema 확인 중 오류가 발생했습니다.";
+  }
+  return "Managed Notion schema 확인 결과가 아직 없습니다.";
+}
+
 function formatSchemaDiffMessage(diff: NotionSchemaDiff): string {
   return [
     `누락 ${diff.missing.length}`,
@@ -770,6 +943,12 @@ function formatSchemaDiffMessage(diff: NotionSchemaDiff): string {
     `옵션누락 ${diff.missingOptions.length}`,
     `관리외 ${diff.extra.length}`,
   ].join(" / ");
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : { value };
 }
 
 function formatSchemaApplyMessage(

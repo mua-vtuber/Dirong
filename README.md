@@ -1,0 +1,397 @@
+# Dirong Discord Record Bot
+
+Dirong is a local-first Discord voice recording bot for meeting workflows. It records a Discord voice session, turns audio into transcripts, prepares cleaned meeting notes, and can publish the final draft to Notion.
+
+The app is designed to be run on your own machine. Settings, secrets, recordings, transcripts, drafts, and the SQLite database are stored locally, not in a hosted service.
+
+## Quick Start
+
+### Windows launcher
+
+Double-click:
+
+```bat
+Dirong Start.bat
+```
+
+The launcher installs dependencies, builds the TypeScript app, starts Dirong, and opens the local dashboard.
+
+Default dashboard:
+
+```text
+http://127.0.0.1:3095/
+```
+
+### Manual start
+
+```bash
+npm install
+npm run build
+npm start
+```
+
+For a rebuild-and-run cycle:
+
+```bash
+npm run dev
+```
+
+### Portable bundle
+
+To create a clean portable Windows folder:
+
+```bash
+npm run bundle:portable
+```
+
+The bundle is written to `portable/Dirong/`. It includes a copied Node.js runtime, built app files, runtime dependencies, helper scripts, and an empty `data/` directory. Existing local settings and secrets are not copied.
+
+## Requirements
+
+- Node.js 22.12.0 or newer.
+- A Discord application and bot token.
+- A Discord server where the bot has been invited.
+- For STT, either:
+  - local Whisper through the bundled `scripts/local-whisper-json.py` wrapper, or
+  - OpenAI STT with an API key.
+- For AI cleanup, Claude CLI is the normal runtime path.
+- For Notion upload, a Notion integration token and a parent page are needed.
+
+Local Whisper requires Python plus either `faster-whisper` or `openai-whisper` installed in the Python environment used by the app.
+
+## First-Time Setup Workflow
+
+1. Start the app with `Dirong Start.bat` or `npm start`.
+2. Open the dashboard at `http://127.0.0.1:3095/`.
+3. Complete the setup wizard:
+   - choose language and dashboard theme,
+   - save the Discord application ID,
+   - save the Discord bot token,
+   - select the Discord guild allowlist,
+   - choose the STT provider,
+   - configure Claude for AI cleanup,
+   - configure Notion if you want uploads,
+   - create or verify the managed Notion databases.
+4. Restart the app after Discord, STT, or AI settings that require a restart.
+5. In Discord, join a voice channel and run:
+
+```text
+/dirong start
+```
+
+## Recording Workflow
+
+Use these Discord slash commands:
+
+```text
+/dirong start
+/dirong stop
+/dirong status
+```
+
+Typical flow:
+
+1. A meeting participant joins a voice channel.
+2. They run `/dirong start`.
+3. Dirong joins that voice channel and records per-speaker audio chunks.
+4. During or after the meeting, use `/dirong status` or the dashboard to check recording, queue, and automation state.
+5. Run `/dirong stop` when the meeting is done.
+6. Dirong finalizes the session and queues the processing pipeline.
+
+The console also accepts:
+
+```text
+status
+stop
+exit
+```
+
+## Processing Workflow
+
+After a session is finalized, Dirong can run these steps:
+
+1. STT converts recorded audio chunks into transcript segments.
+2. Transcript timeline building prepares the input for meeting-note generation.
+3. AI cleanup creates a validated meeting-note draft and Markdown preview.
+4. Notion upload publishes a completed draft when Notion settings and schema are ready.
+5. Retention cleanup can remove audio after successful Notion upload, depending on settings.
+
+When the app is running and configured, STT, AI cleanup, and Notion automation can process ready work in the background. The dashboard is the easiest way to see what is waiting, blocked, or complete.
+
+## Dashboard Workflow
+
+Use the dashboard for day-to-day operation:
+
+- complete setup,
+- switch or create projects for different Discord servers/workspaces,
+- monitor the active recording,
+- inspect recent sessions and chunks,
+- play local audio through signed local links,
+- watch STT, AI cleanup, and Notion queue status,
+- manually send or retry Notion uploads,
+- inspect and repair managed Notion schema issues,
+- reset local settings when needed.
+
+If multiple projects are configured, only the active project's Discord guild should be used for Dirong commands. The command gate prevents inactive projects from starting, stopping, or querying the wrong recording.
+
+## Useful Commands
+
+```bash
+npm run build
+npm run bundle:portable
+npm test
+npm run doctor
+npm run doctor -- --notion-remote
+npm run repair
+npm run sessions:purge -- --missing-audio
+```
+
+Manual pipeline commands:
+
+```bash
+npm run phase3:stt -- --limit 1
+npm run phase4:ai-cleanup -- --session <session-id>
+npm run phase5:notion-upload -- --session <session-id>
+```
+
+Safe dry-run examples:
+
+```bash
+npm run phase3:stt -- --dry-run --limit 1
+npm run phase4:ai-cleanup -- --dry-run --session <session-id>
+npm run phase5:notion-upload -- --dry-run --session <session-id>
+npm run sessions:purge -- --all --dry-run
+```
+
+`npm run doctor` is read-only. `npm run repair` may update local database state to recover stale chunks, leases, or queue records.
+
+## Local Data
+
+Runtime data is stored outside the repository by default:
+
+- Windows: `%LOCALAPPDATA%\Dirong`
+- macOS: `~/Library/Application Support/Dirong`
+- Linux: `~/.local/share/dirong`
+
+Important local files include:
+
+- `settings/settings.json`
+- `secrets/secrets.json`
+- `sessions/dirong.sqlite`
+- `sessions/`
+- `logs/`
+
+Secrets are stored locally and dashboard/API status responses expose only redacted snapshots.
+
+In a portable bundle, these files live under `portable/Dirong/data/` instead. After setup, do not share the portable folder unless you remove `data/secrets/` first.
+
+## Development
+
+Build before running tests:
+
+```bash
+npm run build
+npm test
+```
+
+The project uses TypeScript, native Node.js test runner, Discord.js, SQLite, local dashboard assets, and local processing scripts.
+
+---
+
+# 디롱 Discord 녹음 봇
+
+디롱은 Discord 음성 회의 흐름을 위한 로컬 우선 녹음 봇입니다. Discord 음성 세션을 녹음하고, 음성을 전사하고, AI로 회의록 초안을 정리한 뒤, 필요하면 Notion에 업로드합니다.
+
+이 앱은 사용자의 PC에서 실행되는 것을 전제로 합니다. 설정, 비밀값, 녹음 파일, 전사 결과, 초안, SQLite 데이터베이스는 호스팅 서비스가 아니라 로컬에 저장됩니다.
+
+## 빠른 시작
+
+### Windows 실행 파일
+
+다음 파일을 더블클릭하세요.
+
+```bat
+Dirong Start.bat
+```
+
+이 실행 파일은 의존성 설치, TypeScript 빌드, 앱 시작, 로컬 대시보드 열기를 순서대로 처리합니다.
+
+기본 대시보드 주소:
+
+```text
+http://127.0.0.1:3095/
+```
+
+### 수동 실행
+
+```bash
+npm install
+npm run build
+npm start
+```
+
+빌드 후 바로 실행하려면:
+
+```bash
+npm run dev
+```
+
+### 포터블 번들
+
+깨끗한 Windows 포터블 폴더를 만들려면:
+
+```bash
+npm run bundle:portable
+```
+
+번들은 `portable/Dirong/`에 생성됩니다. 복사된 Node.js runtime, 빌드된 앱 파일, runtime dependency, 보조 스크립트, 빈 `data/` 폴더가 포함됩니다. 기존 로컬 설정과 secrets는 복사하지 않습니다.
+
+## 필요 조건
+
+- Node.js 22.12.0 이상.
+- Discord application과 bot token.
+- 봇이 초대된 Discord 서버.
+- STT용 설정 중 하나:
+  - 기본 제공 `scripts/local-whisper-json.py` 래퍼를 사용하는 local Whisper,
+  - OpenAI STT와 API key.
+- AI 정리에는 Claude CLI 사용이 기본 경로입니다.
+- Notion 업로드에는 Notion integration token과 parent page가 필요합니다.
+
+Local Whisper를 쓰려면 앱이 사용하는 Python 환경에 `faster-whisper` 또는 `openai-whisper`가 설치되어 있어야 합니다.
+
+## 최초 설정 워크플로우
+
+1. `Dirong Start.bat` 또는 `npm start`로 앱을 실행합니다.
+2. `http://127.0.0.1:3095/` 대시보드를 엽니다.
+3. 설정 마법사를 완료합니다:
+   - 언어와 대시보드 테마 선택,
+   - Discord application ID 저장,
+   - Discord bot token 저장,
+   - Discord guild allowlist 선택,
+   - STT provider 선택,
+   - AI 정리용 Claude 설정,
+   - Notion 업로드가 필요하면 Notion 설정,
+   - 관리형 Notion 데이터베이스 생성 또는 검증.
+4. Discord, STT, AI처럼 재시작이 필요한 설정을 바꿨다면 앱을 다시 시작합니다.
+5. Discord 음성 채널에 들어간 뒤 다음 명령을 실행합니다.
+
+```text
+/dirong start
+```
+
+## 녹음 워크플로우
+
+Discord에서 사용하는 명령:
+
+```text
+/dirong start
+/dirong stop
+/dirong status
+```
+
+일반적인 흐름:
+
+1. 회의 참가자가 음성 채널에 들어갑니다.
+2. `/dirong start`를 실행합니다.
+3. 디롱이 해당 음성 채널에 들어가 화자별 오디오 chunk를 녹음합니다.
+4. 회의 중이거나 회의 후에 `/dirong status` 또는 대시보드로 녹음, queue, 자동화 상태를 확인합니다.
+5. 회의가 끝나면 `/dirong stop`을 실행합니다.
+6. 디롱이 세션을 finalize하고 처리 파이프라인에 작업을 넣습니다.
+
+콘솔에서도 다음 명령을 사용할 수 있습니다.
+
+```text
+status
+stop
+exit
+```
+
+## 처리 워크플로우
+
+세션이 finalize되면 디롱은 다음 단계를 처리할 수 있습니다.
+
+1. STT가 녹음된 오디오 chunk를 전사 segment로 변환합니다.
+2. transcript timeline이 회의록 생성 입력을 준비합니다.
+3. AI cleanup이 검증된 회의록 초안과 Markdown preview를 생성합니다.
+4. Notion 설정과 schema 상태가 준비되어 있으면 Notion upload가 완료된 초안을 게시합니다.
+5. 설정에 따라 Notion 업로드 성공 후 오디오 보존/삭제 정책이 적용됩니다.
+
+앱이 실행 중이고 설정이 준비되어 있으면 STT, AI cleanup, Notion 자동화가 백그라운드에서 준비된 작업을 처리합니다. 대시보드에서 대기, 차단, 완료 상태를 확인하는 것이 가장 편합니다.
+
+## 대시보드 워크플로우
+
+대시보드는 운영의 중심 화면입니다.
+
+- 최초 설정 완료,
+- Discord 서버/워크스페이스별 프로젝트 생성 및 전환,
+- 현재 녹음 상태 확인,
+- 최근 세션과 chunk 확인,
+- signed local link로 로컬 오디오 재생,
+- STT, AI cleanup, Notion queue 상태 확인,
+- Notion 수동 전송 또는 재시도,
+- 관리형 Notion schema 점검과 복구,
+- 필요 시 로컬 설정 초기화.
+
+여러 프로젝트를 설정했다면 active project의 Discord guild에서만 디롱 명령을 사용하는 흐름입니다. command gate가 inactive project에서 잘못된 녹음이 시작/중지/조회되지 않도록 막습니다.
+
+## 자주 쓰는 명령
+
+```bash
+npm run build
+npm run bundle:portable
+npm test
+npm run doctor
+npm run doctor -- --notion-remote
+npm run repair
+npm run sessions:purge -- --missing-audio
+```
+
+파이프라인 수동 실행:
+
+```bash
+npm run phase3:stt -- --limit 1
+npm run phase4:ai-cleanup -- --session <session-id>
+npm run phase5:notion-upload -- --session <session-id>
+```
+
+안전한 dry-run 예시:
+
+```bash
+npm run phase3:stt -- --dry-run --limit 1
+npm run phase4:ai-cleanup -- --dry-run --session <session-id>
+npm run phase5:notion-upload -- --dry-run --session <session-id>
+npm run sessions:purge -- --all --dry-run
+```
+
+`npm run doctor`는 read-only 점검입니다. `npm run repair`는 stale chunk, lease, queue record 복구를 위해 로컬 DB 상태를 수정할 수 있습니다.
+
+## 로컬 데이터
+
+런타임 데이터는 기본적으로 repository 바깥에 저장됩니다.
+
+- Windows: `%LOCALAPPDATA%\Dirong`
+- macOS: `~/Library/Application Support/Dirong`
+- Linux: `~/.local/share/dirong`
+
+주요 로컬 파일:
+
+- `settings/settings.json`
+- `secrets/secrets.json`
+- `sessions/dirong.sqlite`
+- `sessions/`
+- `logs/`
+
+비밀값은 로컬에 저장되며, 대시보드/API 상태 응답에서는 redacted snapshot만 노출됩니다.
+
+포터블 번들에서는 이 파일들이 `portable/Dirong/data/` 아래에 저장됩니다. 설정 후에는 `data/secrets/`를 제거하지 않은 상태로 포터블 폴더를 공유하지 마세요.
+
+## 개발
+
+테스트 전에 빌드하세요.
+
+```bash
+npm run build
+npm test
+```
+
+이 프로젝트는 TypeScript, Node.js 기본 test runner, Discord.js, SQLite, 로컬 대시보드 asset, 로컬 처리 스크립트를 사용합니다.

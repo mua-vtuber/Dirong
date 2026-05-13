@@ -18,6 +18,33 @@ test("resolveDirongUserDataPath uses Windows LocalAppData Dirong folder", () => 
   assert.equal(root, path.resolve("C:\\Users\\Taniar\\AppData\\Local", "Dirong"));
 });
 
+test("resolveDirongUserDataPath uses explicit portable data directory first", () => {
+  const root = resolveDirongUserDataPath({
+    platform: "win32",
+    env: {
+      DIRONG_PORTABLE_DATA_DIR: "D:\\Tools\\Dirong\\data",
+      DIRONG_USER_DATA_DIR: "D:\\OtherDirongData",
+      LOCALAPPDATA: "C:\\Users\\Taniar\\AppData\\Local",
+    } as NodeJS.ProcessEnv,
+    homedir: "C:\\Users\\Taniar",
+  });
+
+  assert.equal(root, path.resolve("D:\\Tools\\Dirong\\data"));
+});
+
+test("resolveDirongUserDataPath supports explicit user data directory", () => {
+  const root = resolveDirongUserDataPath({
+    platform: "linux",
+    env: {
+      DIRONG_USER_DATA_DIR: "/portable/Dirong/data",
+      XDG_DATA_HOME: "/home/taniar/.local/share",
+    } as NodeJS.ProcessEnv,
+    homedir: "/home/taniar",
+  });
+
+  assert.equal(root, path.resolve("/portable/Dirong/data"));
+});
+
 test("getDirongUserDataPaths keeps settings, secrets, sessions, models, and logs under root", () => {
   const paths = getDirongUserDataPaths("C:\\DirongData");
 

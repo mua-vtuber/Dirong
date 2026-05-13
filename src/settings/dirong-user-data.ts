@@ -25,6 +25,12 @@ export function resolveDirongUserDataPath(
   const platform = options.platform ?? process.platform;
   const env = options.env ?? process.env;
   const home = options.homedir ?? os.homedir();
+  const explicitDataDir =
+    cleanPath(env.DIRONG_PORTABLE_DATA_DIR) ??
+    cleanPath(env.DIRONG_USER_DATA_DIR);
+  if (explicitDataDir) {
+    return path.resolve(explicitDataDir);
+  }
 
   if (platform === "win32") {
     const base =

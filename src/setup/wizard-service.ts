@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import {
   Client,
   Events,
@@ -77,6 +79,10 @@ import {
   type LocalWhisperInstallSnapshot,
   type LocalWhisperInstaller,
 } from "./local-whisper-install-service.js";
+import {
+  DefaultOpenAiSttConnectionTester,
+  type OpenAiSttConnectionTester,
+} from "./openai-stt-connection-test.js";
 
 export type SetupWizardStepId =
   | "language"
@@ -175,6 +181,7 @@ export type SetupWizardServiceOptions = {
   discordGateway?: DiscordSetupGateway;
   claudeTester?: ClaudeSetupTester;
   localWhisperInstaller?: LocalWhisperInstaller;
+  openAiSttTester?: OpenAiSttConnectionTester;
   notionClientFactory?: (apiKey: string) => NotionClient;
   managedSchemaCreator?: typeof createManagedNotionSchema;
   now?: () => Date;
@@ -198,6 +205,7 @@ export class SetupWizardService {
   private readonly discordGateway: DiscordSetupGateway;
   private readonly claudeTester: ClaudeSetupTester;
   private readonly localWhisperInstaller: LocalWhisperInstaller;
+  private readonly openAiSttTester: OpenAiSttConnectionTester;
   private readonly notionClientFactory: (apiKey: string) => NotionClient;
   private readonly managedSchemaCreator: typeof createManagedNotionSchema;
   private readonly now: () => Date;
@@ -208,6 +216,8 @@ export class SetupWizardService {
     this.localWhisperInstaller =
       options.localWhisperInstaller ??
       new LocalWhisperInstallService({ paths: options.paths });
+    this.openAiSttTester =
+      options.openAiSttTester ?? new DefaultOpenAiSttConnectionTester();
     this.notionClientFactory = options.notionClientFactory ?? createDefaultNotionClient;
     this.managedSchemaCreator =
       options.managedSchemaCreator ?? createManagedNotionSchema;
@@ -534,7 +544,38 @@ export class SetupWizardService {
   }
 
   getLocalWhisperInstallSnapshot(): LocalWhisperInstallSnapshot {
-    return this.localWhisperInstaller.getSnapshot();
+    const snapshot = this.localWhisperInstaller.getSnapshot();
+    if (snapshot.status !== "idle") {
+      return snapshot;
+    }
+
+    const settings = this.options.settingsStore.read();
+    const model =
+      settings.stt.localWhisper?.model ?? DEFAULT_STT_SETTINGS.localWhisper.model;
+    if (
+      settings.stt.provider === "local-whisper" &&
+      isLocalWhisperInstallModel(model)
+    ) {
+      const modelPath = path.join(
+        this.options.paths.modelsDir,
+        `faster-whisper-${model}`,
+      );
+      if (hasFasterWhisperModelFiles(modelPath)) {
+        const checkedAt = this.now().toISOString();
+        return {
+          status: "done",
+          stage: "done",
+          model,
+          message: "local-whisper is ready.",
+          detail: modelPath,
+          lastLog: null,
+          startedAt: null,
+          updatedAt: checkedAt,
+          completedAt: checkedAt,
+        };
+      }
+    }
+    return snapshot;
   }
 
   startLocalWhisperInstall(body: unknown): SetupWizardInstallActionResult {
@@ -568,6 +609,93 @@ export class SetupWizardService {
       userActionKey: null,
       install,
     }) as SetupWizardInstallActionResult;
+  }
+
+  async testAndSaveOpenAiSttSettings(
+    body: unknown,
+  ): Promise<SetupWizardActionResult> {
+    const model = readCleanString(body, ["model"]) ??
+      DEFAULT_STT_SETTINGS.openai.model;
+    if (model.length > 80) {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.stt.settings.error.invalidModel.message",
+        userActionKey: "setup.stt.settings.error.invalidModel.action",
+      });
+    }
+
+    const language =
+      readCleanString(body, ["language"]) ?? DEFAULT_MEETING_NOTES_LANGUAGE;
+    const timeoutMs =
+      readPositiveInteger(body, "timeoutMs") ?? DEFAULT_STT_SETTINGS.timeoutMs;
+    const currentSettings = this.options.settingsStore.read();
+    const apiKeyInput = readCleanString(body, ["apiKey", "openAiApiKey"]);
+    const existingApiKey = this.options.secretStore.get(
+      currentSettings.stt.openAiApiKeySecretRef ??
+        DEFAULT_SECRET_REFS.openAiApiKey,
+    );
+    const apiKeyForTest = apiKeyInput ?? existingApiKey;
+    if (!apiKeyForTest) {
+      return this.result({
+        ok: false,
+        status: "not_configured",
+        httpStatus: 400,
+        messageKey: "setup.stt.openAiTest.error.missingKey.message",
+        userActionKey: "setup.stt.openAiTest.error.missingKey.action",
+      });
+    }
+
+    const testResult = await this.openAiSttTester.test({
+      apiKey: apiKeyForTest,
+      model,
+      timeoutMs: Math.min(timeoutMs, 30000),
+    });
+    if (!testResult.ok) {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.stt.openAiTest.error.failed.message",
+        userActionKey: "setup.stt.openAiTest.error.failed.action",
+        technicalDetail: testResult.detail,
+        provider: "openai",
+        model,
+      });
+    }
+
+    const settingsUpdate = buildOpenAiSttSettings(
+      body,
+      currentSettings,
+      model,
+      language,
+      timeoutMs,
+    );
+    if (!settingsUpdate.ok) {
+      return this.result(settingsUpdate.error);
+    }
+    if (settingsUpdate.openAiApiKey) {
+      this.options.secretStore.set(
+        DEFAULT_SECRET_REFS.openAiApiKey,
+        settingsUpdate.openAiApiKey,
+      );
+    }
+    this.options.settingsStore.update((settings) => ({
+      ...settings,
+      stt: settingsUpdate.stt,
+    }));
+
+    return this.result({
+      ok: true,
+      status: "done",
+      messageKey: "setup.stt.openAiTest.done.message",
+      userActionKey: null,
+      runtimeEffectScope: "stt",
+      provider: "openai",
+      model: testResult.model,
+      stt: settingsUpdate.stt,
+    });
   }
 
   saveClaudeSettings(body: unknown): SetupWizardActionResult {
@@ -1454,6 +1582,13 @@ function buildOpenAiSttSettings(
     },
     openAiApiKey: apiKey,
   };
+}
+
+function hasFasterWhisperModelFiles(modelPath: string): boolean {
+  return (
+    existsSync(path.join(modelPath, "config.json")) &&
+    existsSync(path.join(modelPath, "model.bin"))
+  );
 }
 
 function buildLocalWhisperSettings(

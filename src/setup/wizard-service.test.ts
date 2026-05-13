@@ -37,6 +37,7 @@ import type {
   LocalWhisperInstaller,
   LocalWhisperInstallSnapshot,
 } from "./local-whisper-install-service.js";
+import type { OpenAiSttConnectionTester } from "./openai-stt-connection-test.js";
 
 const appId = "123456789012345678";
 const guildId = "111111111111111111";
@@ -284,6 +285,63 @@ test("SetupWizardService starts local Whisper install with selected model", () =
     assert.equal(invalid.ok, false);
     assert.equal(invalid.httpStatus, 400);
     assert.equal(starts.length, 1);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("SetupWizardService tests OpenAI STT before saving credentials", async () => {
+  const calls: unknown[] = [];
+  const tester: OpenAiSttConnectionTester = {
+    test: async (input) => {
+      calls.push(input);
+      return input.apiKey === "valid-openai-key"
+        ? { ok: true, model: input.model, detail: null }
+        : {
+            ok: false,
+            model: input.model,
+            statusCode: 401,
+            detail: "invalid api key",
+          };
+    },
+  };
+  const fixture = createFixture({ openAiSttTester: tester });
+  try {
+    const failed = await fixture.service.testAndSaveOpenAiSttSettings({
+      apiKey: "bad-openai-key",
+      model: DEFAULT_STT_SETTINGS.openai.model,
+    });
+    assert.equal(failed.ok, false);
+    assert.equal(fixture.secrets.get(DEFAULT_SECRET_REFS.openAiApiKey), null);
+    assert.equal(fixture.settings.read().stt.provider, undefined);
+
+    const saved = await fixture.service.testAndSaveOpenAiSttSettings({
+      apiKey: "valid-openai-key",
+      model: DEFAULT_STT_SETTINGS.openai.model,
+    });
+    assert.equal(saved.ok, true);
+    assert.equal(saved.runtimeEffect?.scope, "stt");
+    assert.equal(
+      fixture.secrets.get(DEFAULT_SECRET_REFS.openAiApiKey),
+      "valid-openai-key",
+    );
+    assert.equal(fixture.settings.read().stt.provider, "openai");
+    assert.deepEqual(
+      calls.map((call) => ({
+        apiKey: (call as { apiKey: string }).apiKey,
+        model: (call as { model: string }).model,
+      })),
+      [
+        {
+          apiKey: "bad-openai-key",
+          model: DEFAULT_STT_SETTINGS.openai.model,
+        },
+        {
+          apiKey: "valid-openai-key",
+          model: DEFAULT_STT_SETTINGS.openai.model,
+        },
+      ],
+    );
   } finally {
     fixture.close();
   }
@@ -570,6 +628,7 @@ function createFixture(options: {
   discordGateway?: DiscordSetupGateway;
   claudeTester?: ClaudeSetupTester;
   localWhisperInstaller?: LocalWhisperInstaller;
+  openAiSttTester?: OpenAiSttConnectionTester;
   notionClientFactory?: (apiKey: string) => NotionClient;
   managedSchemaCreator?: ConstructorParameters<typeof SetupWizardService>[0]["managedSchemaCreator"];
   withProjectStore?: boolean;
@@ -601,6 +660,7 @@ function createFixture(options: {
       discordGateway: options.discordGateway ?? fakeDiscordGateway(),
       claudeTester: options.claudeTester ?? fakeClaudeTester(),
       localWhisperInstaller: options.localWhisperInstaller,
+      openAiSttTester: options.openAiSttTester,
       notionClientFactory: options.notionClientFactory,
       managedSchemaCreator: options.managedSchemaCreator,
       now: () => new Date("2026-05-10T00:00:00.000Z"),

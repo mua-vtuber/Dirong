@@ -107,6 +107,9 @@ export type DashboardSetupWizardSource = {
   saveSttSettings(body: unknown): SetupWizardActionResult;
   getLocalWhisperInstallSnapshot(): LocalWhisperInstallSnapshot;
   startLocalWhisperInstall(body: unknown): SetupWizardInstallActionResult;
+  testAndSaveOpenAiSttSettings(
+    body: unknown,
+  ): Promise<SetupWizardActionResult>;
   saveClaudeSettings(body: unknown): SetupWizardActionResult;
   saveRecordingSettings?(body: unknown): SetupWizardActionResult;
   testClaudeConnection(): Promise<SetupWizardActionResult>;

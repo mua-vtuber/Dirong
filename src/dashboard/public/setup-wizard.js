@@ -90,7 +90,13 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
         return isDiscordCredentialsSaved(setup) && setupLocalState.discordConnectionStatus === 'verified';
       }
       if (id === 'guild') return (setup.features?.discord?.guildAllowlistCount ?? 0) > 0;
-      if (id === 'stt') return setup.features?.stt?.status === 'ready';
+      if (id === 'stt') {
+        if (setup.features?.stt?.status !== 'ready') return false;
+        const provider = setupLocalState.sttProvider ?? setup.features?.stt?.provider;
+        return provider === 'local-whisper'
+          ? setupLocalState.localWhisperInstall?.status === 'done'
+          : true;
+      }
       if (id === 'ai') return setup.features?.ai?.status === 'ready';
       if (id === 'notionToken') return setup.secrets?.notion?.configured === true;
       if (id === 'notionParent') return setup.features?.notion?.parentPageConfigured === true;
@@ -256,6 +262,11 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
       const defaults = setupDefaults(setup);
       const provider = setupLocalState.sttProvider ?? defaults?.stt?.provider;
       const model = setupLocalState.sttModel ?? defaults?.stt?.localWhisper?.model;
+      if (provider === 'local-whisper') {
+        setupEnsureLocalWhisperInstallStatusLoaded();
+      }
+      const installRunning = provider === 'local-whisper' &&
+        setupLocalState.localWhisperInstall?.status === 'running';
       return '<h3>' + setupWizardText('stt.title') + '</h3>' +
         '<p class="setup-copy">' + setupWizardText('stt.description') + '</p>' +
         '<div class="setup-cards">' +
@@ -294,13 +305,58 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
               setupWizardRawText('stt.mediumModel.description'),
               'setupRememberSttModel'
             ) +
-            '</div>'
+            '</div>' +
+            renderLocalWhisperInstallStatus()
           : '<div class="setup-form"><label>' + setupWizardText('stt.openAi.apiKeyLabel') +
             '<input id="setupOpenAiApiKey" type="password" autocomplete="off" placeholder="' +
             setupWizardText('stt.openAi.apiKeyPlaceholder') + '"></label></div>') +
-        '<div class="setup-actions"><button type="button" onclick="setupSaveStt()">' +
-        setupWizardText('actions.saveStt') + '</button>' +
+        '<div class="setup-actions"><button type="button"' +
+        ((setupLocalState.busy || installRunning) ? ' disabled' : '') +
+        ' onclick="setupSaveStt()">' +
+        setupWizardText(provider === 'local-whisper' ? 'actions.saveAndInstallStt' : 'actions.saveAndTestOpenAi') +
+        '</button>' +
         setupNextButton(setup, 'stt') + '</div>';
+    }
+    function renderLocalWhisperInstallStatus() {
+      const install = setupLocalState.localWhisperInstall;
+      if (!install) {
+        return '<section class="setup-help setup-install-card"><h4>' +
+          setupWizardText('stt.localWhisper.install.title') + '</h4><p>' +
+          setupWizardText('stt.localWhisper.install.idle') + '</p></section>';
+      }
+      const status = String(install.status ?? 'idle');
+      const stage = String(install.stage ?? 'idle');
+      const titleKey = status === 'done'
+        ? 'stt.localWhisper.install.doneTitle'
+        : status === 'failed'
+          ? 'stt.localWhisper.install.failedTitle'
+          : status === 'running'
+            ? 'stt.localWhisper.install.runningTitle'
+            : 'stt.localWhisper.install.title';
+      const statusClass = status === 'done'
+        ? ' setup-ok'
+        : status === 'failed'
+          ? ' setup-error'
+          : '';
+      const bar = status === 'running'
+        ? '<div class="setup-loading-bar" aria-hidden="true"><span></span></div>'
+        : '';
+      const detail = install.detail
+        ? '<div class="muted">' + escapeHtml(install.detail) + '</div>'
+        : '';
+      const log = install.lastLog
+        ? '<details><summary class="muted">' + setupWizardText('stt.localWhisper.install.lastLog') +
+          '</summary><pre>' + escapeHtml(install.lastLog) + '</pre></details>'
+        : '';
+      return '<section class="setup-help setup-install-card' + statusClass + '"><h4>' +
+        setupWizardText(titleKey) + '</h4><p>' +
+        escapeHtml(localWhisperInstallStageText(stage, install.message)) +
+        '</p>' + bar + detail + log + '</section>';
+    }
+    function localWhisperInstallStageText(stage, fallback) {
+      const key = setupWizardKey('stt.localWhisper.install.stages.' + stage);
+      const text = tr(key);
+      return text === key ? (fallback ?? stage) : text;
     }
     function renderSetupAi(setup) {
       const defaults = setupDefaults(setup);
@@ -517,6 +573,9 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
     function setupRememberSttProvider(value) {
       setupLocalState.sttProvider = value;
       window.localStorage.setItem('dirong.setup.sttProvider', value);
+      if (value === 'local-whisper') {
+        setupEnsureLocalWhisperInstallStatusLoaded();
+      }
       setupLocalState.forceRender = true;
       renderSetupWizard(setupLocalState.lastSetup);
       setupLocalState.forceRender = false;
@@ -552,6 +611,10 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
         setupLocalState.lastResultPath = path;
         if (Array.isArray(result.guilds)) {
           setupLocalState.guilds = result.guilds;
+        }
+        if (result.install) {
+          setupLocalState.localWhisperInstall = result.install;
+          setupScheduleLocalWhisperInstallPoll();
         }
         setupLocalState.forceRender = true;
         await refresh();
@@ -661,7 +724,7 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
       if (!defaults) return;
       const provider = setupLocalState.sttProvider ?? defaults.stt.provider;
       if (provider === 'openai') {
-        await setupPost('/api/setup/stt', {
+        await setupPost('/api/setup/stt/openai/test', {
           provider,
           model: defaults.stt.openAiModel,
           apiKey: document.getElementById('setupOpenAiApiKey')?.value ?? '',
@@ -673,7 +736,7 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
       const model = setupLocalState.sttModel === 'medium'
         ? 'medium'
         : defaults.stt.localWhisper.model;
-      await setupPost('/api/setup/stt', {
+      const saved = await setupPost('/api/setup/stt', {
         provider: 'local-whisper',
         profile: defaults.stt.localWhisper.profile,
         model,
@@ -682,6 +745,47 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
         language: defaults.stt.language,
         timeoutMs: defaults.stt.timeoutMs
       });
+      if (!saved.ok) return;
+      await setupPost('/api/setup/stt/local-whisper/install', {
+        model,
+        device: defaults.stt.localWhisper.device,
+        computeType: defaults.stt.localWhisper.computeType
+      });
+    }
+    async function setupLoadLocalWhisperInstallStatus() {
+      if (setupLocalState.localWhisperInstallPolling) return;
+      setupLocalState.localWhisperInstallPolling = true;
+      try {
+        const response = await fetch('/api/setup/stt/local-whisper/install', { cache: 'no-store' });
+        const result = await response.json();
+        if (result.install) {
+          setupLocalState.localWhisperInstall = result.install;
+          setupLocalState.forceRender = true;
+          renderSetupWizard(setupLocalState.lastSetup);
+          setupLocalState.forceRender = false;
+          setupScheduleLocalWhisperInstallPoll();
+        }
+      } catch (_error) {
+        // Explicit POST failures are shown in the setup result area.
+      } finally {
+        setupLocalState.localWhisperInstallPolling = false;
+      }
+    }
+    function setupEnsureLocalWhisperInstallStatusLoaded() {
+      if (setupLocalState.localWhisperInstall || setupLocalState.localWhisperInstallPolling) {
+        return;
+      }
+      window.setTimeout(setupLoadLocalWhisperInstallStatus, 0);
+    }
+    function setupScheduleLocalWhisperInstallPoll() {
+      if (setupLocalState.localWhisperInstallTimer) {
+        window.clearTimeout(setupLocalState.localWhisperInstallTimer);
+        setupLocalState.localWhisperInstallTimer = null;
+      }
+      if (setupLocalState.localWhisperInstall?.status === 'running') {
+        setupLocalState.localWhisperInstallTimer =
+          window.setTimeout(setupLoadLocalWhisperInstallStatus, 2000);
+      }
     }
     async function setupSaveClaude() {
       const defaults = requireSetupDefaults();

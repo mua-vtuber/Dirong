@@ -304,6 +304,10 @@ export async function handleSetupWizardPost(
       sendWizardResult(response, setupWizard.saveSttSettings(body));
       return;
     }
+    if (pathname === "/api/setup/stt/openai/test") {
+      sendWizardResult(response, await setupWizard.testAndSaveOpenAiSttSettings(body));
+      return;
+    }
     if (pathname === "/api/setup/stt/local-whisper/install") {
       sendWizardResult(response, setupWizard.startLocalWhisperInstall(body));
       return;

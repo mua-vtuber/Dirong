@@ -474,9 +474,18 @@ test("DashboardServer setup wizard routes read state and post actions through th
     assert.equal(installStartedBody.ok, true);
     assert.equal(installStartedBody.install.status, "running");
     assert.equal(installStartedBody.install.model, "small");
+    const openAiTested = await postJson(
+      fixture.baseUrl,
+      "/api/setup/stt/openai/test",
+      { apiKey: "test-openai-key", model: "gpt-4o-mini-transcribe" },
+    );
+    const openAiTestedBody = await openAiTested.json() as { ok: boolean };
+    assert.equal(openAiTested.status, 200);
+    assert.equal(openAiTestedBody.ok, true);
     assert.deepEqual(calls, [
       { applicationId: "123456789012345678" },
       { model: "small" },
+      { apiKey: "test-openai-key", model: "gpt-4o-mini-transcribe" },
     ]);
   } finally {
     await fixture.close();
@@ -2090,6 +2099,7 @@ function makeSetupWizardSource(calls: unknown[]): DashboardSetupWizardSource {
         completedAt: null,
       },
     }),
+    testAndSaveOpenAiSttSettings: async (body) => action(body),
     saveDiscordApplicationId: action,
     saveDiscordBotToken: action,
     testDiscordConnection: async () => action({}),

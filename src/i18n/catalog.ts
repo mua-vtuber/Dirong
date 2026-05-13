@@ -685,6 +685,21 @@ export const ko = {
           },
         },
       },
+      openAiTest: {
+        done: {
+          message: "OpenAI STT 연결을 확인하고 설정을 저장했습니다.",
+        },
+        error: {
+          missingKey: {
+            message: "OpenAI API key가 입력되지 않았습니다.",
+            action: "OpenAI STT를 사용하려면 API key를 입력해 주세요.",
+          },
+          failed: {
+            message: "OpenAI STT 연결 확인에 실패했습니다.",
+            action: "API key, 모델, 네트워크 상태를 확인한 뒤 다시 시도해 주세요.",
+          },
+        },
+      },
     },
     ai: {
       status: {
@@ -984,6 +999,8 @@ export const ko = {
         loadGuilds: "서버 목록 불러오기",
         saveSelectedGuild: "선택한 서버 저장",
         saveStt: "STT 설정 저장",
+        saveAndInstallStt: "저장하고 설치",
+        saveAndTestOpenAi: "저장하고 연결 테스트",
         saveClaude: "Claude 설정 저장",
         saveNotionToken: "Notion token 저장",
         saveParentPage: "DB 관리 페이지 URL 저장",
@@ -1076,6 +1093,24 @@ export const ko = {
         localWhisper: {
           title: "추천: local faster-whisper",
           description: "무료이며 음성이 외부 STT API로 전송되지 않습니다.",
+          install: {
+            title: "local Whisper 준비",
+            idle: "모델을 선택한 뒤 저장하고 설치를 누르면 Python, faster-whisper, 모델 파일을 확인합니다.",
+            runningTitle: "local Whisper 준비 중",
+            doneTitle: "local Whisper 준비 완료",
+            failedTitle: "local Whisper 준비 실패",
+            lastLog: "마지막 로그 보기",
+            stages: {
+              idle: "아직 설치를 시작하지 않았습니다.",
+              checking_python: "내장 Python을 확인하고 있습니다.",
+              installing_package: "faster-whisper를 설치하고 있습니다.",
+              checking_package: "faster-whisper 설치 상태를 확인하고 있습니다.",
+              downloading_model: "선택한 Whisper 모델을 다운로드하고 있습니다.",
+              checking_model: "다운로드한 모델을 로드해 확인하고 있습니다.",
+              done: "local Whisper를 사용할 준비가 끝났습니다.",
+              failed: "local Whisper 준비에 실패했습니다.",
+            },
+          },
         },
         openAi: {
           title: "고급: OpenAI STT 사용 (API 발급 필요 - 유료)",
@@ -2514,6 +2549,21 @@ export const en = {
           },
         },
       },
+      openAiTest: {
+        done: {
+          message: "OpenAI STT connection was verified and saved.",
+        },
+        error: {
+          missingKey: {
+            message: "OpenAI API key is missing.",
+            action: "Enter an API key to use OpenAI STT.",
+          },
+          failed: {
+            message: "OpenAI STT connection test failed.",
+            action: "Check the API key, model, and network connection, then try again.",
+          },
+        },
+      },
     },
     ai: {
       status: {
@@ -2815,6 +2865,8 @@ export const en = {
         loadGuilds: "Load server list",
         saveSelectedGuild: "Save selected server",
         saveStt: "Save STT settings",
+        saveAndInstallStt: "Save and install",
+        saveAndTestOpenAi: "Save and test connection",
         saveClaude: "Save Claude settings",
         saveNotionToken: "Save Notion token",
         saveParentPage: "Save DB management page URL",
@@ -2907,6 +2959,24 @@ export const en = {
         localWhisper: {
           title: "Recommended: local faster-whisper",
           description: "Free, and audio is not sent to an external STT API.",
+          install: {
+            title: "Local Whisper setup",
+            idle: "Choose a model, then save and install to check Python, faster-whisper, and the model files.",
+            runningTitle: "Preparing local Whisper",
+            doneTitle: "Local Whisper is ready",
+            failedTitle: "Local Whisper setup failed",
+            lastLog: "Show last log",
+            stages: {
+              idle: "Setup has not started yet.",
+              checking_python: "Checking bundled Python.",
+              installing_package: "Installing faster-whisper.",
+              checking_package: "Checking faster-whisper installation.",
+              downloading_model: "Downloading the selected Whisper model.",
+              checking_model: "Loading the downloaded model for verification.",
+              done: "Local Whisper is ready to use.",
+              failed: "Local Whisper setup failed.",
+            },
+          },
         },
         openAi: {
           title: "Advanced: OpenAI STT (API key required - paid)",

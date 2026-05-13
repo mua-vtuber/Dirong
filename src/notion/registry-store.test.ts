@@ -304,6 +304,60 @@ test("NotionRegistryStore rejects invalid locale, role, and semantic key input",
   }
 });
 
+test("NotionRegistryStore clearProject removes only the requested project registry", () => {
+  const fixture = createFixture();
+  try {
+    fixture.projectStore.createDraftProject({ id: "project-a", nowIso });
+    fixture.projectStore.createDraftProject({ id: "project-b", nowIso });
+    for (const projectId of ["project-a", "project-b"]) {
+      fixture.store.saveWorkspaceSettings({
+        projectId,
+        locale: "ko",
+        parentPageUrl: `https://notion.so/${projectId}`,
+        parentPageId: `${projectId}-parent`,
+        nowIso,
+      });
+      fixture.store.upsertManagedDatabase({
+        projectId,
+        role: "meeting",
+        locale: "ko",
+        databaseId: `${projectId}-db`,
+        dataSourceId: `${projectId}-ds`,
+        url: `https://notion.so/${projectId}-db`,
+        name: projectId,
+        createdByDirong: true,
+        schemaVersion: "notion-managed-db-v1",
+        nowIso,
+      });
+      fixture.store.upsertPropertyMapping({
+        projectId,
+        databaseRole: "meeting",
+        semanticKey: "meeting.title",
+        propertyName: "Name",
+        propertyId: "title",
+        propertyType: "title",
+        locked: true,
+        sourceKind: "system",
+        nowIso,
+      });
+    }
+
+    assert.deepEqual(fixture.store.clearProject("project-a"), {
+      workspaceSettings: 1,
+      managedDatabases: 1,
+      propertyMappings: 1,
+    });
+    assert.equal(fixture.store.getWorkspaceSettings(undefined, "project-a"), null);
+    assert.equal(fixture.store.getManagedDatabase("meeting", "project-a"), null);
+    assert.equal(
+      fixture.store.getManagedDatabase("meeting", "project-b")?.dataSourceId,
+      "project-b-ds",
+    );
+  } finally {
+    fixture.close();
+  }
+});
+
 function createFixture(): {
   store: NotionRegistryStore;
   projectStore: ProjectStore;

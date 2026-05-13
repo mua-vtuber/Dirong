@@ -64,13 +64,19 @@ try {
     maxOutputBytes:
       options.maxOutputBytes ??
       aiCleanupSettings.maxOutputBytes,
-    customNotionPropertyPrompt: () =>
+    customNotionPropertyPrompt: (context) =>
       buildNotionCustomPropertyPrompt(
-        notionPropertyRuleStore.listEnabledRules("meeting"),
+        notionPropertyRuleStore.listEnabledRules(
+          "meeting",
+          context.projectId ?? undefined,
+        ),
       ),
-    memberRosterPrompt: () =>
+    memberRosterPrompt: (context) =>
       buildNotionMemberRosterPrompt(
-        notionMemberRosterStore.listLatestForPrompt(),
+        notionMemberRosterStore.listLatestForPrompt(
+          100,
+          context.projectId ?? undefined,
+        ),
       ),
     includeFakeStt: options.includeFakeStt,
     backup:

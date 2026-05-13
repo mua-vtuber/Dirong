@@ -54,6 +54,24 @@ export type UpdateProjectNotionInput = {
   nowIso?: string;
 };
 
+export type ProjectConnectionResetMode = "full" | "current_project_connection";
+
+export type FreshDraftActiveProjectResult = {
+  project: DirongProjectRow;
+  state: DirongProjectStateRow;
+};
+
+export type FullProjectResetResult = FreshDraftActiveProjectResult & {
+  archivedProjectIds: string[];
+  clearedProjectIds: string[];
+};
+
+export type CurrentProjectConnectionResetResult = FreshDraftActiveProjectResult & {
+  strategy: "archive_and_replace" | "clear_in_place" | "fresh_without_active_project";
+  affectedProjectIds: string[];
+  archivedProjectId: string | null;
+};
+
 /**
  * Phase 2 boundary note:
  * Resolve the active/session project here first, then bind Notion stores behind
@@ -270,6 +288,238 @@ export class ProjectStore {
       cleanedProjectId,
     );
     return this.requireProject(cleanedProjectId);
+  }
+
+  hasProjectHistory(projectId: string): boolean {
+    const cleanedProjectId = cleanRequiredString(projectId, "project id");
+    const sessionHistory = this.runner.get<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM sessions WHERE project_id = ?",
+      cleanedProjectId,
+    )?.count ?? 0;
+    if (sessionHistory > 0) {
+      return true;
+    }
+
+    const writeHistory = this.runner.get<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM notion_writes WHERE project_id = ?",
+      cleanedProjectId,
+    )?.count ?? 0;
+    return writeHistory > 0;
+  }
+
+  markUploadScopeResetBoundary(input: {
+    projectId: string;
+    mode: ProjectConnectionResetMode;
+    nowIso?: string;
+  }): NotionUploadScopeRow {
+    const projectId = cleanRequiredString(input.projectId, "project id");
+    const nowIso = input.nowIso ?? new Date().toISOString();
+    this.requireProject(projectId);
+    this.runner.run(
+      `INSERT INTO notion_upload_scope (
+         project_id, automatic_upload_after, reset_mode, reset_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(project_id) DO UPDATE SET
+         automatic_upload_after = excluded.automatic_upload_after,
+         reset_mode = excluded.reset_mode,
+         reset_at = excluded.reset_at,
+         updated_at = excluded.updated_at`,
+      projectId,
+      nowIso,
+      input.mode,
+      nowIso,
+      nowIso,
+    );
+
+    const scope = this.getUploadScope(projectId);
+    if (!scope) {
+      throw new Error(`Notion upload scope was not saved for project ${projectId}.`);
+    }
+    return scope;
+  }
+
+  createFreshDraftActiveProject(input: {
+    id?: string;
+    name?: string;
+    nowIso?: string;
+  } = {}): FreshDraftActiveProjectResult {
+    const nowIso = input.nowIso ?? new Date().toISOString();
+    const projectId = cleanProjectId(input.id ?? createProjectId());
+    this.runner.run(
+      `INSERT INTO dirong_projects (
+         id, name, lifecycle_status, guild_id, guild_name, guild_icon_url,
+         command_enabled, notion_token_secret_ref, notion_parent_page_url,
+         notion_upload_mode, created_at, updated_at, archived_at
+       ) VALUES (?, ?, 'draft', NULL, NULL, NULL, 1, NULL, NULL, 'manual', ?, ?, NULL)`,
+      projectId,
+      cleanRequiredString(input.name ?? defaultProjectName(projectId), "project name"),
+      nowIso,
+      nowIso,
+    );
+    this.ensureUploadScope(projectId, nowIso);
+    const state = this.setActiveProjectId(projectId, nowIso);
+    return {
+      project: this.requireProject(projectId),
+      state,
+    };
+  }
+
+  resetAllProjectConnectionsForFullReset(
+    nowIso = new Date().toISOString(),
+  ): FullProjectResetResult {
+    const existingProjectIds = this.listProjects().map((project) => project.id);
+    let result: FreshDraftActiveProjectResult | null = null;
+
+    this.runner.transaction(() => {
+      for (const projectId of existingProjectIds) {
+        this.runner.run(
+          `UPDATE dirong_projects
+           SET lifecycle_status = 'archived',
+               guild_id = NULL,
+               guild_name = NULL,
+               guild_icon_url = NULL,
+               command_enabled = 0,
+               notion_token_secret_ref = NULL,
+               notion_parent_page_url = NULL,
+               notion_upload_mode = 'manual',
+               archived_at = COALESCE(archived_at, ?),
+               updated_at = ?
+           WHERE id = ?`,
+          nowIso,
+          nowIso,
+          projectId,
+        );
+        this.markUploadScopeResetBoundary({
+          projectId,
+          mode: "full",
+          nowIso,
+        });
+      }
+      result = this.createFreshDraftActiveProject({
+        name: "Fresh Project",
+        nowIso,
+      });
+    });
+
+    const freshResult = result as FreshDraftActiveProjectResult | null;
+    if (!freshResult) {
+      throw new Error("Fresh active project was not created for full reset.");
+    }
+    return {
+      ...freshResult,
+      archivedProjectIds: existingProjectIds,
+      clearedProjectIds: existingProjectIds,
+    };
+  }
+
+  resetCurrentProjectConnection(input: {
+    projectId: string | null;
+    nowIso?: string;
+    forceArchiveAndReplace?: boolean;
+  }): CurrentProjectConnectionResetResult {
+    const nowIso = input.nowIso ?? new Date().toISOString();
+    const projectId = input.projectId
+      ? cleanRequiredString(input.projectId, "project id")
+      : null;
+    let result: CurrentProjectConnectionResetResult | null = null;
+
+    this.runner.transaction(() => {
+      if (!projectId) {
+        const fresh = this.createFreshDraftActiveProject({
+          name: "Fresh Project",
+          nowIso,
+        });
+        result = {
+          ...fresh,
+          strategy: "fresh_without_active_project",
+          affectedProjectIds: [fresh.project.id],
+          archivedProjectId: null,
+        };
+        return;
+      }
+
+      this.requireProject(projectId);
+      const shouldArchive =
+        input.forceArchiveAndReplace === true || this.hasProjectHistory(projectId);
+      this.markUploadScopeResetBoundary({
+        projectId,
+        mode: "current_project_connection",
+        nowIso,
+      });
+
+      if (!shouldArchive) {
+        const project = this.clearProjectConnectionForReset(projectId, nowIso);
+        const state = this.setActiveProjectId(project.id, nowIso);
+        result = {
+          project,
+          state,
+          strategy: "clear_in_place",
+          affectedProjectIds: [project.id],
+          archivedProjectId: null,
+        };
+        return;
+      }
+
+      this.runner.run(
+        `UPDATE dirong_projects
+         SET lifecycle_status = 'archived',
+             guild_id = NULL,
+             guild_name = NULL,
+             guild_icon_url = NULL,
+             command_enabled = 0,
+             notion_token_secret_ref = NULL,
+             notion_parent_page_url = NULL,
+             notion_upload_mode = 'manual',
+             archived_at = COALESCE(archived_at, ?),
+             updated_at = ?
+         WHERE id = ?`,
+        nowIso,
+        nowIso,
+        projectId,
+      );
+      const fresh = this.createFreshDraftActiveProject({
+        name: "Fresh Project",
+        nowIso,
+      });
+      result = {
+        ...fresh,
+        strategy: "archive_and_replace",
+        affectedProjectIds: [projectId, fresh.project.id],
+        archivedProjectId: projectId,
+      };
+    });
+
+    if (!result) {
+      throw new Error("Current project connection reset did not complete.");
+    }
+    return result;
+  }
+
+  closeManagedSchemaRepairItemsForReset(input: {
+    projectIds: readonly string[];
+    nowIso?: string;
+  }): number {
+    const nowIso = input.nowIso ?? new Date().toISOString();
+    let changed = 0;
+    this.runner.transaction(() => {
+      for (const projectId of input.projectIds) {
+        const prefix = `notion_managed_schema:${cleanRequiredString(projectId, "project id")}:`;
+        changed += this.runner.run(
+          `UPDATE repair_items
+           SET status = 'ignored',
+               updated_at = ?,
+               resolved_at = COALESCE(resolved_at, ?)
+           WHERE item_type = 'notion_managed_schema'
+             AND status = 'open'
+             AND substr(dedupe_key, 1, length(?)) = ?`,
+          nowIso,
+          nowIso,
+          prefix,
+          prefix,
+        );
+      }
+    });
+    return changed;
   }
 
   setActiveProjectId(

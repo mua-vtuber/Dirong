@@ -55,6 +55,11 @@ export type NotionMemberRosterStoredWarning = {
   params: Record<string, string | number>;
 };
 
+export type ClearNotionMemberRosterProjectResult = {
+  entries: number;
+  syncs: number;
+};
+
 type NotionMemberRosterEntryRow = {
   project_id: string;
   page_id: string;
@@ -269,6 +274,23 @@ export class NotionMemberRosterStore {
       cleanRequiredString(dataSourceId, "dataSourceId"),
     );
     return row ? rowToSyncSnapshot(row) : null;
+  }
+
+  clearProject(projectId = DEFAULT_PROJECT_ID): ClearNotionMemberRosterProjectResult {
+    const resolvedProjectId = cleanRequiredString(projectId, "projectId");
+    let entries = 0;
+    let syncs = 0;
+    this.runner.transaction(() => {
+      entries = this.runner.run(
+        "DELETE FROM notion_member_roster_entries WHERE project_id = ?",
+        resolvedProjectId,
+      );
+      syncs = this.runner.run(
+        "DELETE FROM notion_member_roster_syncs WHERE project_id = ?",
+        resolvedProjectId,
+      );
+    });
+    return { entries, syncs };
   }
 
   private upsertSyncSnapshot(input: {

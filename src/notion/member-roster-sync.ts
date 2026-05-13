@@ -51,9 +51,14 @@ export async function syncNotionMemberRoster(input: {
   registryStore: NotionRegistryStore;
   rosterStore: NotionMemberRosterStore;
   nowIso?: string;
+  projectId?: string;
 }): Promise<NotionMemberRosterSyncResult> {
   const nowIso = input.nowIso ?? new Date().toISOString();
-  const memberDatabase = input.registryStore.getManagedDatabase("member");
+  const projectId = input.projectId;
+  const memberDatabase = input.registryStore.getManagedDatabase(
+    "member",
+    projectId,
+  );
   if (!memberDatabase) {
     return memberRosterResult({
       ok: false,
@@ -68,8 +73,11 @@ export async function syncNotionMemberRoster(input: {
     memberDatabase.dataSourceId,
   );
   const properties = readDataSourceProperties(dataSource);
-  const mappings = input.registryStore.listPropertyMappings();
-  const managedDatabases = input.registryStore.listManagedDatabases();
+  const mappings = input.registryStore.listPropertyMappings(
+    undefined,
+    projectId,
+  );
+  const managedDatabases = input.registryStore.listManagedDatabases(projectId);
   const requiredValidation = validateManagedDataSourceSchemaForUpload({
     databaseRole: "member",
     properties,
@@ -79,6 +87,7 @@ export async function syncNotionMemberRoster(input: {
   });
   if (!requiredValidation.ok) {
     input.rosterStore.recordSyncSnapshot({
+      projectId,
       dataSourceId: memberDatabase.dataSourceId,
       status: "blocked",
       memberCount: 0,
@@ -202,6 +211,7 @@ export async function syncNotionMemberRoster(input: {
   }
 
   input.rosterStore.replaceForDataSource({
+    projectId,
     dataSourceId: memberDatabase.dataSourceId,
     entries,
     syncedAt: nowIso,

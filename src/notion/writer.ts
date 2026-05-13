@@ -140,6 +140,27 @@ export async function runNotionUpload(
       };
     }
 
+    if (
+      options.projectId !== undefined &&
+      options.projectId !== null &&
+      draftInput.session.project_id !== options.projectId
+    ) {
+      return {
+        ...baseResult,
+        status: "blocked",
+        sessionId: draftInput.session.id,
+        draftId: draftInput.draft.id,
+        targetId: target.id,
+        targetName: target.name,
+        message:
+          "Notion upload is blocked because the session project does not match the selected project.",
+        userAction:
+          "프로젝트를 전환한 뒤 해당 프로젝트의 회의록만 업로드해 주세요.",
+        technicalDetail:
+          `session ${draftInput.session.id} project_id=${draftInput.session.project_id}, selected project=${options.projectId}`,
+      };
+    }
+
     const memberRelations =
       target.kind === "managed"
         ? await resolveManagedMemberRelations({

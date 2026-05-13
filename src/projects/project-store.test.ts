@@ -152,6 +152,88 @@ test("ProjectStore creates, lists, updates, archives, and switches active projec
   }
 });
 
+test("ProjectStore reset helpers archive history projects and create fresh active drafts", () => {
+  const fixture = createFixture();
+  try {
+    const store = new ProjectStore(fixture.runner);
+    store.createReadyProject({
+      id: "project-history",
+      name: "History",
+      guildId: "111111111111111111",
+      notionTokenSecretRef: "notion.project.project-history.token",
+      notionParentPageUrl: "https://notion.so/history",
+      nowIso,
+    });
+    store.setActiveProjectId("project-history", nowIso);
+    insertSession(fixture.database, {
+      id: "session-history",
+      guildId: "111111111111111111",
+      projectId: "project-history",
+    });
+
+    const reset = store.resetCurrentProjectConnection({
+      projectId: "project-history",
+      nowIso: laterIso(),
+    });
+
+    assert.equal(reset.strategy, "archive_and_replace");
+    assert.equal(reset.archivedProjectId, "project-history");
+    assert.equal(reset.project.lifecycle_status, "draft");
+    assert.equal(reset.project.guild_id, null);
+    assert.equal(store.getActiveProjectId(), reset.project.id);
+    const archived = store.getProject("project-history");
+    assert.equal(archived?.lifecycle_status, "archived");
+    assert.equal(archived?.guild_id, null);
+    assert.equal(archived?.notion_token_secret_ref, null);
+    assert.equal(
+      store.getUploadScope("project-history")?.automatic_upload_after,
+      laterIso(),
+    );
+  } finally {
+    fixture.close();
+  }
+});
+
+test("ProjectStore full reset clears all project connections", () => {
+  const fixture = createFixture();
+  try {
+    const store = new ProjectStore(fixture.runner);
+    store.createReadyProject({
+      id: "project-a",
+      guildId: "111111111111111111",
+      notionTokenSecretRef: "notion.project.project-a.token",
+      notionParentPageUrl: "https://notion.so/a",
+      nowIso,
+    });
+    store.createReadyProject({
+      id: "project-b",
+      guildId: "222222222222222222",
+      notionTokenSecretRef: "notion.project.project-b.token",
+      notionParentPageUrl: "https://notion.so/b",
+      nowIso,
+    });
+    store.setActiveProjectId("project-a", nowIso);
+
+    const reset = store.resetAllProjectConnectionsForFullReset(laterIso());
+
+    assert.equal(reset.project.lifecycle_status, "draft");
+    assert.equal(store.getActiveProjectId(), reset.project.id);
+    assert.deepEqual(reset.archivedProjectIds.sort(), ["default", "project-a", "project-b"]);
+    for (const projectId of ["project-a", "project-b"]) {
+      const archived = store.getProject(projectId);
+      assert.equal(archived?.lifecycle_status, "archived");
+      assert.equal(archived?.guild_id, null);
+      assert.equal(archived?.notion_token_secret_ref, null);
+      assert.equal(
+        store.getUploadScope(projectId)?.automatic_upload_after,
+        laterIso(),
+      );
+    }
+  } finally {
+    fixture.close();
+  }
+});
+
 type Fixture = {
   dir: string;
   database: DirongDatabase;
@@ -199,22 +281,23 @@ function legacySettings(input: {
 
 function insertSession(
   database: DirongDatabase,
-  input: { id: string; guildId: string },
+  input: { id: string; guildId: string; projectId?: string | null },
 ): void {
   database.db
     .prepare(
       `INSERT INTO sessions (
-         id, guild_id, guild_name, text_channel_id, voice_channel_id,
+         id, project_id, guild_id, guild_name, text_channel_id, voice_channel_id,
          voice_channel_name, started_by_user_id, started_by_display_name,
          stopped_by_user_id, stopped_by_display_name, status, started_at,
          stopped_at, finalized_at, data_dir, last_error, created_at, updated_at
        ) VALUES (
-         ?, ?, 'Guild', 'text', 'voice', 'Voice', 'starter', 'Taniar',
+         ?, ?, ?, 'Guild', 'text', 'voice', 'Voice', 'starter', 'Taniar',
          NULL, NULL, 'finalized', ?, ?, ?, ?, NULL, ?, ?
        )`,
     )
     .run(
       input.id,
+      input.projectId ?? null,
       input.guildId,
       nowIso,
       nowIso,
@@ -223,6 +306,10 @@ function insertSession(
       nowIso,
       nowIso,
     );
+}
+
+function laterIso(): string {
+  return "2026-05-13T00:01:00.000Z";
 }
 
 function readDefaultProject(

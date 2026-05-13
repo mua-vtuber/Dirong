@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { ProjectStore } from "../projects/project-store.js";
 import { SqlRunner } from "../storage/sql-runner.js";
 import { DirongDatabase } from "../storage/sqlite.js";
 import { NotionWriteStore } from "./write-store.js";
@@ -271,6 +272,66 @@ test("NotionWriteStore force claims blocked and future retry writes", () => {
   }
 });
 
+test("NotionWriteStore blocks non-terminal writes for reset by project", () => {
+  const fixture = createFixture();
+  try {
+    const queued = fixture.store.createOrGetWrite({
+      id: "write-reset-queued",
+      projectId: "default",
+      sessionId: fixture.sessionId,
+      draftId: fixture.draftId,
+      targetType: "data_source",
+      targetId: "target-reset",
+      targetUrl: "https://notion.so/db",
+      contentHash: "hash",
+      maxAttempts: 3,
+      nowIso,
+    });
+    const done = fixture.store.createOrGetWrite({
+      id: "write-reset-done",
+      projectId: "default",
+      sessionId: fixture.sessionId,
+      draftId: fixture.draftId2,
+      targetType: "data_source",
+      targetId: "target-reset-done",
+      targetUrl: "https://notion.so/db",
+      contentHash: "hash",
+      maxAttempts: 3,
+      nowIso,
+    });
+    fixture.store.markDone({
+      id: done.id,
+      statusMessage: "done",
+      nowIso,
+    });
+    const other = fixture.store.createOrGetWrite({
+      id: "write-reset-other",
+      projectId: "project-other",
+      sessionId: fixture.sessionId,
+      draftId: "draft-other-project",
+      targetType: "data_source",
+      targetId: "target-other",
+      targetUrl: "https://notion.so/db",
+      contentHash: "hash",
+      maxAttempts: 3,
+      nowIso,
+    });
+
+    const changed = fixture.store.blockNonTerminalWritesForReset({
+      projectId: "default",
+      nowIso: "2026-05-07T00:01:00.000Z",
+      message: "Blocked by reset",
+    });
+
+    assert.equal(changed, 1);
+    assert.equal(fixture.store.getWrite(queued.id)?.status, "blocked");
+    assert.equal(fixture.store.getWrite(done.id)?.status, "done");
+    assert.equal(fixture.store.getWrite(other.id)?.status, "queued");
+  } finally {
+    fixture.close();
+  }
+});
+
 type StoreFixture = {
   dir: string;
   database: DirongDatabase;
@@ -284,7 +345,12 @@ type StoreFixture = {
 function createFixture(): StoreFixture {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-notion-store-"));
   const database = new DirongDatabase(path.join(dir, "dirong.sqlite"), 1000);
-  const store = new NotionWriteStore(new SqlRunner(database));
+  const runner = new SqlRunner(database);
+  const store = new NotionWriteStore(runner);
+  new ProjectStore(runner).createDraftProject({
+    id: "project-other",
+    nowIso,
+  });
   const sessionId = "session-notion";
   const draftId = "draft-notion";
   const draftId2 = "draft-notion-2";
@@ -293,6 +359,8 @@ function createFixture(): StoreFixture {
   insertAiCleanupJob(database, sessionId, "ai-job-2");
   insertDraft(database, sessionId, "ai-job-1", draftId);
   insertDraft(database, sessionId, "ai-job-2", draftId2);
+  insertAiCleanupJob(database, sessionId, "ai-job-other-project");
+  insertDraft(database, sessionId, "ai-job-other-project", "draft-other-project");
 
   return {
     dir,

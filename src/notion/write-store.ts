@@ -101,6 +101,12 @@ export type MarkTerminalInput = {
   nowIso: string;
 };
 
+export type BlockNonTerminalWritesForResetInput = {
+  projectId: string;
+  nowIso: string;
+  message: string;
+};
+
 export class NotionWriteStore {
   constructor(private readonly runner: SqlRunner) {}
 
@@ -392,6 +398,32 @@ export class NotionWriteStore {
       }
     });
     return released;
+  }
+
+  blockNonTerminalWritesForReset(
+    input: BlockNonTerminalWritesForResetInput,
+  ): number {
+    return this.runner.run(
+      `UPDATE notion_writes
+       SET status = 'blocked',
+           status_message = ?,
+           last_error = ?,
+           locked_by = NULL,
+           locked_until = NULL,
+           updated_at = ?
+       WHERE project_id = ?
+         AND status IN (
+           'queued',
+           'processing',
+           'creating_page',
+           'appending_blocks',
+           'retry_wait'
+         )`,
+      cleanRequiredString(input.message, "message"),
+      cleanRequiredString(input.message, "message"),
+      cleanRequiredString(input.nowIso, "nowIso"),
+      cleanRequiredString(input.projectId, "projectId"),
+    );
   }
 
   listBlocks(writeId: string): NotionBlockRow[] {

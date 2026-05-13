@@ -127,6 +127,12 @@ export type SaveNotionManagedSchemaInput = {
   nowIso: string;
 };
 
+export type ClearNotionRegistryProjectResult = {
+  workspaceSettings: number;
+  managedDatabases: number;
+  propertyMappings: number;
+};
+
 type NotionWorkspaceSettingsRow = {
   project_id: string;
   id: string;
@@ -383,6 +389,28 @@ export class NotionRegistryStore {
         });
       }
     });
+  }
+
+  clearProject(projectId = DEFAULT_PROJECT_ID): ClearNotionRegistryProjectResult {
+    const resolvedProjectId = cleanRequiredString(projectId, "project id");
+    let propertyMappings = 0;
+    let managedDatabases = 0;
+    let workspaceSettings = 0;
+    this.runner.transaction(() => {
+      propertyMappings = this.runner.run(
+        "DELETE FROM notion_property_mappings WHERE project_id = ?",
+        resolvedProjectId,
+      );
+      managedDatabases = this.runner.run(
+        "DELETE FROM notion_managed_databases WHERE project_id = ?",
+        resolvedProjectId,
+      );
+      workspaceSettings = this.runner.run(
+        "DELETE FROM notion_workspace_settings WHERE project_id = ?",
+        resolvedProjectId,
+      );
+    });
+    return { workspaceSettings, managedDatabases, propertyMappings };
   }
 
   private writeWorkspaceSettings(

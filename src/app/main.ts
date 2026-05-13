@@ -26,6 +26,9 @@ import {
   createProductSetupStatusSource,
   loadProductRuntimeSettings,
 } from "../settings/product-settings.js";
+import { LocalSecretStore } from "../settings/local-secret-store.js";
+import { LocalSettingsStore } from "../settings/local-settings-store.js";
+import { SettingsResetService } from "../settings/reset-service.js";
 import { ClaudeStreamJsonCliCleanupProvider } from "../ai/cleanup/claude-persistent-cli-provider.js";
 import {
   AiCleanupAutomationService,
@@ -38,6 +41,7 @@ import {
 } from "../ai/cleanup/provider-lifecycle-service.js";
 import { wrapAiCleanupProviderWithLifecycle } from "../ai/cleanup/provider-lifecycle.js";
 import { DashboardServer } from "../dashboard/server.js";
+import { evaluateActiveProjectCommandGate } from "../discord/active-project-command-gate.js";
 import { phase1GuildCommandPayloads } from "../discord/commands.js";
 import { createProductSetupWizardService } from "../setup/wizard-service.js";
 import {
@@ -70,7 +74,11 @@ import {
 } from "../notion/member-roster-store.js";
 import { NotionRegistryStore } from "../notion/registry-store.js";
 import { NotionWriteStore } from "../notion/write-store.js";
-import { DEFAULT_PROJECT_ID } from "../projects/project-types.js";
+import {
+  DEFAULT_PROJECT_ID,
+  type DirongProjectRow,
+} from "../projects/project-types.js";
+import { ActiveProjectService } from "../projects/active-project-service.js";
 import { ProjectStore } from "../projects/project-store.js";
 import { RecordingProducer } from "../recording/recording-producer.js";
 import { runStartupRepair } from "../storage/repair-scan.js";
@@ -150,20 +158,70 @@ const notionUploadRetention = createNotionUploadRetentionHandler();
 const notionDashboard = new NotionDashboardService({
   settings: appSettings.notion,
   getSettings: getNotionRuntimeSettings,
+  getProjectId: () => projectStore.getActiveProjectId() ?? DEFAULT_PROJECT_ID,
   database,
   config,
   workerId: `phase5-notion-dashboard-${process.pid}`,
   retention: notionUploadRetention,
 });
 const notionAutomation = createNotionAutomationService(notionSqlRunner);
+const activeProjectService = new ActiveProjectService({
+  projectStore,
+  getRecordingRuntimeState: () => producer.getRuntimeState(),
+  getNotionAutomationSnapshot: () => notionAutomation.getSnapshot(resolveAppLocale()),
+  getAiCleanupAutomationSnapshot: () => aiCleanupAutomation.getSnapshot(resolveAppLocale()),
+});
+const settingsReset = new SettingsResetService({
+  settingsStore: new LocalSettingsStore(productRuntime.paths.settingsFile),
+  secretStore: new LocalSecretStore(productRuntime.paths.secretsFile),
+  projectStore,
+  registryStore: notionRegistryStore,
+  memberRosterStore: notionMemberRosterStore,
+  customPropertyRuleStore: notionPropertyRuleStore,
+  writeStore: new NotionWriteStore(notionSqlRunner),
+  setupStatus,
+  getRecordingRuntimeState: () => producer.getRuntimeState(),
+  getNotionAutomationSnapshot: () => notionAutomation.getSnapshot(resolveAppLocale()),
+  getAiCleanupAutomationSnapshot: () => aiCleanupAutomation.getSnapshot(resolveAppLocale()),
+  stopNotionAutomation: () => notionAutomation.stop(),
+  startNotionAutomation: () => notionAutomation.start(),
+  runNotionAutomationOnce: () => notionAutomation.runOnce(),
+  stopAiCleanupAutomation: () => aiCleanupAutomation.stop(),
+  stopAiLifecycle: () => aiLifecycle.stop(),
+  notionDashboard,
+});
 const dashboard = new DashboardServer(config, store, producer, {
   aiReadiness: aiLifecycle,
   aiCleanupAutomation,
   aloneFinalize,
   notion: notionDashboard,
   notionAutomation,
+  projects: {
+    listProjects: () => projectStore.listProjects(),
+    getActiveProject: () => projectStore.getActiveProject(),
+    createDraftProject: async (input = {}) => {
+      const reuseEmptyDraft = input.reuseEmptyDraft ?? true;
+      const reusable = reuseEmptyDraft
+        ? findReusableDraftProject(projectStore.listProjects())
+        : null;
+      const project = reusable ?? projectStore.createDraftProject({
+        name: input.name,
+      });
+      const shouldActivate = input.activate ?? true;
+      return {
+        project,
+        reused: Boolean(reusable),
+        switchResult: shouldActivate
+          ? await activeProjectService.switchActiveProject(project.id)
+          : undefined,
+      };
+    },
+    switchActiveProject: (projectId) =>
+      activeProjectService.switchActiveProject(projectId),
+  },
   setupStatus,
   setupWizard,
+  settingsReset,
   sttAutomation,
 });
 const dashboardUrl = await startDashboardOrExit();
@@ -279,7 +337,12 @@ async function startDashboardOrExit(): Promise<string> {
 
 async function registerCommands(): Promise<void> {
   let successCount = 0;
-  for (const guildId of config.guildIds) {
+  const guildIds = resolveCommandRegistrationGuildIds();
+  if (guildIds.length === 0) {
+    console.log("등록할 active project Discord 서버가 없습니다. 설정 완료 후 다시 시작해 주세요.");
+    return;
+  }
+  for (const guildId of guildIds) {
     try {
       const guild = await client.guilds.fetch(guildId);
       await guild.commands.set(phase1GuildCommandPayloads);
@@ -307,7 +370,13 @@ async function handleDirongCommand(
     return;
   }
 
-  if (!config.guildIds.includes(interaction.guildId)) {
+  const gate = evaluateActiveProjectCommandGate({
+    guildId: interaction.guildId,
+    legacyGuildIds: config.guildIds,
+    activeProject: projectStore.getActiveProject(),
+    hasProjectData: projectStore.listProjects().length > 0,
+  });
+  if (!gate.ok) {
     await interaction.reply({
       content: t(locale, "discordRuntime.guildNotAllowed"),
       flags: MessageFlags.Ephemeral,
@@ -337,6 +406,7 @@ async function handleDirongCommand(
       const result = await producer.start({
         guild,
         voiceChannel,
+        projectId: gate.projectId,
         textChannelId: interaction.channelId,
         startedByUserId: interaction.user.id,
         startedByDisplayName: displayNameForMember(member),
@@ -422,6 +492,16 @@ async function handleDirongCommand(
     await interaction.editReply(toLocalizedErrorMessage(error, locale));
     printCliError(error, { prefix: "slash command 처리 실패" });
   }
+}
+
+function resolveCommandRegistrationGuildIds(): string[] {
+  const activeProject = projectStore.getActiveProject();
+  if (activeProject) {
+    return activeProject.command_enabled === 1 && activeProject.guild_id
+      ? [activeProject.guild_id]
+      : [];
+  }
+  return config.guildIds;
 }
 
 function startConsoleCommands(): void {
@@ -571,13 +651,19 @@ function createAiCleanupAutomationService(
       maxInputChars: appSettings.aiCleanup.maxInputChars,
       timeoutMs: appSettings.aiCleanup.timeoutMs,
       maxOutputBytes: appSettings.aiCleanup.maxOutputBytes,
-      customNotionPropertyPrompt: () =>
+      customNotionPropertyPrompt: (context) =>
         buildNotionCustomPropertyPrompt(
-          notionPropertyRuleStore.listEnabledRules("meeting"),
+          notionPropertyRuleStore.listEnabledRules(
+            "meeting",
+            context.projectId ?? undefined,
+          ),
         ),
-      memberRosterPrompt: () =>
+      memberRosterPrompt: (context) =>
         buildNotionMemberRosterPrompt(
-          notionMemberRosterStore.listLatestForPrompt(),
+          notionMemberRosterStore.listLatestForPrompt(
+            100,
+            context.projectId ?? undefined,
+          ),
         ),
       backup: () =>
         backupDatabaseSnapshot(config.dbPath, {
@@ -608,10 +694,26 @@ function createNotionAutomationService(
       projectStore.getUploadScope(projectId)?.automatic_upload_after ?? null,
     registryStore: new NotionRegistryStore(runner),
     memberRosterStore: new NotionMemberRosterStore(runner),
-    customPropertyRules: () => notionPropertyRuleStore.listEnabledRules("meeting"),
+    customPropertyRules: () =>
+      notionPropertyRuleStore.listEnabledRules(
+        "meeting",
+        projectStore.getActiveProjectId() ?? DEFAULT_PROJECT_ID,
+      ),
     retention: notionUploadRetention,
     localeResolver: resolveAppLocale,
   });
+}
+
+function findReusableDraftProject(
+  projects: readonly DirongProjectRow[],
+): DirongProjectRow | null {
+  return projects.find((project) =>
+    project.lifecycle_status === "draft" &&
+    project.archived_at === null &&
+    project.guild_id === null &&
+    project.notion_token_secret_ref === null &&
+    project.notion_parent_page_url === null
+  ) ?? null;
 }
 
 function createNotionClientForSettings(

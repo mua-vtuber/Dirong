@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { DirongDatabase } from "../storage/sqlite.js";
 import { SqlRunner } from "../storage/sql-runner.js";
+import { ProjectStore } from "../projects/project-store.js";
 import { DEFAULT_NOTION_PROPERTY_NAMES } from "./settings.js";
 import {
   buildNotionCustomPropertyPrompt,
@@ -440,6 +441,50 @@ test("NotionCustomPropertyRuleStore keeps role-specific rules isolated", () => {
     });
     assert.equal(deleted.deleted, 1);
     assert.deepEqual(store.listRules("member"), []);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("NotionCustomPropertyRuleStore clearProject removes project-scoped rules", () => {
+  const fixture = createFixture();
+  try {
+    const projectStore = new ProjectStore(fixture.runner);
+    projectStore.createProject({ id: "project-a", nowIso: "2026-05-08T00:00:00.000Z" });
+    projectStore.createProject({ id: "project-b", nowIso: "2026-05-08T00:00:00.000Z" });
+    const store = new NotionCustomPropertyRuleStore(fixture.runner);
+    store.saveRules({
+      projectId: "project-a",
+      databaseRole: "meeting",
+      rules: [
+        {
+          propertyName: "Discussion",
+          propertyType: "rich_text",
+          enabled: true,
+          promptDescription: "회의 논의 요약",
+        },
+      ],
+      requiredPropertyNames: Object.values(DEFAULT_NOTION_PROPERTY_NAMES),
+      nowIso: "2026-05-08T00:00:00.000Z",
+    });
+    store.saveRules({
+      projectId: "project-b",
+      databaseRole: "meeting",
+      rules: [
+        {
+          propertyName: "Decision",
+          propertyType: "rich_text",
+          enabled: true,
+          promptDescription: "결정 사항",
+        },
+      ],
+      requiredPropertyNames: Object.values(DEFAULT_NOTION_PROPERTY_NAMES),
+      nowIso: "2026-05-08T00:00:00.000Z",
+    });
+
+    assert.equal(store.clearProject("project-a"), 1);
+    assert.deepEqual(store.listRules("meeting", "project-a"), []);
+    assert.equal(store.listRules("meeting", "project-b")[0]?.propertyName, "Decision");
   } finally {
     fixture.close();
   }

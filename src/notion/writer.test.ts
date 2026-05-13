@@ -19,6 +19,7 @@ import { NotionWriteStore } from "./write-store.js";
 import { SqlRunner } from "../storage/sql-runner.js";
 import { DirongDatabase } from "../storage/sqlite.js";
 import { DEFAULT_PROJECT_ID } from "../projects/project-types.js";
+import { ProjectStore } from "../projects/project-store.js";
 
 const nowIso = "2026-05-07T00:00:00.000Z";
 const targetId = "01234567-89ab-cdef-0123-456789abcdef";
@@ -88,6 +89,35 @@ test("runNotionUpload creates a page, appends blocks, and marks done", async () 
     assert.equal(client.createPageBodies[0]?.children, undefined);
     assert.equal(fixture.writeStore.getWrite(result.writeId ?? "")?.status, "done");
     assert.equal(fixture.writeStore.listBlocks(result.writeId ?? "").length, result.blockCount);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("runNotionUpload blocks when selected project differs from session project", async () => {
+  const fixture = createFixture({ projectId: "project-a" });
+  try {
+    const client = new FakeNotionClient();
+    const result = await runNotionUpload({
+      settings: notionSettings(),
+      selector: { kind: "draft", draftId: fixture.draftId },
+      dryRun: false,
+      force: false,
+      workerId: "writer-test",
+      leaseMs: 60000,
+      nowIso,
+      client,
+      readModel: new NotionDraftInputReadModel(fixture.runner),
+      writeStore: fixture.writeStore,
+      projectId: "project-b",
+    });
+
+    assert.equal(result.status, "blocked");
+    assert.match(result.message, /session project does not match/);
+    assert.match(result.technicalDetail ?? "", /project-a/);
+    assert.match(result.technicalDetail ?? "", /project-b/);
+    assert.equal(countNotionWrites(fixture.database), 0);
+    assert.equal(client.createPageBodies.length, 0);
   } finally {
     fixture.close();
   }
@@ -1153,6 +1183,13 @@ function createFixture(
   const registryStore = new NotionRegistryStore(runner);
   const memberRosterStore = new NotionMemberRosterStore(runner);
   const draftInput = makeNotionDraftInput(options);
+  if (draftInput.session.project_id && draftInput.session.project_id !== DEFAULT_PROJECT_ID) {
+    new ProjectStore(runner).createProject({
+      id: draftInput.session.project_id,
+      name: draftInput.session.project_id,
+      nowIso,
+    });
+  }
   insertSession(database, dir, draftInput);
   insertSpeaker(database, draftInput);
   insertAiCleanupJob(database, draftInput);

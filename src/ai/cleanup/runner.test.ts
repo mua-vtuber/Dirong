@@ -142,6 +142,37 @@ test("runAiCleanupForSession includes roster prompt in prompt artifact and input
   }
 });
 
+test("runAiCleanupForSession resolves prompt context from the stored session project", async () => {
+  const fixture = createFinalizedTranscriptFixture({ projectId: "project-alpha" });
+  try {
+    const baseTimelineInput = buildPhase4TimelineInput(fixture.store, {
+      sessionId: fixture.sessionId,
+    });
+    const result = await runAiCleanupForSession(fixture.store, {
+      ...baseRunOptions(fixture.sessionId),
+      provider: new FakeAiCleanupProvider(),
+      customNotionPropertyPrompt: (context) =>
+        context.projectId === "project-alpha"
+          ? "Project Alpha cleanup rule: include Alpha milestone."
+          : "Project Beta cleanup rule: include Beta milestone.",
+      memberRosterPrompt: (context) =>
+        context.projectId === "project-alpha"
+          ? "Known member roles for assignment hints:\n- Alpha Lead: roles=Owner"
+          : "Known member roles for assignment hints:\n- Beta Lead: roles=Owner",
+      backup: () => [],
+    });
+    const prompt = readFileSync(result.job?.prompt_path ?? "", "utf8");
+
+    assert.equal(result.status, "done");
+    assert.notEqual(result.inputHash, baseTimelineInput.inputHash);
+    assert.match(prompt, /Project Alpha cleanup rule/);
+    assert.match(prompt, /Alpha Lead: roles=Owner/);
+    assert.doesNotMatch(prompt, /Project Beta cleanup rule|Beta Lead/);
+  } finally {
+    fixture.close();
+  }
+});
+
 test("runAiCleanupForSession resets provider after a completed session", async () => {
   const fixture = createFinalizedTranscriptFixture();
   const provider = new ResetCountingFakeAiCleanupProvider();
@@ -457,6 +488,7 @@ function createFinalizedTranscriptFixture(input: {
   source?: string;
   provider?: string;
   model?: string;
+  projectId?: string | null;
 } = {}): {
   dir: string;
   dbPath: string;
@@ -472,9 +504,13 @@ function createFinalizedTranscriptFixture(input: {
   const store = new SessionStore(database);
   const sessionId = "meeting_ai_cleanup_test";
   const chunkId = `${sessionId}_000001_speaker`;
+  if (input.projectId) {
+    insertProject(database, input.projectId, "Project Alpha");
+  }
 
   store.createSession({
     id: sessionId,
+    projectId: input.projectId,
     guildId: "guild",
     guildName: "Guild",
     textChannelId: "text",
@@ -568,6 +604,20 @@ function createFinalizedTranscriptFixture(input: {
       return row.attempts;
     },
   };
+}
+
+function insertProject(
+  database: DirongDatabase,
+  projectId: string,
+  name: string,
+): void {
+  const now = new Date().toISOString();
+  database.db.prepare(
+    `INSERT INTO dirong_projects (
+       id, name, lifecycle_status, guild_id, guild_name, command_enabled,
+       notion_upload_mode, created_at, updated_at
+     ) VALUES (?, ?, 'ready', 'guild', 'Guild', 1, 'manual', ?, ?)`,
+  ).run(projectId, name, now, now);
 }
 
 class ModelNamedFakeAiCleanupProvider extends FakeAiCleanupProvider {

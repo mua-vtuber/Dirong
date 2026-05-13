@@ -147,6 +147,22 @@ export class NotionAutomationService {
   }
 
   start(): void {
+    if (this.snapshot.status === "stopped") {
+      const runtime = this.getRuntime();
+      const projectId = this.resolveProjectId();
+      this.snapshot = this.makeSnapshot({
+        ...clearRunSpecificFields(this.snapshot),
+        enabled: runtime.settings.enabled,
+        configured: isConfigured(runtime, this.options.registryStore ?? null, projectId),
+        uploadMode: runtime.settings.uploadMode,
+        status: initialStatus(runtime, this.options.registryStore ?? null, projectId),
+        checkedAt: new Date().toISOString(),
+        message: initialMessage(runtime, this.options.registryStore ?? null, projectId),
+        userAction: initialUserAction(runtime, this.options.registryStore ?? null, projectId),
+        technicalDetail: null,
+        inFlightDraftIds: this.getInFlightDraftIds(),
+      });
+    }
     this.loop.start();
   }
 
@@ -231,10 +247,9 @@ export class NotionAutomationService {
     );
     if (!target.ok) {
       this.snapshot = this.makeSnapshot({
-        ...this.snapshot,
+        ...clearRunSpecificFields(this.snapshot),
         status: target.status,
         checkedAt,
-        targetId: null,
         message: target.message,
         userAction: target.userAction,
         technicalDetail: target.technicalDetail,
@@ -558,6 +573,20 @@ function uploadStatusToAutomationStatus(
   return status;
 }
 
+function clearRunSpecificFields(
+  snapshot: NotionAutomationSnapshot,
+): NotionAutomationSnapshot {
+  return {
+    ...snapshot,
+    sessionId: null,
+    draftId: null,
+    targetId: null,
+    writeId: null,
+    pageUrl: null,
+    lastRunStatus: null,
+  };
+}
+
 function blockedSnapshot(
   runtime: NotionAutomationRuntime,
   registryStore: NotionRegistryStore | null,
@@ -568,7 +597,7 @@ function blockedSnapshot(
   const checkedAt = new Date().toISOString();
   if (!runtime.settings.enabled) {
     return makeSnapshot({
-      ...previous,
+      ...clearRunSpecificFields(previous),
       enabled: false,
       configured: isConfigured(runtime, registryStore, projectId),
       uploadMode: runtime.settings.uploadMode,
@@ -581,7 +610,7 @@ function blockedSnapshot(
   }
   if (runtime.settings.uploadMode !== "automatic_after_ai_cleanup") {
     return makeSnapshot({
-      ...previous,
+      ...clearRunSpecificFields(previous),
       enabled: true,
       configured: isConfigured(runtime, registryStore, projectId),
       uploadMode: runtime.settings.uploadMode,
@@ -595,7 +624,7 @@ function blockedSnapshot(
   }
   if (!isConfigured(runtime, registryStore, projectId)) {
     return makeSnapshot({
-      ...previous,
+      ...clearRunSpecificFields(previous),
       enabled: true,
       configured: false,
       uploadMode: runtime.settings.uploadMode,

@@ -54,6 +54,7 @@ type ActiveChunk = {
 
 type ActiveSession = {
   sessionId: string;
+  projectId: string | null;
   sessionDir: string;
   chunksDir: string;
   sttAudioDir: string;
@@ -76,6 +77,10 @@ export type RecordingStopResult = {
   sessionDir: string;
 };
 
+export type RecordingProducerOptions = {
+  runHealthCheck?: typeof runHealthCheck;
+};
+
 export class RecordingProducer {
   private active: ActiveSession | null = null;
   private readonly chunkFinalizer: ChunkFinalizer;
@@ -86,6 +91,7 @@ export class RecordingProducer {
     private readonly client: Client,
     private readonly config: Phase1Config,
     private readonly store: RecordingProducerStore,
+    private readonly options: RecordingProducerOptions = {},
   ) {
     this.chunkFinalizer = new ChunkFinalizer(store, {
       sttMaxAttempts: config.sttMaxAttempts,
@@ -102,6 +108,7 @@ export class RecordingProducer {
     return {
       isRecording: this.active !== null,
       sessionId: this.active?.sessionId ?? null,
+      projectId: this.active?.projectId ?? null,
       guildId: this.active?.guild.id ?? null,
       voiceChannelId: this.active?.channel.id ?? null,
       voiceChannelName: this.active?.channel.name ?? null,
@@ -112,6 +119,7 @@ export class RecordingProducer {
   async start(input: {
     guild: Guild;
     voiceChannel: VoiceBasedChannel;
+    projectId?: string | null;
     textChannelId: string | null;
     startedByUserId: string;
     startedByDisplayName: string;
@@ -124,7 +132,9 @@ export class RecordingProducer {
       throw new Error("Stage 채널은 현재 Dirong 녹음 앱에서 아직 지원하지 않습니다.");
     }
 
-    const health = await runHealthCheck({ config: this.config });
+    const health = await (this.options.runHealthCheck ?? runHealthCheck)({
+      config: this.config,
+    });
     const sessionId = makeSessionId(new Date());
     const sessionDir = await createUniqueSessionDir(this.config.dataDir, sessionId);
     const chunksDir = path.join(sessionDir, "chunks");
@@ -134,6 +144,7 @@ export class RecordingProducer {
 
     this.store.createSession({
       id: path.basename(sessionDir),
+      projectId: input.projectId ?? null,
       guildId: input.guild.id,
       guildName: input.guild.name,
       textChannelId: input.textChannelId,
@@ -189,6 +200,7 @@ export class RecordingProducer {
 
     const active: ActiveSession = {
       sessionId: actualSessionId,
+      projectId: input.projectId ?? null,
       sessionDir,
       chunksDir,
       sttAudioDir,

@@ -201,6 +201,8 @@ export class NotionDashboardService {
       database: DirongDatabase;
       config: Pick<Phase1Config, "sttLeaseMs">;
       workerId: string;
+      projectId?: string | null;
+      getProjectId?: () => string | null | undefined;
       retention?: NotionUploadRetentionHandler;
     },
   ) {
@@ -214,6 +216,10 @@ export class NotionDashboardService {
     return this.input.getSettings?.() ?? this.input.settings;
   }
 
+  clearCachedManagedSchemaCheck(): void {
+    this.lastManagedSchemaCheck = null;
+  }
+
   private recordManagedSchemaRepairItem(input: {
     role: NotionDatabaseRole;
     status: "open" | "repaired";
@@ -221,6 +227,7 @@ export class NotionDashboardService {
     details: unknown;
   }): void {
     const nowIso = new Date().toISOString();
+    const projectId = this.resolveProjectId();
     this.runner.run(
       `INSERT INTO repair_items (
          dedupe_key, session_id, item_type, status, severity, path,
@@ -235,11 +242,15 @@ export class NotionDashboardService {
            WHEN excluded.status IN ('repaired', 'ignored') THEN excluded.updated_at
            ELSE repair_items.resolved_at
          END`,
-      `notion_managed_schema:${input.role}`,
+      `notion_managed_schema:${formatProjectScope(projectId)}:${input.role}`,
       "notion_managed_schema",
       input.status,
       input.severity,
-      JSON.stringify(redactForJson({ role: input.role, ...asRecord(input.details) })),
+      JSON.stringify(redactForJson({
+        projectId: projectId ?? null,
+        role: input.role,
+        ...asRecord(input.details),
+      })),
       nowIso,
       nowIso,
     );
@@ -248,16 +259,20 @@ export class NotionDashboardService {
   getSnapshot(locale?: DirongLocale): NotionDashboardSnapshot {
     const resolvedLocale = resolveAppLocale({ locale });
     const settings = this.getSettings();
+    const projectId = this.resolveProjectId();
     const managedRegistry = readManagedNotionRegistrySnapshot(this.registryStore, {
+      projectId,
       remoteCheck: this.lastManagedSchemaCheck,
     });
-    const memberRoster = this.getMemberRosterSnapshot();
+    const memberRoster = this.getMemberRosterSnapshot(projectId);
     const configured = Boolean(
       settings.apiKey &&
         (settings.targetUrl ||
-          hasCompleteManagedNotionUploadRegistry(this.registryStore)),
+          hasCompleteManagedNotionUploadRegistry(this.registryStore, {
+            projectId,
+          })),
     );
-    const customProperties = this.getCustomPropertiesSnapshot();
+    const customProperties = this.getCustomPropertiesSnapshot(projectId);
     if (!settings.enabled) {
       const display = buildNotionDashboardDisplay(resolvedLocale, {
         status: "disabled",
@@ -357,6 +372,7 @@ export class NotionDashboardService {
     const service = new ManagedNotionSchemaStatusService({
       client,
       registryStore: this.registryStore,
+      projectId: this.resolveProjectId(),
     });
     this.lastManagedSchemaCheck = await service.checkAll();
     return this.lastManagedSchemaCheck;
@@ -364,8 +380,9 @@ export class NotionDashboardService {
 
   async checkManagedSchemaWithPlans(): Promise<NotionDashboardManagedSchemaCheckResult> {
     const snapshot = await this.checkManagedSchema();
-    const mappings = this.registryStore.listPropertyMappings();
-    const managedDatabases = this.registryStore.listManagedDatabases();
+    const projectId = this.resolveProjectId();
+    const mappings = this.registryStore.listPropertyMappings(undefined, projectId);
+    const managedDatabases = this.registryStore.listManagedDatabases(projectId);
     const plans = Object.fromEntries(
       snapshot.databases.map((database) => [
         database.role,
@@ -413,6 +430,7 @@ export class NotionDashboardService {
         registryStore: this.registryStore,
         role: input.role,
         expectedPlanHash: input.expectedPlanHash,
+        projectId: this.resolveProjectId(),
         operationIds: input.operations,
       });
       this.recordManagedSchemaRepairItem({
@@ -424,6 +442,7 @@ export class NotionDashboardService {
       this.lastManagedSchemaCheck = await new ManagedNotionSchemaStatusService({
         client,
         registryStore: this.registryStore,
+        projectId: this.resolveProjectId(),
       }).checkAll();
       return {
         ...result,
@@ -472,6 +491,7 @@ export class NotionDashboardService {
 
     const settings = this.getSettings();
     const client = this.createClient(settings);
+    const projectId = this.resolveProjectId();
     const result = await runNotionUpload({
       settings,
       selector,
@@ -483,8 +503,12 @@ export class NotionDashboardService {
       readModel: new NotionDraftInputReadModel(this.runner),
       writeStore: new NotionWriteStore(this.runner),
       registryStore: this.registryStore,
+      projectId,
       memberRosterStore: this.memberRosterStore,
-      customPropertyRules: this.propertyRuleStore.listEnabledRules("meeting"),
+      customPropertyRules: this.propertyRuleStore.listEnabledRules(
+        "meeting",
+        projectId,
+      ),
     });
     try {
       await applyRetentionAfterSuccessfulUpload(this.input.retention, result);
@@ -558,6 +582,7 @@ export class NotionDashboardService {
     }
 
     const client = this.createClient(settings);
+    const projectId = this.resolveProjectId();
     if (!client) {
       return {
         ok: false,
@@ -577,11 +602,16 @@ export class NotionDashboardService {
         client,
         registryStore: this.registryStore,
         rosterStore: this.memberRosterStore,
+        projectId,
       });
     } catch (error) {
-      const memberDatabase = this.registryStore.getManagedDatabase("member");
+      const memberDatabase = this.registryStore.getManagedDatabase(
+        "member",
+        projectId,
+      );
       if (memberDatabase) {
         this.memberRosterStore.recordSyncSnapshot({
+          projectId,
           dataSourceId: memberDatabase.dataSourceId,
           status: "failed",
           memberCount: 0,
@@ -642,6 +672,7 @@ export class NotionDashboardService {
 
     try {
       const syncResult = this.propertyRuleStore.syncDataSourceProperties({
+        projectId: this.resolveProjectId(),
         databaseRole: input.role,
         properties: readDataSourceProperties(target.dataSource),
         requiredPropertyNames: this.requiredCustomPropertyNamesForRole(
@@ -676,6 +707,7 @@ export class NotionDashboardService {
     },
   ): NotionDashboardCustomPropertyActionResult {
     const result = this.propertyRuleStore.saveRules({
+      projectId: this.resolveProjectId(),
       databaseRole: input.role,
       rules: input.rules,
       requiredPropertyNames: this.requiredCustomPropertyNamesForRole(
@@ -744,6 +776,7 @@ export class NotionDashboardService {
       const properties = readDataSourceProperties(updated);
       if (Object.keys(properties).length > 0) {
         this.propertyRuleStore.syncDataSourceProperties({
+          projectId: this.resolveProjectId(),
           databaseRole: "meeting",
           properties,
           requiredPropertyNames: this.requiredCustomPropertyNamesForRole(
@@ -760,7 +793,7 @@ export class NotionDashboardService {
             customRules: (
               await resolveRelationRuleTargets(
                 context.client,
-                this.propertyRuleStore.listRules("meeting"),
+                this.propertyRuleStore.listRules("meeting", this.resolveProjectId()),
               )
             ).rules,
           })
@@ -803,15 +836,17 @@ export class NotionDashboardService {
     return {
       ...input,
       warnings: input.warnings ?? [],
-      customProperties: this.getCustomPropertiesSnapshot(),
+      customProperties: this.getCustomPropertiesSnapshot(this.resolveProjectId()),
     };
   }
 
-  private getCustomPropertiesSnapshot(): NotionCustomPropertiesDashboardSnapshot {
+  private getCustomPropertiesSnapshot(
+    projectId: string | undefined,
+  ): NotionCustomPropertiesDashboardSnapshot {
     const roles = Object.fromEntries(
       NOTION_DATABASE_ROLES.map((role) => [
         role,
-        this.getCustomPropertiesRoleSnapshot(role),
+        this.getCustomPropertiesRoleSnapshot(role, projectId),
       ]),
     ) as Record<NotionDatabaseRole, NotionCustomPropertiesRoleSnapshot>;
     return {
@@ -820,8 +855,13 @@ export class NotionDashboardService {
     };
   }
 
-  private getMemberRosterSnapshot(): NotionMemberRosterDashboardSnapshot {
-    const memberDatabase = this.registryStore.getManagedDatabase("member");
+  private getMemberRosterSnapshot(
+    projectId: string | undefined,
+  ): NotionMemberRosterDashboardSnapshot {
+    const memberDatabase = this.registryStore.getManagedDatabase(
+      "member",
+      projectId,
+    );
     if (!memberDatabase) {
       return {
         dataSourceId: null,
@@ -837,6 +877,7 @@ export class NotionDashboardService {
 
     const sync = this.memberRosterStore.getSyncSnapshot(
       memberDatabase.dataSourceId,
+      projectId,
     );
     if (!sync) {
       return {
@@ -853,6 +894,7 @@ export class NotionDashboardService {
 
     const entries = this.memberRosterStore.listForDataSource(
       memberDatabase.dataSourceId,
+      projectId,
     );
     return {
       dataSourceId: memberDatabase.dataSourceId,
@@ -868,8 +910,9 @@ export class NotionDashboardService {
 
   private getCustomPropertiesRoleSnapshot(
     role: NotionDatabaseRole,
+    projectId: string | undefined,
   ): NotionCustomPropertiesRoleSnapshot {
-    const storedRules = this.propertyRuleStore.listRules(role);
+    const storedRules = this.propertyRuleStore.listRules(role, projectId);
     const rules = role === "meeting"
       ? withDefaultNotionMemberRelationRule(storedRules)
       : storedRules;
@@ -884,6 +927,7 @@ export class NotionDashboardService {
       requiredPropertyNames: this.requiredCustomPropertyNamesForRole(
         role,
         this.getSettings(),
+        projectId,
       ),
       rules,
       enabledCount,
@@ -904,12 +948,16 @@ export class NotionDashboardService {
   private requiredCustomPropertyNamesForRole(
     role: NotionDatabaseRole,
     settings: NotionRuntimeSettings,
+    projectId = this.resolveProjectId(),
   ): string[] {
-    if (role === "meeting" && !this.registryStore.getManagedDatabase("meeting")) {
+    if (
+      role === "meeting" &&
+      !this.registryStore.getManagedDatabase("meeting", projectId)
+    ) {
       return Object.values(settings.propertyNames);
     }
     const names = new Set<string>();
-    for (const mapping of this.registryStore.listPropertyMappings(role)) {
+    for (const mapping of this.registryStore.listPropertyMappings(role, projectId)) {
       names.add(mapping.propertyName);
     }
     for (const property of KOREAN_NOTION_SCHEMA_PRESET.databases[role].properties) {
@@ -926,7 +974,10 @@ export class NotionDashboardService {
     | { ok: true; dataSource: Record<string, unknown> }
     | { ok: false; message: string; userAction: string }
   > {
-    const managedDatabase = this.registryStore.getManagedDatabase(input.role);
+    const managedDatabase = this.registryStore.getManagedDatabase(
+      input.role,
+      this.resolveProjectId(),
+    );
     if (managedDatabase) {
       return {
         ok: true,
@@ -1013,7 +1064,7 @@ export class NotionDashboardService {
       const target = await resolveDataSourceTarget(client, parsedTarget);
       const relationResolution = await resolveRelationRuleTargets(
         client,
-        this.propertyRuleStore.listRules("meeting"),
+        this.propertyRuleStore.listRules("meeting", this.resolveProjectId()),
       );
       const diff = buildNotionSchemaDiff({
         properties: readDataSourceProperties(target.dataSource),
@@ -1051,6 +1102,10 @@ export class NotionDashboardService {
           requestTimeoutMs: settings.requestTimeoutMs,
         })
       : null;
+  }
+
+  private resolveProjectId(): string | undefined {
+    return this.input.getProjectId?.() ?? this.input.projectId ?? undefined;
   }
 }
 
@@ -1246,6 +1301,10 @@ function schemaDiffUserAction(diff: NotionSchemaDiff): string | null {
       : null;
   }
   return "스키마 맞추기를 누르면 누락 속성과 이름 변경, select 옵션 보강을 자동 적용합니다.";
+}
+
+function formatProjectScope(projectId: string | undefined): string {
+  return projectId ?? "legacy";
 }
 
 function countRosterRoles(

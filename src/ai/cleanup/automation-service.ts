@@ -23,6 +23,7 @@ import { PHASE4_AI_CLEANUP_PROMPT_VERSION } from "./prompts.js";
 import {
   buildPhase4ContextualInputHash,
   runAiCleanupForSession,
+  type AiCleanupSessionContext,
   type AiCleanupRunOptions,
   type AiCleanupRunResult,
 } from "./runner.js";
@@ -300,10 +301,14 @@ export class AiCleanupAutomationService {
         includeFakeStt: false,
       });
       const locale = this.resolveLocale();
+      const sessionContext = makeAiCleanupSessionContext(session);
       const effectiveInputHash = buildPhase4ContextualInputHash(
         timelineInput.inputHash,
         {
-          memberRosterPrompt: this.options.runner.memberRosterPrompt?.() ?? "",
+          notionCustomPropertyPrompt:
+            this.options.runner.customNotionPropertyPrompt?.(sessionContext) ?? "",
+          memberRosterPrompt:
+            this.options.runner.memberRosterPrompt?.(sessionContext) ?? "",
           locale,
         },
       );
@@ -546,6 +551,16 @@ export class AiCleanupAutomationService {
   private resolveLocale(): DirongLocale {
     return resolveAppLocale({ getLocale: this.options.localeResolver });
   }
+}
+
+function makeAiCleanupSessionContext(input: {
+  id: string;
+  project_id: string | null;
+}): AiCleanupSessionContext {
+  return {
+    sessionId: input.id,
+    projectId: input.project_id,
+  };
 }
 
 export function formatAiCleanupAutomationForStatus(

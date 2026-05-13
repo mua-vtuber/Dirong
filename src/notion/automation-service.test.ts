@@ -3,8 +3,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { NotionClient } from "./client.js";
-import { NotionAutomationService } from "./automation-service.js";
+import { NotionApiError, type NotionClient } from "./client.js";
+import {
+  type NotionAutomationSnapshot,
+  NotionAutomationService,
+} from "./automation-service.js";
 import type { AppLocaleResolver } from "../i18n/app-locale.js";
 import { NotionDraftInputReadModel } from "./draft-input-read-model.js";
 import { NOTION_MANAGED_SCHEMA_VERSION } from "./managed-schema.js";
@@ -292,6 +295,7 @@ test("NotionAutomationService starts polling before Notion settings are complete
 
     try {
       service.start();
+      service.start();
       await waitFor(() => service.getSnapshot().status === "not_configured");
 
       currentSettings = notionSettings();
@@ -305,6 +309,11 @@ test("NotionAutomationService starts polling before Notion settings are complete
         client.calls.filter((call) => call.method === "createPage").length,
         1,
       );
+      await service.stop();
+      assert.equal(service.getSnapshot().status, "stopped");
+      service.start();
+      service.start();
+      assert.notEqual(service.getSnapshot().status, "stopped");
     } finally {
       await service.stop();
     }
@@ -312,6 +321,106 @@ test("NotionAutomationService starts polling before Notion settings are complete
     fixture.close();
   }
 });
+
+test("NotionAutomationService clears stale run details after stop and manual reconfiguration", async () => {
+  const fixture = createFixture();
+  try {
+    let currentSettings = notionSettings();
+    const service = createService(fixture, {
+      getSettings: () => currentSettings,
+      getClient: (settings) => (settings.apiKey ? new FakeNotionClient() : null),
+    });
+
+    const done = await service.runOnce();
+    assert.equal(done.status, "done");
+    assert.equal(done.draftId, fixture.draftId);
+    assert.equal(done.pageUrl, "https://notion.so/page-1");
+
+    await service.stop();
+    currentSettings = notionSettings({ uploadMode: "manual" });
+    service.start();
+    const manual = await service.runOnce();
+
+    assert.equal(manual.status, "manual");
+    assertRunSpecificFieldsCleared(manual);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("NotionAutomationService clears stale run details when settings become incomplete", async () => {
+  const fixture = createFixture();
+  try {
+    let currentSettings = notionSettings();
+    const client = new FakeNotionClient();
+    const service = createService(fixture, {
+      getSettings: () => currentSettings,
+      getClient: (settings) => (settings.apiKey ? client : null),
+    });
+
+    const done = await service.runOnce();
+    assert.equal(done.status, "done");
+    assert.equal(done.lastRunStatus, "done");
+
+    currentSettings = notionSettings({ apiKey: null, targetUrl: null });
+    const notConfigured = await service.runOnce();
+
+    assert.equal(notConfigured.status, "not_configured");
+    assertRunSpecificFieldsCleared(notConfigured);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("NotionAutomationService clears stale run details when target resolution becomes retryable", async () => {
+  const fixture = createFixture();
+  try {
+    let currentSettings = notionSettings();
+    let client: NotionClient | null = new FakeNotionClient();
+    const service = createService(fixture, {
+      getSettings: () => currentSettings,
+      getClient: () => client,
+    });
+
+    const done = await service.runOnce();
+    assert.equal(done.status, "done");
+    assert.ok(done.writeId);
+
+    currentSettings = notionSettings({
+      targetUrl:
+        "https://www.notion.so/workspace/0123456789abcdef0123456789abcdef?v=0123456789abcdef0123456789abcdef",
+    });
+    client = new RetryableDatabaseLookupFailureClient();
+    const retryWait = await service.runOnce();
+
+    assert.equal(retryWait.status, "retry_wait");
+    assertRunSpecificFieldsCleared(retryWait);
+  } finally {
+    fixture.close();
+  }
+});
+
+function assertRunSpecificFieldsCleared(snapshot: NotionAutomationSnapshot): void {
+  assert.equal(snapshot.sessionId, null);
+  assert.equal(snapshot.draftId, null);
+  assert.equal(snapshot.targetId, null);
+  assert.equal(snapshot.writeId, null);
+  assert.equal(snapshot.pageUrl, null);
+  assert.equal(snapshot.lastRunStatus, null);
+  const detailLabels = new Set(
+    snapshot.display?.details.map((detail) => detail.label) ?? [],
+  );
+  for (const label of [
+    "sessionId",
+    "draftId",
+    "targetId",
+    "writeId",
+    "pageUrl",
+    "lastRunStatus",
+  ]) {
+    assert.equal(detailLabels.has(label), false, `${label} detail should be absent`);
+  }
+}
 
 class FakeNotionClient implements NotionClient {
   readonly calls: Array<{ method: string; body?: unknown }> = [];
@@ -392,6 +501,20 @@ class FakeNotionClient implements NotionClient {
   async retrieveBlockChildren(): Promise<Record<string, unknown>> {
     this.calls.push({ method: "retrieveBlockChildren" });
     return { results: [] };
+  }
+}
+
+class RetryableDatabaseLookupFailureClient extends FakeNotionClient {
+  override async retrieveDatabase(): Promise<Record<string, unknown>> {
+    this.calls.push({ method: "retrieveDatabase" });
+    throw new NotionApiError("rate_limited", "rate limited", {
+      status: 429,
+      code: "rate_limited",
+      retryAfterSeconds: 1,
+      retriable: true,
+      userAction: "Retry later.",
+      technicalDetail: "rate limited while resolving target database",
+    });
   }
 }
 

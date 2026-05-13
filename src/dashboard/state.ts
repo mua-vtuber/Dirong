@@ -6,6 +6,7 @@ import type {
 } from "./server.js";
 import { resolveAppLocale } from "../i18n/app-locale.js";
 import { isRecord } from "./http.js";
+import { buildDashboardProjectsSnapshot } from "./project-routes.js";
 
 export function appendAiReadinessToDashboardState(
   state: unknown,
@@ -29,6 +30,7 @@ export function appendDashboardRuntimeSnapshots(
     !sources.aloneFinalize &&
     !sources.notion &&
     !sources.notionAutomation &&
+    !sources.projects &&
     !sources.setupStatus &&
     !sources.sttAutomation
   ) {
@@ -57,6 +59,9 @@ export function appendDashboardRuntimeSnapshots(
       : {}),
     ...(sources.notionAutomation
       ? { notionAutomation: sources.notionAutomation.getSnapshot(locale) }
+      : {}),
+    ...(sources.projects
+      ? { projects: buildDashboardProjectsSnapshot(sources.projects) }
       : {}),
     ...(sources.setupStatus
       ? { setup: setupSnapshot }

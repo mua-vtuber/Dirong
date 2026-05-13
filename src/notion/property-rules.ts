@@ -435,6 +435,26 @@ export class NotionCustomPropertyRuleStore {
 
     return { saved, deleted, ignored, warnings };
   }
+
+  clearProject(
+    projectId = DEFAULT_PROJECT_ID,
+    databaseRole?: NotionDatabaseRole,
+  ): number {
+    const resolvedProjectId = cleanRequiredString(projectId, "projectId");
+    if (databaseRole) {
+      return this.runner.run(
+        `DELETE FROM notion_custom_property_rules
+         WHERE project_id = ?
+           AND database_role = ?`,
+        resolvedProjectId,
+        databaseRole,
+      );
+    }
+    return this.runner.run(
+      "DELETE FROM notion_custom_property_rules WHERE project_id = ?",
+      resolvedProjectId,
+    );
+  }
 }
 
 export function buildNotionCustomPropertyPrompt(

@@ -27,6 +27,45 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
         'X-Dirong-Dashboard-Token': window.__DIRONG_DASHBOARD_TOKEN__ ?? ''
       };
     }
+    async function dashboardApiReadJson(response) {
+      try {
+        return await response.json();
+      } catch (_error) {
+        return {
+          ok: false,
+          status: 'failed',
+          message: 'HTTP ' + response.status
+        };
+      }
+    }
+    async function dashboardApiGetProjects() {
+      const response = await fetch('/api/projects', { cache: 'no-store' });
+      return dashboardApiReadJson(response);
+    }
+    async function dashboardApiCreateProject(body = {}) {
+      const response = await fetch('/api/projects', {
+        method: 'POST',
+        headers: dashboardJsonHeaders(),
+        body: JSON.stringify(body)
+      });
+      return dashboardApiReadJson(response);
+    }
+    async function dashboardApiSwitchProject(projectId) {
+      const response = await fetch('/api/projects/active', {
+        method: 'POST',
+        headers: dashboardJsonHeaders(),
+        body: JSON.stringify({ projectId })
+      });
+      return dashboardApiReadJson(response);
+    }
+    async function dashboardApiResetSettings(mode) {
+      const response = await fetch('/api/settings/reset', {
+        method: 'POST',
+        headers: dashboardJsonHeaders(),
+        body: JSON.stringify({ mode, confirm: true })
+      });
+      return dashboardApiReadJson(response);
+    }
     function applyStaticI18n() {
       document.querySelectorAll('[data-i18n]').forEach((node) => {
         node.textContent = tr(node.getAttribute('data-i18n'));

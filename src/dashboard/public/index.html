@@ -99,6 +99,7 @@
     .brand-block,
     .nav-button,
     .server-button,
+    .project-button,
     .setup-guild,
     .theme-options label,
     .flow-card-header,
@@ -119,6 +120,7 @@
     .brand-block,
     .nav-button,
     .server-button,
+    .project-button,
     .setup-guild,
     .status-chip,
     .theme-options label,
@@ -541,6 +543,107 @@
       background: var(--bg-alt);
       color: var(--sidebar-ink);
     }
+    .project-list {
+      display: grid;
+      gap: 6px;
+    }
+    .project-button {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: flex-start;
+      gap: 8px;
+      min-height: 58px;
+      padding: 9px;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+    .project-button-main {
+      min-width: 0;
+      display: grid;
+      gap: 3px;
+    }
+    .project-name {
+      color: var(--sidebar-ink);
+      font-size: 13px;
+      font-weight: 800;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+    .project-meta {
+      color: var(--sidebar-muted);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 600;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+      text-transform: uppercase;
+    }
+    .project-badges {
+      display: flex;
+      flex: 0 0 auto;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 4px;
+      max-width: 74px;
+    }
+    .project-status {
+      border: 1px solid var(--line);
+      padding: 2px 5px;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      line-height: 1.25;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .project-button.is-active {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      box-shadow: inset 4px 0 0 var(--accent);
+    }
+    .project-status-active,
+    .project-status-ready {
+      border-color: var(--ready-line);
+      background: var(--ready-bg);
+      color: var(--ready-ink);
+    }
+    .project-status-draft {
+      border-color: var(--progress-line);
+      background: var(--progress-bg);
+      color: var(--progress-ink);
+    }
+    .project-status-archived {
+      border-color: var(--line);
+      background: var(--muted-bg);
+      color: var(--muted-ink);
+    }
+    .project-status-resetting,
+    .project-status-busy {
+      border-color: var(--danger-line);
+      background: var(--danger-bg);
+      color: var(--danger-ink);
+    }
+    .project-add-button {
+      margin-top: 8px;
+      justify-content: center;
+    }
+    .project-action-status,
+    .project-empty {
+      margin-top: 8px;
+      padding: 8px;
+      border: 1px solid var(--sidebar-line);
+      background: var(--bg-alt);
+      overflow-wrap: anywhere;
+    }
+    .project-action-status.is-ok {
+      border-color: var(--ready-line);
+      background: var(--ready-bg);
+    }
+    .project-action-status.is-error {
+      border-color: var(--danger-line);
+      background: var(--danger-bg);
+    }
     .nav-button:hover,
     .server-button:hover {
       background: var(--panel-soft);
@@ -738,6 +841,48 @@
       padding: 16px;
       align-content: start;
       position: relative;
+    }
+    .settings-reset-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+    }
+    .settings-reset-card {
+      display: grid;
+      gap: 12px;
+      min-height: 280px;
+      padding: 16px;
+      background: var(--panel);
+      border: 1px solid var(--card-line);
+    }
+    .settings-reset-list {
+      display: grid;
+      gap: 4px;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .settings-reset-list strong {
+      color: var(--paper-faint);
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    .settings-reset-confirm {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      color: var(--paper-ink);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+    .settings-reset-confirm input {
+      flex: 0 0 auto;
+    }
+    .danger-button {
+      align-self: end;
+      border-color: var(--danger-line);
+      background: var(--danger-bg);
+      color: var(--danger-ink);
     }
     .flow-card::before,
     .flow-card::after {
@@ -1037,6 +1182,10 @@
       .brand-avatar,
       .nav-button,
       .server-button,
+      .project-button,
+      .project-status,
+      .project-action-status,
+      .project-empty,
       .status-chip,
       .flow-card,
       .content-band,
@@ -1096,6 +1245,7 @@
       .sticky-warning { margin: -14px -14px 14px; padding: 10px 14px; }
       .content-header h1 { font-size: 22px; }
       .status-chip { flex: 1 1 156px; justify-content: space-between; }
+      .project-badges { max-width: none; }
       .flow-card { min-height: auto; }
       .content-band { overflow-x: auto; }
       .content-band table { min-width: 620px; }
@@ -1118,7 +1268,7 @@
         </div>
       </div>
       <div class="sidebar-group">
-        <div class="sidebar-label" data-i18n="dashboard.sidebar.servers.label">SERVERS</div>
+        <div class="sidebar-label" data-i18n="dashboard.sidebar.projects.label">PROJECTS</div>
         <div id="sidebarServers"></div>
       </div>
       <div class="sidebar-group">

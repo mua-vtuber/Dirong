@@ -192,6 +192,12 @@ Secrets are stored locally and dashboard/API status responses expose only redact
 
 In a portable bundle, these files live under `portable/Dirong/data/` instead. After setup, do not share the portable folder unless you remove `data/secrets/` first.
 
+## License / Usage
+
+Dirong is source-available for personal, educational, and non-commercial self-hosted use. See [LICENSE](./LICENSE).
+
+This project is designed for self-hosting because Discord voice data and meeting notes can contain sensitive information. It is not offered as a hosted service, and commercial use is not permitted.
+
 ## Development
 
 Build before running tests:
@@ -398,6 +404,12 @@ npm run sessions:purge -- --all --dry-run
 비밀값은 로컬에 저장되며, 대시보드/API 상태 응답에서는 redacted snapshot만 노출됩니다.
 
 포터블 번들에서는 이 파일들이 `portable/Dirong/data/` 아래에 저장됩니다. 설정 후에는 `data/secrets/`를 제거하지 않은 상태로 포터블 폴더를 공유하지 마세요.
+
+## 라이선스 / 사용 범위
+
+디롱이는 개인 사용, 학습, 비상업적 자가 호스팅 용도로 공개됩니다. 자세한 조건은 [LICENSE](./LICENSE)를 확인해 주세요.
+
+Discord 음성 데이터와 회의록은 민감한 정보를 포함할 수 있으므로, 디롱이는 호스팅 서비스가 아니라 사용자가 직접 운영하는 자가 호스팅 도구로 제공됩니다. 상업적 이용은 허용하지 않습니다.
 
 ## 개발
 

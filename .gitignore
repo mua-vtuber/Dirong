@@ -20,3 +20,11 @@ references/*
 !references/.gitkeep
 
 npm-debug.log*
+
+# Graphify knowledge graph (local-only, regenerated on demand)
+graphify-out/
+.graphifyignore
+.graphify_python
+# Graphify auto-rebuild git hooks (installed by `graphify hook install`, host-local — Python 경로 탐지 로직이 호스트별로 다름)
+.githooks/post-checkout
+.githooks/post-commit

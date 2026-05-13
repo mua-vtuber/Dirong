@@ -1058,24 +1058,24 @@ export const ko = {
         },
       },
       notionToken: {
-        title: "Notion internal connection token을 입력합니다",
+        title: "Notion 연결 액세스 토큰을 입력합니다",
         description:
-          "Notion 내부 연결 설정에서 token을 복사해 붙여넣습니다. Token은 local secret file에 저장되고 원문은 다시 표시하지 않습니다.",
+          "Notion Developers에서 새 연결을 만든 뒤 액세스 토큰을 복사해 붙여넣습니다. Token은 local secret file에 저장되고 원문은 다시 표시하지 않습니다.",
         label: "Notion token",
         placeholder: "secret_ 또는 ntn_ token",
         guide: {
           title: "Notion 토큰 발급 받는 방법",
-          profileLink: "Notion 프로필 페이지",
+          profileLink: "Notion Developers",
           step1Suffix: "에 접속합니다.",
-          step2: "메뉴에서 내부 연결을 클릭합니다.",
-          step3: "새 연결 만들기를 클릭합니다.",
+          step2: "메뉴에서 시작하기를 클릭합니다.",
+          step3: "연결 만들기에서 + 신규 연결 버튼을 클릭합니다.",
           step4:
-            "연결 이름을 입력하고 회의록을 작성할 워크스페이스를 선택한 뒤 생성하기를 클릭합니다.",
+            "연결 이름은 헷갈리지 않도록 봇 이름으로 적고, 인증 방법은 액세스 토큰을 선택합니다.",
           step5:
-            "콘텐츠 기능에서 콘텐츠 읽기, 콘텐츠 업데이트, 콘텐츠 입력 권한이 체크되어 있는지 확인합니다.",
-          step6: "액세스 토큰 설치 영역에서 표시하기를 클릭합니다.",
-          step7: "복사를 클릭합니다.",
-          step8: "디롱 페이지로 돌아와 Notion token 칸에 붙여넣습니다.",
+            "설치 가능 워크스페이스는 회의록을 작성할 워크스페이스로 선택한 뒤 연결 생성하기를 클릭합니다.",
+          step6: "메뉴에서 연결을 클릭하고 방금 만든 연결의 관리하기 버튼을 클릭합니다.",
+          step7: "액세스 토큰 칸의 복사 버튼을 클릭합니다.",
+          step8: "디롱이 페이지로 돌아와 Notion token 칸에 붙여넣습니다.",
         },
       },
       notionParent: {
@@ -2734,23 +2734,23 @@ export const en = {
         },
       },
       notionToken: {
-        title: "Enter the Notion internal connection token",
+        title: "Enter the Notion connection access token",
         description:
-          "Copy the token from Notion internal connection settings and paste it here. The token is saved in the local secret file and the raw value is not shown again.",
+          "Create a new connection in Notion Developers, then copy and paste the access token here. The token is saved in the local secret file and the raw value is not shown again.",
         label: "Notion token",
         placeholder: "secret_ or ntn_ token",
         guide: {
           title: "How to create a Notion token",
-          profileLink: "Notion profile page",
+          profileLink: "Notion Developers",
           step1Suffix: ".",
-          step2: "Open Internal integrations from the menu.",
-          step3: "Click New integration.",
+          step2: "Click Getting started in the menu.",
+          step3: "Under Create a connection, click + New connection.",
           step4:
-            "Enter an integration name, choose the workspace where meeting notes will be created, then click Create.",
+            "Enter a clear bot name for the connection, then choose Access token as the authentication method.",
           step5:
-            "Under Content capabilities, confirm that Read content, Update content, and Insert content are enabled.",
-          step6: "In the access token area, click Show.",
-          step7: "Click Copy.",
+            "Choose the workspace where meeting notes will be created under Installable workspaces, then click Create connection.",
+          step6: "Click Connections in the menu, then click Manage for the connection you just created.",
+          step7: "Click Copy in the Access token field.",
           step8: "Return to Dirong and paste it into the Notion token field.",
         },
       },

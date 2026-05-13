@@ -1,6 +1,6 @@
 const setupWizardI18nPrefix = 'dashboard.setupWizard.';
     const discordDeveloperPortalUrl = 'https://discord.com/developers/home';
-    const notionProfileUrl = 'https://www.notion.so/profile';
+    const notionDevelopersUrl = 'https://www.notion.so/developers';
     const setupStepDefinitions = [
       { id: 'language', titleKey: 'steps.language' },
       { id: 'discord', titleKey: 'steps.discord' },
@@ -356,7 +356,7 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
     function renderNotionTokenGuide() {
       return '<div class="setup-help-grid">' +
         renderSetupGuide('notionToken.guide.title', [
-          renderNotionProfileStep('notionToken.guide.step1Suffix'),
+          renderNotionDevelopersStep('notionToken.guide.step1Suffix'),
           setupWizardText('notionToken.guide.step2'),
           setupWizardText('notionToken.guide.step3'),
           setupWizardText('notionToken.guide.step4'),
@@ -367,8 +367,8 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
         ]) +
         '</div>';
     }
-    function renderNotionProfileStep(suffixKey) {
-      return '<a href="' + notionProfileUrl + '" target="_blank" rel="noreferrer">' +
+    function renderNotionDevelopersStep(suffixKey) {
+      return '<a href="' + notionDevelopersUrl + '" target="_blank" rel="noreferrer">' +
         setupWizardText('notionToken.guide.profileLink') + '</a>' + setupWizardText(suffixKey);
     }
     function renderSetupNotionParent(setup) {

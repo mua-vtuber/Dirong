@@ -39,3 +39,22 @@ test("setup wizard exposes localized Discord onboarding copy", () => {
     /디스코드 음성 채팅방에서 진행한 회의를 노션에 자동으로 등록/,
   );
 });
+
+test("setup wizard exposes updated Notion token guide copy", () => {
+  assert.equal(
+    t("ko", "dashboard.setupWizard.notionToken.guide.profileLink"),
+    "Notion Developers",
+  );
+  assert.equal(
+    t("ko", "dashboard.setupWizard.notionToken.guide.step3"),
+    "연결 만들기에서 + 신규 연결 버튼을 클릭합니다.",
+  );
+  assert.equal(
+    t("ko", "dashboard.setupWizard.notionToken.guide.step7"),
+    "액세스 토큰 칸의 복사 버튼을 클릭합니다.",
+  );
+  assert.equal(
+    t("en", "dashboard.setupWizard.notionToken.guide.step3"),
+    "Under Create a connection, click + New connection.",
+  );
+});

@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { Phase1Config } from "../config.js";
 import type { ProjectStore } from "../projects/project-store.js";
 import type { DirongProjectRow } from "../projects/project-types.js";
@@ -303,7 +304,7 @@ export function loadProductRuntimeSettings(
     paths,
     localSettings,
     config: buildProductPhase1Config(paths, localSettings, secretStore),
-    appSettings: buildProductAppSettings(localSettings, secretStore),
+    appSettings: buildProductAppSettings(localSettings, secretStore, paths),
     setupStatus: new ProductSetupStatusSource(paths, settingsStore, secretStore),
   };
 }
@@ -380,9 +381,10 @@ export function buildProductPhase1Config(
 export function buildProductAppSettings(
   settings: DirongLocalSettings,
   secretStore: LocalSecretStore,
+  paths: DirongUserDataPaths,
 ): AppSettings {
   return {
-    stt: buildProductSttSettings(settings.stt, secretStore),
+    stt: buildProductSttSettings(settings.stt, secretStore, paths),
     aiCleanup: {
       claudeCommand: buildProductClaudeCommand(settings.ai),
       claudeModel: settings.ai.model ?? DEFAULT_AI_CLEANUP_SETTINGS.claudeModel,
@@ -589,6 +591,7 @@ const SETTINGS_RUNTIME_EFFECTS = {
 function buildProductSttSettings(
   settings: SttLocalSettings,
   secretStore: LocalSecretStore,
+  paths: DirongUserDataPaths,
 ): SttSettings {
   const provider = settings.provider ?? DEFAULT_STT_SETTINGS.provider;
   const language = settings.language ?? DEFAULT_STT_SETTINGS.language;
@@ -610,6 +613,8 @@ function buildProductSttSettings(
   }
 
   const localWhisper = buildProductLocalWhisperCommand(settings);
+  const model =
+    settings.localWhisper?.model ?? DEFAULT_STT_SETTINGS.localWhisper.model;
   return {
     provider: "local-whisper",
     language,
@@ -617,8 +622,7 @@ function buildProductSttSettings(
     localWhisper: {
       command: localWhisper.command,
       args: localWhisper.args,
-      model:
-        settings.localWhisper?.model ?? DEFAULT_STT_SETTINGS.localWhisper.model,
+      model: resolveLocalWhisperRuntimeModel(model, paths),
       device:
         settings.localWhisper?.device ?? DEFAULT_STT_SETTINGS.localWhisper.device,
       computeType:
@@ -1091,6 +1095,18 @@ function buildProductSetupDefaults(): ProductSetupDefaultsSnapshot {
       themes: [...DEFAULT_DASHBOARD_SETTINGS.themes],
     },
   };
+}
+
+function resolveLocalWhisperRuntimeModel(
+  model: string,
+  paths: DirongUserDataPaths,
+): string {
+  if (model !== "small" && model !== "medium") {
+    return model;
+  }
+
+  const modelPath = path.join(paths.modelsDir, `faster-whisper-${model}`);
+  return modelPath;
 }
 
 function buildProductEditableSettings(

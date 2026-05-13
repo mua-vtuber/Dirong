@@ -14,8 +14,10 @@ def main() -> int:
     )
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--check-model", action="store_true")
+    parser.add_argument("--download-model", action="store_true")
     parser.add_argument("--input")
     parser.add_argument("--model", default="small")
+    parser.add_argument("--model-dir", default=None)
     parser.add_argument("--language", default=None)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--compute-type", default="int8")
@@ -26,6 +28,9 @@ def main() -> int:
 
     if args.check_model:
         return check_model(args.model, args.device, args.compute_type)
+
+    if args.download_model:
+        return download_model(args.model, args.model_dir)
 
     if not args.input:
         print("--input is required", file=sys.stderr)
@@ -95,6 +100,71 @@ def check_model(model_name: str, device: str, compute_type: str) -> int:
         )
     )
     return 0
+
+
+def download_model(model_name: str, model_dir: Optional[str]) -> int:
+    if model_name not in {"small", "medium"}:
+        print("downloadable local-whisper model must be 'small' or 'medium'", file=sys.stderr)
+        return 2
+
+    if model_dir is None or not model_dir.strip():
+        print("--model-dir is required with --download-model", file=sys.stderr)
+        return 2
+
+    target_dir = os.path.abspath(
+        os.path.join(model_dir, f"faster-whisper-{model_name}")
+    )
+    if has_faster_whisper_model_files(target_dir):
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "model": model_name,
+                    "model_path": target_dir,
+                    "already_present": True,
+                },
+                ensure_ascii=False,
+            )
+        )
+        return 0
+
+    try:
+        from huggingface_hub import snapshot_download
+
+        snapshot_download(
+            repo_id=f"Systran/faster-whisper-{model_name}",
+            local_dir=target_dir,
+            local_dir_use_symlinks=False,
+        )
+    except Exception as error:
+        print(f"Failed to download faster-whisper model {model_name}: {error}", file=sys.stderr)
+        return 1
+
+    if not has_faster_whisper_model_files(target_dir):
+        print(
+            f"Downloaded model folder is incomplete: {target_dir}",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "model": model_name,
+                "model_path": target_dir,
+                "already_present": False,
+            },
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
+def has_faster_whisper_model_files(model_path: str) -> bool:
+    return os.path.isfile(os.path.join(model_path, "config.json")) and os.path.isfile(
+        os.path.join(model_path, "model.bin")
+    )
 
 
 def load_model_for_check(model_name: str, device: str, compute_type: str) -> str:

@@ -226,6 +226,10 @@ test("loadProductRuntimeSettings resolves safe tool profiles to command template
     assert.deepEqual(runtime.appSettings.stt.localWhisper.args, [
       "scripts/local-whisper-json.py",
     ]);
+    assert.equal(
+      runtime.appSettings.stt.localWhisper.model,
+      path.join(paths.modelsDir, "faster-whisper-small"),
+    );
     assert.equal(runtime.appSettings.aiCleanup.claudeCommand, "claude");
   } finally {
     rmSync(dir, { recursive: true, force: true });

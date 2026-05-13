@@ -54,7 +54,7 @@ The bundle is written to `portable/Dirong/`. It includes a copied Node.js runtim
 - For STT, either:
   - local Whisper through the bundled `scripts/local-whisper-json.py` wrapper, or
   - OpenAI STT with an API key.
-- For AI cleanup, Claude CLI is the normal runtime path.
+- For AI meeting-note cleanup, Claude Code CLI is currently the only supported runtime path.
 - For Notion upload, a Notion integration token and a parent page are needed.
 
 Local Whisper requires Python plus either `faster-whisper` or `openai-whisper` installed in the Python environment used by the app.
@@ -69,7 +69,7 @@ Local Whisper requires Python plus either `faster-whisper` or `openai-whisper` i
    - save the Discord bot token,
    - select the Discord guild allowlist,
    - choose the STT provider,
-   - configure Claude for AI cleanup,
+   - configure Claude Code CLI for AI meeting-note cleanup,
    - configure Notion if you want uploads,
    - create or verify the managed Notion databases.
 4. Restart the app after Discord, STT, or AI settings that require a restart.
@@ -112,7 +112,7 @@ After a session is finalized, Dirong can run these steps:
 
 1. STT converts recorded audio chunks into transcript segments.
 2. Transcript timeline building prepares the input for meeting-note generation.
-3. AI cleanup creates a validated meeting-note draft and Markdown preview.
+3. AI cleanup creates a validated meeting-note draft and Markdown preview. Currently, this step supports Claude Code CLI only.
 4. Notion upload publishes a completed draft when Notion settings and schema are ready.
 5. Retention cleanup can remove audio after successful Notion upload, depending on settings.
 
@@ -254,7 +254,7 @@ npm run bundle:portable
 - STT용 설정 중 하나:
   - 기본 제공 `scripts/local-whisper-json.py` 래퍼를 사용하는 local Whisper,
   - OpenAI STT와 API key.
-- AI 정리에는 Claude CLI 사용이 기본 경로입니다.
+- AI 회의록 정리는 현재 Claude Code CLI만 지원합니다.
 - Notion 업로드에는 Notion integration token과 parent page가 필요합니다.
 
 Local Whisper를 쓰려면 앱이 사용하는 Python 환경에 `faster-whisper` 또는 `openai-whisper`가 설치되어 있어야 합니다.
@@ -269,7 +269,7 @@ Local Whisper를 쓰려면 앱이 사용하는 Python 환경에 `faster-whisper`
    - Discord bot token 저장,
    - Discord guild allowlist 선택,
    - STT provider 선택,
-   - AI 정리용 Claude 설정,
+   - AI 회의록 정리용 Claude Code CLI 설정,
    - Notion 업로드가 필요하면 Notion 설정,
    - 관리형 Notion 데이터베이스 생성 또는 검증.
 4. Discord, STT, AI처럼 재시작이 필요한 설정을 바꿨다면 앱을 다시 시작합니다.
@@ -312,7 +312,7 @@ exit
 
 1. STT가 녹음된 오디오 chunk를 전사 segment로 변환합니다.
 2. transcript timeline이 회의록 생성 입력을 준비합니다.
-3. AI cleanup이 검증된 회의록 초안과 Markdown preview를 생성합니다.
+3. AI cleanup이 검증된 회의록 초안과 Markdown preview를 생성합니다. 현재 이 단계는 Claude Code CLI만 지원합니다.
 4. Notion 설정과 schema 상태가 준비되어 있으면 Notion upload가 완료된 초안을 게시합니다.
 5. 설정에 따라 Notion 업로드 성공 후 오디오 보존/삭제 정책이 적용됩니다.
 

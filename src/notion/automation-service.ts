@@ -12,6 +12,7 @@ import {
 import { t, type LocaleKey } from "../i18n/catalog.js";
 import { PollingLoop } from "../runtime/polling-loop.js";
 import type { DirongLocale } from "../settings/local-settings-store.js";
+import { DEFAULT_PROJECT_ID } from "../projects/project-types.js";
 import {
   NotionApiError,
   type NotionClient,
@@ -88,6 +89,9 @@ export type NotionAutomationServiceOptions = {
   batchLimit: number;
   workerId: string;
   leaseMs: number;
+  projectId?: string | null;
+  getProjectId?: () => string | null;
+  getAutomaticUploadAfter?: (projectId: string) => string | null;
   registryStore?: NotionRegistryStore | null;
   memberRosterStore?: NotionMemberRosterStore | null;
   customPropertyRules?: () => readonly NotionCustomPropertyRule[];
@@ -107,19 +111,20 @@ export class NotionAutomationService {
 
   constructor(private readonly options: NotionAutomationServiceOptions) {
     const runtime = this.getRuntime();
+    const projectId = this.resolveProjectId();
     this.snapshot = this.makeSnapshot({
       enabled: runtime.settings.enabled,
-      configured: isConfigured(runtime, options.registryStore ?? null),
+      configured: isConfigured(runtime, options.registryStore ?? null, projectId),
       uploadMode: runtime.settings.uploadMode,
-      status: initialStatus(runtime, options.registryStore ?? null),
+      status: initialStatus(runtime, options.registryStore ?? null, projectId),
       checkedAt: null,
       sessionId: null,
       draftId: null,
       targetId: null,
       writeId: null,
       pageUrl: null,
-      message: initialMessage(runtime, options.registryStore ?? null),
-      userAction: initialUserAction(runtime, options.registryStore ?? null),
+      message: initialMessage(runtime, options.registryStore ?? null, projectId),
+      userAction: initialUserAction(runtime, options.registryStore ?? null, projectId),
       technicalDetail: null,
       lastRunStatus: null,
       inFlightDraftIds: [],
@@ -142,6 +147,22 @@ export class NotionAutomationService {
   }
 
   start(): void {
+    if (this.snapshot.status === "stopped") {
+      const runtime = this.getRuntime();
+      const projectId = this.resolveProjectId();
+      this.snapshot = this.makeSnapshot({
+        ...clearRunSpecificFields(this.snapshot),
+        enabled: runtime.settings.enabled,
+        configured: isConfigured(runtime, this.options.registryStore ?? null, projectId),
+        uploadMode: runtime.settings.uploadMode,
+        status: initialStatus(runtime, this.options.registryStore ?? null, projectId),
+        checkedAt: new Date().toISOString(),
+        message: initialMessage(runtime, this.options.registryStore ?? null, projectId),
+        userAction: initialUserAction(runtime, this.options.registryStore ?? null, projectId),
+        technicalDetail: null,
+        inFlightDraftIds: this.getInFlightDraftIds(),
+      });
+    }
     this.loop.start();
   }
 
@@ -172,6 +193,7 @@ export class NotionAutomationService {
       this.options.registryStore ?? null,
       this.snapshot,
       this.resolveLocale(),
+      this.resolveProjectId(),
     );
     if (blocked) {
       this.snapshot = blocked;
@@ -184,6 +206,7 @@ export class NotionAutomationService {
   private async tick(): Promise<NotionAutomationSnapshot> {
     const runtime = this.getRuntime();
     const checkedAt = new Date().toISOString();
+    const projectId = this.resolveProjectId();
     const repairedExpiredLeases =
       this.options.writeStore.releaseExpiredLeases(checkedAt);
 
@@ -205,6 +228,7 @@ export class NotionAutomationService {
       this.options.registryStore ?? null,
       this.snapshot,
       this.resolveLocale(),
+      projectId,
     );
     if (blocked) {
       this.snapshot = this.makeSnapshot({
@@ -219,13 +243,13 @@ export class NotionAutomationService {
       runtime.settings,
       runtime.client,
       this.options.registryStore ?? null,
+      projectId,
     );
     if (!target.ok) {
       this.snapshot = this.makeSnapshot({
-        ...this.snapshot,
+        ...clearRunSpecificFields(this.snapshot),
         status: target.status,
         checkedAt,
-        targetId: null,
         message: target.message,
         userAction: target.userAction,
         technicalDetail: target.technicalDetail,
@@ -235,10 +259,14 @@ export class NotionAutomationService {
       return this.getSnapshot();
     }
 
+    const automaticUploadAfter =
+      this.options.getAutomaticUploadAfter?.(projectId) ?? null;
     const candidates =
       this.options.readModel.listLatestValidDraftsMissingDoneWrite({
+        projectId,
         targetId: target.targetId,
         limit: this.options.batchLimit,
+        createdAtOrAfter: automaticUploadAfter,
       });
     const candidate = candidates.find(
       (item) => !this.inFlightDraftIds.has(item.id),
@@ -304,6 +332,7 @@ export class NotionAutomationService {
         readModel: this.options.readModel,
         writeStore: this.options.writeStore,
         registryStore: this.options.registryStore ?? null,
+        projectId: this.resolveProjectId(),
         memberRosterStore: this.options.memberRosterStore ?? null,
         customPropertyRules: this.options.customPropertyRules?.() ?? [],
       });
@@ -359,6 +388,12 @@ export class NotionAutomationService {
 
   private resolveLocale(): DirongLocale {
     return resolveAppLocale({ getLocale: this.options.localeResolver });
+  }
+
+  private resolveProjectId(): string {
+    const projectId =
+      this.options.getProjectId?.() ?? this.options.projectId ?? DEFAULT_PROJECT_ID;
+    return cleanRequiredString(projectId, "projectId");
   }
 }
 
@@ -416,6 +451,7 @@ async function resolveAutomationTargetId(
   settings: NotionRuntimeSettings,
   client: NotionClient | null,
   registryStore: NotionRegistryStore | null,
+  projectId: string,
 ): Promise<
   | { ok: true; targetId: string }
   | {
@@ -429,7 +465,9 @@ async function resolveAutomationTargetId(
       technicalDetail: string | null;
     }
 > {
-  const registryBlock = blockPartialManagedNotionRegistry(registryStore);
+  const registryBlock = blockPartialManagedNotionRegistry(registryStore, {
+    projectId,
+  });
   if (registryBlock) {
     return {
       ok: false,
@@ -440,8 +478,10 @@ async function resolveAutomationTargetId(
     };
   }
 
-  const managedMeeting = hasCompleteManagedNotionUploadRegistry(registryStore)
-    ? registryStore?.getManagedDatabase("meeting")
+  const managedMeeting = hasCompleteManagedNotionUploadRegistry(registryStore, {
+    projectId,
+  })
+    ? registryStore?.getManagedDatabase("meeting", projectId)
     : null;
   if (managedMeeting) {
     return { ok: true, targetId: managedMeeting.dataSourceId };
@@ -533,18 +573,33 @@ function uploadStatusToAutomationStatus(
   return status;
 }
 
+function clearRunSpecificFields(
+  snapshot: NotionAutomationSnapshot,
+): NotionAutomationSnapshot {
+  return {
+    ...snapshot,
+    sessionId: null,
+    draftId: null,
+    targetId: null,
+    writeId: null,
+    pageUrl: null,
+    lastRunStatus: null,
+  };
+}
+
 function blockedSnapshot(
   runtime: NotionAutomationRuntime,
   registryStore: NotionRegistryStore | null,
   previous: NotionAutomationSnapshot,
   locale: DirongLocale,
+  projectId: string,
 ): NotionAutomationSnapshot | null {
   const checkedAt = new Date().toISOString();
   if (!runtime.settings.enabled) {
     return makeSnapshot({
-      ...previous,
+      ...clearRunSpecificFields(previous),
       enabled: false,
-      configured: isConfigured(runtime, registryStore),
+      configured: isConfigured(runtime, registryStore, projectId),
       uploadMode: runtime.settings.uploadMode,
       status: "disabled",
       checkedAt,
@@ -555,9 +610,9 @@ function blockedSnapshot(
   }
   if (runtime.settings.uploadMode !== "automatic_after_ai_cleanup") {
     return makeSnapshot({
-      ...previous,
+      ...clearRunSpecificFields(previous),
       enabled: true,
-      configured: isConfigured(runtime, registryStore),
+      configured: isConfigured(runtime, registryStore, projectId),
       uploadMode: runtime.settings.uploadMode,
       status: "manual",
       checkedAt,
@@ -567,9 +622,9 @@ function blockedSnapshot(
       technicalDetail: null,
     }, locale);
   }
-  if (!isConfigured(runtime, registryStore)) {
+  if (!isConfigured(runtime, registryStore, projectId)) {
     return makeSnapshot({
-      ...previous,
+      ...clearRunSpecificFields(previous),
       enabled: true,
       configured: false,
       uploadMode: runtime.settings.uploadMode,
@@ -587,11 +642,12 @@ function blockedSnapshot(
 function isConfigured(
   runtime: NotionAutomationRuntime,
   registryStore: NotionRegistryStore | null,
+  projectId: string,
 ): boolean {
   return Boolean(
     runtime.settings.apiKey &&
       (runtime.settings.targetUrl ||
-        hasCompleteManagedNotionUploadRegistry(registryStore)) &&
+        hasCompleteManagedNotionUploadRegistry(registryStore, { projectId })) &&
       runtime.client,
   );
 }
@@ -599,6 +655,7 @@ function isConfigured(
 function initialStatus(
   runtime: NotionAutomationRuntime,
   registryStore: NotionRegistryStore | null,
+  projectId: string,
 ): NotionAutomationStatus {
   if (!runtime.settings.enabled) {
     return "disabled";
@@ -606,7 +663,7 @@ function initialStatus(
   if (runtime.settings.uploadMode !== "automatic_after_ai_cleanup") {
     return "manual";
   }
-  if (!isConfigured(runtime, registryStore)) {
+  if (!isConfigured(runtime, registryStore, projectId)) {
     return "not_configured";
   }
   return "idle";
@@ -615,6 +672,7 @@ function initialStatus(
 function initialMessage(
   runtime: NotionAutomationRuntime,
   registryStore: NotionRegistryStore | null,
+  projectId: string,
 ): string {
   if (!runtime.settings.enabled) {
     return "Notion export is disabled.";
@@ -622,7 +680,7 @@ function initialMessage(
   if (runtime.settings.uploadMode !== "automatic_after_ai_cleanup") {
     return "Notion upload is in manual mode.";
   }
-  if (!isConfigured(runtime, registryStore)) {
+  if (!isConfigured(runtime, registryStore, projectId)) {
     return "Notion automatic upload settings are incomplete.";
   }
   return "Notion 자동 업로드 대기 중";
@@ -631,6 +689,7 @@ function initialMessage(
 function initialUserAction(
   runtime: NotionAutomationRuntime,
   registryStore: NotionRegistryStore | null,
+  projectId: string,
 ): string | null {
   if (!runtime.settings.enabled) {
     return "자동 업로드를 쓰려면 Notion 설정에서 업로드를 켜 주세요.";
@@ -638,7 +697,7 @@ function initialUserAction(
   if (runtime.settings.uploadMode !== "automatic_after_ai_cleanup") {
     return "자동 업로드를 쓰려면 Notion 설정에서 자동 업로드 모드를 선택해 주세요.";
   }
-  if (!isConfigured(runtime, registryStore)) {
+  if (!isConfigured(runtime, registryStore, projectId)) {
     return "설정 마법사에서 Notion 연결 토큰과 managed DB 설정을 완료해 주세요.";
   }
   return null;
@@ -835,4 +894,15 @@ function notionAutomationDisplayKeys(
     titleKey: "statusDisplay.notion.idle.title",
     descriptionKey: "statusDisplay.notion.idle.description",
   };
+}
+
+function cleanRequiredString(value: string | null, label: string): string {
+  if (typeof value !== "string") {
+    throw new Error(`${label} must be a string.`);
+  }
+  const cleaned = value.trim();
+  if (!cleaned) {
+    throw new Error(`${label} must not be empty.`);
+  }
+  return cleaned;
 }

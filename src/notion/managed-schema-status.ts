@@ -51,14 +51,19 @@ export class ManagedNotionSchemaStatusService {
     private readonly input: {
       client: NotionClient;
       registryStore: NotionRegistryStore;
+      projectId?: string;
       now?: () => Date;
     },
   ) {}
 
   async checkAll(): Promise<ManagedNotionSchemaStatusSnapshot> {
     const checkedAt = this.nowIso();
-    const registry = readManagedNotionRegistrySnapshot(this.input.registryStore);
-    const managedDatabases = this.input.registryStore.listManagedDatabases();
+    const registry = readManagedNotionRegistrySnapshot(this.input.registryStore, {
+      projectId: this.input.projectId,
+    });
+    const managedDatabases = this.input.registryStore.listManagedDatabases(
+      this.input.projectId,
+    );
     const databases: ManagedNotionSchemaRoleStatus[] = [];
 
     for (const role of NOTION_DATABASE_ROLES) {
@@ -111,7 +116,10 @@ export class ManagedNotionSchemaStatusService {
       const diff = buildManagedSchemaDiff({
         databaseRole: input.role,
         properties: readDataSourceProperties(dataSource),
-        mappings: this.input.registryStore.listPropertyMappings(),
+        mappings: this.input.registryStore.listPropertyMappings(
+          undefined,
+          this.input.projectId,
+        ),
         managedDatabases: input.managedDatabases,
       });
       return {

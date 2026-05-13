@@ -33,6 +33,13 @@ import {
   handleThemeSave,
 } from "./setup-routes.js";
 import {
+  handleActiveProjectGet,
+  handleProjectCreatePost,
+  handleProjectsListGet,
+  handleProjectSwitchPost,
+} from "./project-routes.js";
+import { handleSettingsResetPost } from "./settings-reset-routes.js";
+import {
   DASHBOARD_INDEX_HTML,
   serveAudio,
   serveDashboardPublicAsset,
@@ -81,6 +88,21 @@ export async function routeDashboardRequest(
 
   if (request.method === "POST" && themeEndpoint) {
     await handleThemeSave(request, response, context.runtimeSources);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/projects") {
+    await handleProjectCreatePost(request, response, context.runtimeSources);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/projects/active") {
+    await handleProjectSwitchPost(request, response, context.runtimeSources);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/settings/reset") {
+    await handleSettingsResetPost(request, response, context.runtimeSources);
     return;
   }
 
@@ -232,6 +254,16 @@ export async function routeDashboardRequest(
 
   if (url.pathname === "/api/setup/status" || url.pathname === "/api/setup/state") {
     handleSetupStatusGet(response, context.runtimeSources);
+    return;
+  }
+
+  if (url.pathname === "/api/projects") {
+    handleProjectsListGet(response, context.runtimeSources);
+    return;
+  }
+
+  if (url.pathname === "/api/projects/active") {
+    handleActiveProjectGet(response, context.runtimeSources);
     return;
   }
 

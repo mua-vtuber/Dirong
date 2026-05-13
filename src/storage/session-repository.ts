@@ -14,6 +14,7 @@ export class SessionRepository {
 
   create(input: {
     id: string;
+    projectId?: string | null;
     guildId: string;
     guildName: string | null;
     textChannelId: string | null;
@@ -26,11 +27,12 @@ export class SessionRepository {
     const now = this.options.now();
     this.sql.run(
       `INSERT INTO sessions (
-        id, guild_id, guild_name, text_channel_id, voice_channel_id,
+        id, project_id, guild_id, guild_name, text_channel_id, voice_channel_id,
         voice_channel_name, started_by_user_id, started_by_display_name,
         status, started_at, data_dir, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'created', ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'created', ?, ?, ?, ?)`,
       input.id,
+      input.projectId ?? null,
       input.guildId,
       input.guildName,
       input.textChannelId,

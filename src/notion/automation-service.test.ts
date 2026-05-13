@@ -3,8 +3,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { NotionClient } from "./client.js";
-import { NotionAutomationService } from "./automation-service.js";
+import { NotionApiError, type NotionClient } from "./client.js";
+import {
+  type NotionAutomationSnapshot,
+  NotionAutomationService,
+} from "./automation-service.js";
 import type { AppLocaleResolver } from "../i18n/app-locale.js";
 import { NotionDraftInputReadModel } from "./draft-input-read-model.js";
 import { NOTION_MANAGED_SCHEMA_VERSION } from "./managed-schema.js";
@@ -19,6 +22,7 @@ import { makeNotionDraftInput } from "./test-fixtures.js";
 import { NotionWriteStore } from "./write-store.js";
 import { SqlRunner } from "../storage/sql-runner.js";
 import { DirongDatabase } from "../storage/sqlite.js";
+import { DEFAULT_PROJECT_ID } from "../projects/project-types.js";
 
 const nowIso = "2026-05-07T00:00:00.000Z";
 const targetId = "01234567-89ab-cdef-0123-456789abcdef";
@@ -197,6 +201,22 @@ test("NotionAutomationService ignores drafts that are not valid", async () => {
   }
 });
 
+test("NotionAutomationService does not upload drafts whose session project is unresolved", async () => {
+  const fixture = createFixture({ projectId: null });
+  try {
+    const client = new FakeNotionClient();
+    const service = createService(fixture, { client });
+
+    const snapshot = await service.runOnce();
+
+    assert.equal(snapshot.status, "idle");
+    assert.equal(countNotionWrites(fixture.database), 0);
+    assert.deepEqual(client.calls, []);
+  } finally {
+    fixture.close();
+  }
+});
+
 test("NotionAutomationService repairs expired write leases before selecting work", async () => {
   const fixture = createFixture();
   try {
@@ -275,6 +295,7 @@ test("NotionAutomationService starts polling before Notion settings are complete
 
     try {
       service.start();
+      service.start();
       await waitFor(() => service.getSnapshot().status === "not_configured");
 
       currentSettings = notionSettings();
@@ -288,6 +309,11 @@ test("NotionAutomationService starts polling before Notion settings are complete
         client.calls.filter((call) => call.method === "createPage").length,
         1,
       );
+      await service.stop();
+      assert.equal(service.getSnapshot().status, "stopped");
+      service.start();
+      service.start();
+      assert.notEqual(service.getSnapshot().status, "stopped");
     } finally {
       await service.stop();
     }
@@ -295,6 +321,106 @@ test("NotionAutomationService starts polling before Notion settings are complete
     fixture.close();
   }
 });
+
+test("NotionAutomationService clears stale run details after stop and manual reconfiguration", async () => {
+  const fixture = createFixture();
+  try {
+    let currentSettings = notionSettings();
+    const service = createService(fixture, {
+      getSettings: () => currentSettings,
+      getClient: (settings) => (settings.apiKey ? new FakeNotionClient() : null),
+    });
+
+    const done = await service.runOnce();
+    assert.equal(done.status, "done");
+    assert.equal(done.draftId, fixture.draftId);
+    assert.equal(done.pageUrl, "https://notion.so/page-1");
+
+    await service.stop();
+    currentSettings = notionSettings({ uploadMode: "manual" });
+    service.start();
+    const manual = await service.runOnce();
+
+    assert.equal(manual.status, "manual");
+    assertRunSpecificFieldsCleared(manual);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("NotionAutomationService clears stale run details when settings become incomplete", async () => {
+  const fixture = createFixture();
+  try {
+    let currentSettings = notionSettings();
+    const client = new FakeNotionClient();
+    const service = createService(fixture, {
+      getSettings: () => currentSettings,
+      getClient: (settings) => (settings.apiKey ? client : null),
+    });
+
+    const done = await service.runOnce();
+    assert.equal(done.status, "done");
+    assert.equal(done.lastRunStatus, "done");
+
+    currentSettings = notionSettings({ apiKey: null, targetUrl: null });
+    const notConfigured = await service.runOnce();
+
+    assert.equal(notConfigured.status, "not_configured");
+    assertRunSpecificFieldsCleared(notConfigured);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("NotionAutomationService clears stale run details when target resolution becomes retryable", async () => {
+  const fixture = createFixture();
+  try {
+    let currentSettings = notionSettings();
+    let client: NotionClient | null = new FakeNotionClient();
+    const service = createService(fixture, {
+      getSettings: () => currentSettings,
+      getClient: () => client,
+    });
+
+    const done = await service.runOnce();
+    assert.equal(done.status, "done");
+    assert.ok(done.writeId);
+
+    currentSettings = notionSettings({
+      targetUrl:
+        "https://www.notion.so/workspace/0123456789abcdef0123456789abcdef?v=0123456789abcdef0123456789abcdef",
+    });
+    client = new RetryableDatabaseLookupFailureClient();
+    const retryWait = await service.runOnce();
+
+    assert.equal(retryWait.status, "retry_wait");
+    assertRunSpecificFieldsCleared(retryWait);
+  } finally {
+    fixture.close();
+  }
+});
+
+function assertRunSpecificFieldsCleared(snapshot: NotionAutomationSnapshot): void {
+  assert.equal(snapshot.sessionId, null);
+  assert.equal(snapshot.draftId, null);
+  assert.equal(snapshot.targetId, null);
+  assert.equal(snapshot.writeId, null);
+  assert.equal(snapshot.pageUrl, null);
+  assert.equal(snapshot.lastRunStatus, null);
+  const detailLabels = new Set(
+    snapshot.display?.details.map((detail) => detail.label) ?? [],
+  );
+  for (const label of [
+    "sessionId",
+    "draftId",
+    "targetId",
+    "writeId",
+    "pageUrl",
+    "lastRunStatus",
+  ]) {
+    assert.equal(detailLabels.has(label), false, `${label} detail should be absent`);
+  }
+}
 
 class FakeNotionClient implements NotionClient {
   readonly calls: Array<{ method: string; body?: unknown }> = [];
@@ -378,6 +504,20 @@ class FakeNotionClient implements NotionClient {
   }
 }
 
+class RetryableDatabaseLookupFailureClient extends FakeNotionClient {
+  override async retrieveDatabase(): Promise<Record<string, unknown>> {
+    this.calls.push({ method: "retrieveDatabase" });
+    throw new NotionApiError("rate_limited", "rate limited", {
+      status: 429,
+      code: "rate_limited",
+      retryAfterSeconds: 1,
+      retriable: true,
+      userAction: "Retry later.",
+      technicalDetail: "rate limited while resolving target database",
+    });
+  }
+}
+
 type AutomationFixture = {
   dir: string;
   database: DirongDatabase;
@@ -390,13 +530,19 @@ type AutomationFixture = {
 
 function createFixture(options: {
   validationStatus?: "valid" | "invalid";
+  projectId?: string | null;
 } = {}): AutomationFixture {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-notion-auto-"));
   const database = new DirongDatabase(path.join(dir, "dirong.sqlite"), 1000);
   const runner = new SqlRunner(database);
   const writeStore = new NotionWriteStore(runner);
   const draftInput = makeNotionDraftInput();
-  insertSession(database, dir, draftInput);
+  insertSession(
+    database,
+    dir,
+    draftInput,
+    "projectId" in options ? options.projectId ?? null : DEFAULT_PROJECT_ID,
+  );
   insertSpeaker(database, draftInput);
   insertAiCleanupJob(database, draftInput);
   insertDraft(database, draftInput, options.validationStatus ?? "valid");
@@ -499,21 +645,23 @@ function insertSession(
   database: DirongDatabase,
   dir: string,
   input: ReturnType<typeof makeNotionDraftInput>,
+  projectId: string | null,
 ): void {
   database.db
     .prepare(
       `INSERT INTO sessions (
-         id, guild_id, guild_name, text_channel_id, voice_channel_id,
+         id, project_id, guild_id, guild_name, text_channel_id, voice_channel_id,
          voice_channel_name, started_by_user_id, started_by_display_name,
          stopped_by_user_id, stopped_by_display_name, status, started_at,
          stopped_at, finalized_at, data_dir, last_error, created_at, updated_at
        ) VALUES (
-         ?, 'guild', 'Guild', 'text', ?, ?, 'starter', 'Taniar',
+         ?, ?, 'guild', 'Guild', 'text', ?, ?, 'starter', 'Taniar',
          NULL, NULL, 'finalized', ?, ?, ?, ?, NULL, ?, ?
        )`,
     )
     .run(
       input.session.id,
+      projectId,
       input.session.voice_channel_id,
       input.session.voice_channel_name,
       input.session.started_at,

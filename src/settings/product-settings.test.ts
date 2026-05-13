@@ -22,6 +22,7 @@ import {
 } from "./product-settings.js";
 import { SqlRunner } from "../storage/sql-runner.js";
 import { DirongDatabase } from "../storage/sqlite.js";
+import { ProjectStore } from "../projects/project-store.js";
 
 test("loadProductRuntimeSettings ignores process env fallback for product Discord config", () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-product-"));
@@ -361,6 +362,49 @@ test("createProductNotionRuntimeSettingsProvider reads latest Notion settings an
   }
 });
 
+test("createProductNotionRuntimeSettingsProvider prefers the active project Notion settings", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-product-"));
+  const database = new DirongDatabase(path.join(dir, "dirong.sqlite"), 1000);
+  try {
+    const paths = getDirongUserDataPaths(dir);
+    const settingsStore = new LocalSettingsStore(paths.settingsFile);
+    const secretStore = new LocalSecretStore(paths.secretsFile);
+    const projectStore = new ProjectStore(new SqlRunner(database));
+    settingsStore.update((settings) => ({
+      ...settings,
+      notion: {
+        tokenSecretRef: DEFAULT_SECRET_REFS.notionToken,
+        parentPageUrl:
+          "https://www.notion.so/workspace/Legacy-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        uploadMode: "manual",
+      },
+    }));
+    secretStore.set(DEFAULT_SECRET_REFS.notionToken, "legacy-notion-secret");
+    projectStore.createReadyProject({
+      id: "project-active",
+      notionTokenSecretRef: "notion.project.project-active.token",
+      notionParentPageUrl:
+        "https://www.notion.so/workspace/Project-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      notionUploadMode: "automatic_after_ai_cleanup",
+    });
+    projectStore.setActiveProjectId("project-active");
+    secretStore.set("notion.project.project-active.token", "project-notion-secret");
+
+    const getSettings = createProductNotionRuntimeSettingsProvider({
+      paths,
+      projectStore,
+    });
+    const settings = getSettings();
+
+    assert.equal(settings.enabled, true);
+    assert.equal(settings.apiKey, "project-notion-secret");
+    assert.equal(settings.uploadMode, "automatic_after_ai_cleanup");
+  } finally {
+    database.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("buildProductSetupStatus reports partial Notion registry as blocked", () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-product-"));
   const database = new DirongDatabase(path.join(dir, "dirong.sqlite"), 1000);
@@ -418,6 +462,80 @@ test("buildProductSetupStatus reports partial Notion registry as blocked", () =>
       status.features.notion.display?.details.find((detail) => detail.label === "missing")?.value ?? "",
       /notion\.managedRegistry\.partial/,
     );
+  } finally {
+    database.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("buildProductSetupStatus projects Discord and Notion status from the active project", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-product-"));
+  const database = new DirongDatabase(path.join(dir, "dirong.sqlite"), 1000);
+  try {
+    const paths = getDirongUserDataPaths(dir);
+    const settingsStore = new LocalSettingsStore(paths.settingsFile);
+    const secretStore = new LocalSecretStore(paths.secretsFile);
+    const runner = new SqlRunner(database);
+    const registryStore = new NotionRegistryStore(runner);
+    const projectStore = new ProjectStore(runner);
+    settingsStore.write({
+      schemaVersion: 1,
+      app: { locale: "ko" },
+      discord: {
+        applicationId: "app-1",
+        botTokenSecretRef: DEFAULT_SECRET_REFS.discordBotToken,
+        guildIds: ["legacy-guild"],
+      },
+      stt: {},
+      ai: {},
+      notion: {
+        tokenSecretRef: DEFAULT_SECRET_REFS.notionToken,
+        parentPageUrl:
+          "https://www.notion.so/workspace/Legacy-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+      recording: { aloneFinalizeEnabled: true, aloneFinalizeGraceMs: 90000 },
+      retention: { deleteAudioAfterNotionUpload: true, textDraftRetentionDays: 30 },
+    });
+    secretStore.set(DEFAULT_SECRET_REFS.discordBotToken, "discord-secret");
+    secretStore.set(DEFAULT_SECRET_REFS.notionToken, "legacy-notion-secret");
+    projectStore.createReadyProject({
+      id: "project-active",
+      guildId: "project-guild",
+      notionTokenSecretRef: "notion.project.project-active.token",
+      notionParentPageUrl:
+        "https://www.notion.so/workspace/Project-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      nowIso: "2026-05-13T00:00:00.000Z",
+    });
+    projectStore.setActiveProjectId("project-active");
+    secretStore.set("notion.project.project-active.token", "project-notion-secret");
+    registryStore.upsertManagedDatabase({
+      projectId: "project-active",
+      role: "meeting",
+      locale: "ko",
+      databaseId: "meeting-db-id",
+      dataSourceId: "meeting-ds-id",
+      url: "https://notion.so/meeting",
+      name: "회의록",
+      createdByDirong: true,
+      schemaVersion: NOTION_MANAGED_SCHEMA_VERSION,
+      nowIso: "2026-05-13T00:00:00.000Z",
+    });
+
+    const status = buildProductSetupStatus({
+      paths,
+      settings: settingsStore.read(),
+      secretStore,
+      registryStore,
+      projectStore,
+    });
+
+    assert.equal(status.features.discord.status, "ready");
+    assert.equal(status.features.discord.guildAllowlistCount, 1);
+    assert.equal(status.projectSetup?.activeProject?.id, "project-active");
+    assert.equal(status.projectSetup?.activeProject?.guildId, "project-guild");
+    assert.equal(status.secrets.notion.configured, true);
+    assert.equal(status.features.notion.managedRegistryStatus, "partial");
+    assert.equal(status.features.notion.managedRegistry?.databaseCount, 1);
   } finally {
     database.close();
     rmSync(dir, { recursive: true, force: true });

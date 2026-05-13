@@ -95,10 +95,15 @@ export type AiCleanupRunOptions = {
   maxOutputBytes: number;
   locale?: DirongLocale;
   includeFakeStt?: boolean;
-  customNotionPropertyPrompt?: () => string;
-  memberRosterPrompt?: () => string;
+  customNotionPropertyPrompt?: (context: AiCleanupSessionContext) => string;
+  memberRosterPrompt?: (context: AiCleanupSessionContext) => string;
   backup?: () => string[];
   progress?: AiCleanupProgressObserver;
+};
+
+export type AiCleanupSessionContext = {
+  sessionId: string;
+  projectId: string | null;
 };
 
 export async function runAiCleanupForSession(
@@ -141,12 +146,19 @@ async function runAiCleanupForSessionCore(
     sessionId: options.sessionId,
     includeFakeStt: options.includeFakeStt ?? false,
   });
+  const sessionContext: AiCleanupSessionContext = {
+    sessionId: session.id,
+    projectId: session.project_id,
+  };
   const systemPrompt = buildPhase4SystemPrompt(locale);
-  const notionCustomPropertyPrompt = options.customNotionPropertyPrompt?.() ?? "";
-  const memberRosterPrompt = options.memberRosterPrompt?.() ?? "";
+  const notionCustomPropertyPrompt =
+    options.customNotionPropertyPrompt?.(sessionContext) ?? "";
+  const memberRosterPrompt =
+    options.memberRosterPrompt?.(sessionContext) ?? "";
   const timelineInput = {
     ...baseTimelineInput,
     inputHash: buildPhase4ContextualInputHash(baseTimelineInput.inputHash, {
+      notionCustomPropertyPrompt,
       memberRosterPrompt,
       locale,
     }),
@@ -642,20 +654,36 @@ async function runAiCleanupForSessionCore(
 
 export function buildPhase4ContextualInputHash(
   baseInputHash: string,
-  context: { memberRosterPrompt?: string; locale?: DirongLocale },
+  context: {
+    notionCustomPropertyPrompt?: string;
+    memberRosterPrompt?: string;
+    locale?: DirongLocale;
+  },
 ): string {
+  const notionCustomPropertyPrompt =
+    context.notionCustomPropertyPrompt?.trim() ?? "";
   const memberRosterPrompt = context.memberRosterPrompt?.trim() ?? "";
   const locale = context.locale ?? DEFAULT_DIRONG_LOCALE;
-  if (!memberRosterPrompt && locale === DEFAULT_DIRONG_LOCALE) {
+  if (
+    !notionCustomPropertyPrompt &&
+    !memberRosterPrompt &&
+    locale === DEFAULT_DIRONG_LOCALE
+  ) {
     return baseInputHash;
   }
   const hashInput: {
     baseInputHash: string;
     locale?: DirongLocale;
+    notionCustomPropertyPromptHash?: string;
     memberRosterPromptHash?: string;
   } = { baseInputHash };
   if (locale !== DEFAULT_DIRONG_LOCALE) {
     hashInput.locale = locale;
+  }
+  if (notionCustomPropertyPrompt) {
+    hashInput.notionCustomPropertyPromptHash = sha256Text(
+      notionCustomPropertyPrompt,
+    );
   }
   if (memberRosterPrompt) {
     hashInput.memberRosterPromptHash = sha256Text(memberRosterPrompt);

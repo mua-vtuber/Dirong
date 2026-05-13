@@ -1,15 +1,19 @@
 export const NOTION_REGISTRY_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS notion_workspace_settings (
-  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL DEFAULT 'default',
+  id TEXT NOT NULL DEFAULT 'default',
   locale TEXT NOT NULL CHECK (locale IN ('ko', 'en')),
   parent_page_url TEXT NOT NULL,
   parent_page_id TEXT NOT NULL,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (project_id),
+  FOREIGN KEY (project_id) REFERENCES dirong_projects(id)
 );
 
 CREATE TABLE IF NOT EXISTS notion_managed_databases (
-  role TEXT PRIMARY KEY CHECK (role IN ('meeting', 'member', 'task')),
+  project_id TEXT NOT NULL DEFAULT 'default',
+  role TEXT NOT NULL CHECK (role IN ('meeting', 'member', 'task')),
   locale TEXT NOT NULL CHECK (locale IN ('ko', 'en')),
   database_id TEXT NOT NULL,
   data_source_id TEXT NOT NULL,
@@ -18,10 +22,13 @@ CREATE TABLE IF NOT EXISTS notion_managed_databases (
   created_by_dirong INTEGER NOT NULL DEFAULT 1 CHECK (created_by_dirong IN (0, 1)),
   schema_version TEXT NOT NULL,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (project_id, role),
+  FOREIGN KEY (project_id) REFERENCES dirong_projects(id)
 );
 
 CREATE TABLE IF NOT EXISTS notion_property_mappings (
+  project_id TEXT NOT NULL DEFAULT 'default',
   database_role TEXT NOT NULL CHECK (database_role IN ('meeting', 'member', 'task')),
   semantic_key TEXT NOT NULL CHECK (
     semantic_key IN (
@@ -73,9 +80,7 @@ CREATE TABLE IF NOT EXISTS notion_property_mappings (
   ),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  PRIMARY KEY (database_role, semantic_key)
+  PRIMARY KEY (project_id, database_role, semantic_key),
+  FOREIGN KEY (project_id) REFERENCES dirong_projects(id)
 );
-
-CREATE INDEX IF NOT EXISTS idx_notion_property_mappings_database_role
-  ON notion_property_mappings(database_role, semantic_key);
 `;

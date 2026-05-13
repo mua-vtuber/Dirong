@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { SqlRunner } from "../storage/sql-runner.js";
+import { DEFAULT_PROJECT_ID } from "../projects/project-types.js";
 
 export type NotionWriteStatus =
   | "queued"
@@ -15,6 +16,7 @@ export type NotionBlockStatus = "pending" | "appended" | "failed";
 
 export type NotionWriteRow = {
   id: string;
+  project_id: string | null;
   session_id: string;
   draft_id: string;
   target_type: "data_source";
@@ -48,6 +50,7 @@ export type NotionBlockRow = {
 
 export type CreateNotionWriteInput = {
   id?: string;
+  projectId?: string;
   sessionId: string;
   draftId: string;
   targetType: "data_source";
@@ -98,18 +101,29 @@ export type MarkTerminalInput = {
   nowIso: string;
 };
 
+export type BlockNonTerminalWritesForResetInput = {
+  projectId: string;
+  nowIso: string;
+  message: string;
+};
+
 export class NotionWriteStore {
   constructor(private readonly runner: SqlRunner) {}
 
   createOrGetWrite(input: CreateNotionWriteInput): NotionWriteRow {
-    const id = input.id ?? buildWriteId(input.draftId, input.targetId);
+    const projectId = cleanRequiredString(
+      input.projectId ?? DEFAULT_PROJECT_ID,
+      "projectId",
+    );
+    const id = input.id ?? buildWriteId(input.draftId, projectId, input.targetId);
     this.runner.run(
       `INSERT OR IGNORE INTO notion_writes (
-         id, session_id, draft_id, target_type, target_id, target_url,
+         id, project_id, session_id, draft_id, target_type, target_id, target_url,
          content_hash, status, status_message, max_attempts, next_attempt_at,
          created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)`,
       id,
+      projectId,
       input.sessionId,
       input.draftId,
       input.targetType,
@@ -123,7 +137,11 @@ export class NotionWriteStore {
       input.nowIso,
     );
 
-    const row = this.getWriteByDraftTarget(input.draftId, input.targetId);
+    const row = this.getWriteByDraftTarget(
+      input.draftId,
+      input.targetId,
+      projectId,
+    );
     if (!row) {
       throw new Error("Notion write row를 생성하지 못했습니다.");
     }
@@ -133,12 +151,17 @@ export class NotionWriteStore {
   getWriteByDraftTarget(
     draftId: string,
     targetId: string,
+    projectId = DEFAULT_PROJECT_ID,
   ): NotionWriteRow | null {
     return this.runner.get<NotionWriteRow>(
       `SELECT *
        FROM notion_writes
-       WHERE draft_id = ? AND target_type = 'data_source' AND target_id = ?`,
+       WHERE draft_id = ?
+         AND project_id = ?
+         AND target_type = 'data_source'
+         AND target_id = ?`,
       draftId,
+      cleanRequiredString(projectId, "projectId"),
       targetId,
     );
   }
@@ -166,6 +189,8 @@ export class NotionWriteStore {
       `SELECT *
        FROM notion_writes
        WHERE
+         project_id IS NOT NULL
+         AND
          locked_by IS NULL
          AND status IN ('queued', 'retry_wait')
          AND next_attempt_at <= ?
@@ -375,6 +400,32 @@ export class NotionWriteStore {
     return released;
   }
 
+  blockNonTerminalWritesForReset(
+    input: BlockNonTerminalWritesForResetInput,
+  ): number {
+    return this.runner.run(
+      `UPDATE notion_writes
+       SET status = 'blocked',
+           status_message = ?,
+           last_error = ?,
+           locked_by = NULL,
+           locked_until = NULL,
+           updated_at = ?
+       WHERE project_id = ?
+         AND status IN (
+           'queued',
+           'processing',
+           'creating_page',
+           'appending_blocks',
+           'retry_wait'
+         )`,
+      cleanRequiredString(input.message, "message"),
+      cleanRequiredString(input.message, "message"),
+      cleanRequiredString(input.nowIso, "nowIso"),
+      cleanRequiredString(input.projectId, "projectId"),
+    );
+  }
+
   listBlocks(writeId: string): NotionBlockRow[] {
     return this.runner.all<NotionBlockRow>(
       `SELECT *
@@ -412,6 +463,9 @@ function canClaim(
   nowIso: string,
   force: boolean,
 ): boolean {
+  if (row.project_id === null) {
+    return false;
+  }
   if (row.locked_by !== null) {
     return false;
   }
@@ -427,10 +481,25 @@ function canClaim(
   );
 }
 
-function buildWriteId(draftId: string, targetId: string): string {
+function buildWriteId(
+  draftId: string,
+  projectId: string,
+  targetId: string,
+): string {
   const hash = createHash("sha256")
-    .update(`${draftId}\u0000${targetId}`)
+    .update(`${draftId}\u0000${projectId}\u0000${targetId}`)
     .digest("hex")
     .slice(0, 16);
   return `notion_write_${hash}`;
+}
+
+function cleanRequiredString(value: string, label: string): string {
+  if (typeof value !== "string") {
+    throw new Error(`${label} must be a string.`);
+  }
+  const cleaned = value.trim();
+  if (!cleaned) {
+    throw new Error(`${label} must not be empty.`);
+  }
+  return cleaned;
 }

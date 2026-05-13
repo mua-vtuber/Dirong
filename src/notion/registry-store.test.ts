@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { SqlRunner } from "../storage/sql-runner.js";
 import { DirongDatabase } from "../storage/sqlite.js";
+import { ProjectStore } from "../projects/project-store.js";
 import {
   DEFAULT_NOTION_WORKSPACE_SETTINGS_ID,
   NotionRegistryStore,
@@ -24,6 +25,7 @@ test("NotionRegistryStore saves and reads workspace settings", () => {
     });
 
     assert.deepEqual(saved, {
+      projectId: "default",
       id: DEFAULT_NOTION_WORKSPACE_SETTINGS_ID,
       locale: "ko",
       parentPageUrl:
@@ -101,6 +103,54 @@ test("NotionRegistryStore upserts, lists, and reads managed databases by role", 
       fixture.store.getManagedDatabase("member")?.dataSourceId,
       "member-ds",
     );
+  } finally {
+    fixture.close();
+  }
+});
+
+test("NotionRegistryStore isolates managed registry rows by project id", () => {
+  const fixture = createFixture();
+  try {
+    fixture.projectStore.createDraftProject({ id: "project-a", nowIso });
+    fixture.projectStore.createDraftProject({ id: "project-b", nowIso });
+    fixture.store.upsertManagedDatabase({
+      projectId: "project-a",
+      role: "meeting",
+      locale: "ko",
+      databaseId: "meeting-db-a",
+      dataSourceId: "meeting-ds-a",
+      url: "https://notion.so/meeting-a",
+      name: "회의록 A",
+      createdByDirong: true,
+      schemaVersion: "notion-managed-db-v1",
+      nowIso,
+    });
+    fixture.store.upsertManagedDatabase({
+      projectId: "project-b",
+      role: "meeting",
+      locale: "ko",
+      databaseId: "meeting-db-b",
+      dataSourceId: "meeting-ds-b",
+      url: "https://notion.so/meeting-b",
+      name: "회의록 B",
+      createdByDirong: true,
+      schemaVersion: "notion-managed-db-v1",
+      nowIso,
+    });
+
+    assert.equal(
+      fixture.store.getManagedDatabase("meeting", "project-a")?.dataSourceId,
+      "meeting-ds-a",
+    );
+    assert.equal(
+      fixture.store.getManagedDatabase("meeting", "project-b")?.dataSourceId,
+      "meeting-ds-b",
+    );
+    assert.deepEqual(
+      fixture.store.listManagedDatabases("project-a").map((row) => row.dataSourceId),
+      ["meeting-ds-a"],
+    );
+    assert.equal(fixture.store.getManagedDatabase("meeting"), null);
   } finally {
     fixture.close();
   }
@@ -254,14 +304,72 @@ test("NotionRegistryStore rejects invalid locale, role, and semantic key input",
   }
 });
 
+test("NotionRegistryStore clearProject removes only the requested project registry", () => {
+  const fixture = createFixture();
+  try {
+    fixture.projectStore.createDraftProject({ id: "project-a", nowIso });
+    fixture.projectStore.createDraftProject({ id: "project-b", nowIso });
+    for (const projectId of ["project-a", "project-b"]) {
+      fixture.store.saveWorkspaceSettings({
+        projectId,
+        locale: "ko",
+        parentPageUrl: `https://notion.so/${projectId}`,
+        parentPageId: `${projectId}-parent`,
+        nowIso,
+      });
+      fixture.store.upsertManagedDatabase({
+        projectId,
+        role: "meeting",
+        locale: "ko",
+        databaseId: `${projectId}-db`,
+        dataSourceId: `${projectId}-ds`,
+        url: `https://notion.so/${projectId}-db`,
+        name: projectId,
+        createdByDirong: true,
+        schemaVersion: "notion-managed-db-v1",
+        nowIso,
+      });
+      fixture.store.upsertPropertyMapping({
+        projectId,
+        databaseRole: "meeting",
+        semanticKey: "meeting.title",
+        propertyName: "Name",
+        propertyId: "title",
+        propertyType: "title",
+        locked: true,
+        sourceKind: "system",
+        nowIso,
+      });
+    }
+
+    assert.deepEqual(fixture.store.clearProject("project-a"), {
+      workspaceSettings: 1,
+      managedDatabases: 1,
+      propertyMappings: 1,
+    });
+    assert.equal(fixture.store.getWorkspaceSettings(undefined, "project-a"), null);
+    assert.equal(fixture.store.getManagedDatabase("meeting", "project-a"), null);
+    assert.equal(
+      fixture.store.getManagedDatabase("meeting", "project-b")?.dataSourceId,
+      "project-b-ds",
+    );
+  } finally {
+    fixture.close();
+  }
+});
+
 function createFixture(): {
   store: NotionRegistryStore;
+  projectStore: ProjectStore;
   close: () => void;
 } {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-notion-registry-"));
   const database = new DirongDatabase(path.join(dir, "dirong.sqlite"), 1000);
+  const runner = new SqlRunner(database);
+  const projectStore = new ProjectStore(runner);
   return {
-    store: new NotionRegistryStore(new SqlRunner(database)),
+    store: new NotionRegistryStore(runner),
+    projectStore,
     close: () => {
       database.close();
       rmSync(dir, { recursive: true, force: true });

@@ -1,6 +1,7 @@
 export const NOTION_WRITES_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS notion_writes (
   id TEXT PRIMARY KEY,
+  project_id TEXT DEFAULT 'default',
   session_id TEXT NOT NULL,
   draft_id TEXT NOT NULL,
   target_type TEXT NOT NULL CHECK (target_type = 'data_source'),
@@ -20,7 +21,8 @@ CREATE TABLE IF NOT EXISTS notion_writes (
   last_error TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  UNIQUE (draft_id, target_type, target_id),
+  UNIQUE (draft_id, project_id, target_type, target_id),
+  FOREIGN KEY (project_id) REFERENCES dirong_projects(id),
   FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
   FOREIGN KEY (draft_id) REFERENCES meeting_notes_drafts(id) ON DELETE CASCADE
 );

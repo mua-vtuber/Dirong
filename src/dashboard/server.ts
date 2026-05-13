@@ -17,6 +17,8 @@ import type { NotionMemberRosterSyncResult } from "../notion/member-roster-sync.
 import type { NotionCustomPropertyRuleInput } from "../notion/property-rules.js";
 import type { NotionDatabaseRole } from "../notion/schema-presets.js";
 import type { NotionSchemaApplyOptions } from "../notion/schema-manager.js";
+import type { ActiveProjectSwitchResult } from "../projects/active-project-service.js";
+import type { DirongProjectRow } from "../projects/project-types.js";
 import type { AloneFinalizeSnapshot } from "../recording/alone-finalize-service.js";
 import type { RecordingProducer } from "../recording/recording-producer.js";
 import type {
@@ -24,6 +26,10 @@ import type {
   DirongLocale,
 } from "../settings/local-settings-store.js";
 import type { ProductSetupStatusSnapshot } from "../settings/product-settings.js";
+import type {
+  SettingsResetRequest,
+  SettingsResetResult,
+} from "../settings/reset-service.js";
 import type { SetupWizardActionResult, SetupWizardStateSnapshot } from "../setup/wizard-service.js";
 import type { SttAutomationSnapshot } from "../stt/automation-service.js";
 import { routeDashboardRequest } from "./router.js";
@@ -102,6 +108,31 @@ export type DashboardSetupWizardSource = {
   createManagedDatabases(): Promise<SetupWizardActionResult>;
 };
 
+export type DashboardProjectsCreateDraftInput = {
+  name?: string;
+  reuseEmptyDraft?: boolean;
+  activate?: boolean;
+};
+
+export type DashboardProjectsCreateDraftResult = {
+  project: DirongProjectRow;
+  reused: boolean;
+  switchResult?: ActiveProjectSwitchResult;
+};
+
+export type DashboardProjectsSource = {
+  listProjects(): DirongProjectRow[];
+  getActiveProject(): DirongProjectRow | null;
+  createDraftProject(
+    input?: DashboardProjectsCreateDraftInput,
+  ): Promise<DashboardProjectsCreateDraftResult> | DashboardProjectsCreateDraftResult;
+  switchActiveProject(projectId: string): Promise<ActiveProjectSwitchResult>;
+};
+
+export type DashboardSettingsResetSource = {
+  reset(input: SettingsResetRequest): Promise<SettingsResetResult>;
+};
+
 export type DashboardRuntimeSources = {
   aiReadiness?: DashboardAiReadinessSource;
   aiCleanupAutomation?: DashboardAiCleanupAutomationSource;
@@ -110,6 +141,8 @@ export type DashboardRuntimeSources = {
   notionAutomation?: DashboardNotionAutomationSource;
   setupStatus?: DashboardSetupStatusSource;
   setupWizard?: DashboardSetupWizardSource;
+  projects?: DashboardProjectsSource;
+  settingsReset?: DashboardSettingsResetSource;
   sttAutomation?: DashboardSttAutomationSource;
 };
 

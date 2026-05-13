@@ -867,6 +867,7 @@ export const ko = {
       generatedAt: "업데이트",
     },
     sidebar: {
+      projects: { label: "PROJECTS" },
       servers: { label: "SERVERS" },
       sections: { label: "SECTIONS" },
       quick: { label: "QUICK" },
@@ -885,6 +886,44 @@ export const ko = {
     quick: {
       startRecording: "녹음 시작",
       refreshStatus: "상태 다시 확인",
+    },
+    projects: {
+      empty: "프로젝트 없음",
+      add: "+ 프로젝트 추가",
+      adding: "추가 중...",
+      active: "active",
+      activeContext: "active project",
+      noActive: "활성 프로젝트가 없습니다.",
+      unavailable: "project list",
+      switching: "switching",
+      actionDone: "project update",
+      actionBlocked: "project blocked",
+      switchDone: "활성 프로젝트를 전환했습니다.",
+      createDone: "새 프로젝트를 만들고 활성화했습니다.",
+      createReused: "비어 있는 draft 프로젝트를 활성화했습니다.",
+      guildMissing: "서버 미선택",
+      commandEnabled: "command on",
+      commandDisabled: "command off",
+      notion: {
+        ready: "Notion ready",
+        partial: "Notion partial",
+        missing: "Notion setup",
+      },
+      lifecycle: {
+        draft: "draft",
+        ready: "ready",
+        archived: "archived",
+        resetting: "resetting",
+      },
+      blockReasons: {
+        already_switching: "다른 프로젝트 전환이 진행 중입니다.",
+        project_not_found: "프로젝트를 찾을 수 없습니다.",
+        project_archived: "보관된 프로젝트는 활성화할 수 없습니다.",
+        project_resetting: "초기화 중인 프로젝트는 활성화할 수 없습니다.",
+        recording_active: "녹음 중에는 프로젝트를 전환할 수 없습니다.",
+        notion_upload_in_flight: "Notion 업로드 중에는 프로젝트를 전환할 수 없습니다.",
+        ai_cleanup_in_flight: "AI cleanup 중에는 프로젝트를 전환할 수 없습니다.",
+      },
     },
     setupIncomplete: {
       banner: {
@@ -1058,24 +1097,24 @@ export const ko = {
         },
       },
       notionToken: {
-        title: "Notion internal connection token을 입력합니다",
+        title: "Notion 연결 액세스 토큰을 입력합니다",
         description:
-          "Notion 내부 연결 설정에서 token을 복사해 붙여넣습니다. Token은 local secret file에 저장되고 원문은 다시 표시하지 않습니다.",
+          "Notion Developers에서 새 연결을 만든 뒤 액세스 토큰을 복사해 붙여넣습니다. Token은 local secret file에 저장되고 원문은 다시 표시하지 않습니다.",
         label: "Notion token",
         placeholder: "secret_ 또는 ntn_ token",
         guide: {
           title: "Notion 토큰 발급 받는 방법",
-          profileLink: "Notion 프로필 페이지",
+          profileLink: "Notion Developers",
           step1Suffix: "에 접속합니다.",
-          step2: "메뉴에서 내부 연결을 클릭합니다.",
-          step3: "새 연결 만들기를 클릭합니다.",
+          step2: "메뉴에서 시작하기를 클릭합니다.",
+          step3: "연결 만들기에서 + 신규 연결 버튼을 클릭합니다.",
           step4:
-            "연결 이름을 입력하고 회의록을 작성할 워크스페이스를 선택한 뒤 생성하기를 클릭합니다.",
+            "연결 이름은 헷갈리지 않도록 봇 이름으로 적고, 인증 방법은 액세스 토큰을 선택합니다.",
           step5:
-            "콘텐츠 기능에서 콘텐츠 읽기, 콘텐츠 업데이트, 콘텐츠 입력 권한이 체크되어 있는지 확인합니다.",
-          step6: "액세스 토큰 설치 영역에서 표시하기를 클릭합니다.",
-          step7: "복사를 클릭합니다.",
-          step8: "디롱 페이지로 돌아와 Notion token 칸에 붙여넣습니다.",
+            "설치 가능 워크스페이스는 회의록을 작성할 워크스페이스로 선택한 뒤 연결 생성하기를 클릭합니다.",
+          step6: "메뉴에서 연결을 클릭하고 방금 만든 연결의 관리하기 버튼을 클릭합니다.",
+          step7: "액세스 토큰 칸의 복사 버튼을 클릭합니다.",
+          step8: "디롱이 페이지로 돌아와 Notion token 칸에 붙여넣습니다.",
         },
       },
       notionParent: {
@@ -1523,6 +1562,61 @@ export const ko = {
       },
       secretsHidden: "Token/key 원문은 저장 후 화면에 표시하지 않습니다.",
       resetDanger: "삭제와 초기화는 실제 파일 확인 뒤 별도 구현합니다.",
+      reset: {
+        title: "설정 초기화",
+        safetyLabel: "로컬 초기화",
+        safetyCopy:
+          "원격 Discord application, 원격 Notion DB/page, 로컬 녹음과 회의록 기록은 삭제하지 않습니다.",
+        activeProject: "활성 프로젝트",
+        deletesLabel: "삭제",
+        keepsLabel: "보존",
+        confirm: "삭제 대상을 확인했습니다",
+        running: "초기화 중...",
+        success:
+          "초기화가 완료되었습니다. Discord 봇 로그인은 유지될 수 있지만, 활성 프로젝트 서버가 없으면 Dirong 명령은 실행되지 않습니다.",
+        deletedSummary:
+          "삭제한 secret {secrets}개, 차단한 Notion write {writes}개",
+        full: {
+          title: "완전 초기화",
+          button: "완전 초기화 실행",
+          deletes:
+            "Discord application ID/token, 모든 프로젝트 서버/Notion 연결, Notion registry/cache/rules/roster, AI/Claude 설정과 OpenAI STT key",
+          keeps:
+            "local-whisper 모델/언어/timeout, 대시보드 언어/테마, retention, 로컬 세션/녹음/transcript/STT job/AI draft",
+        },
+        currentProject: {
+          title: "현재 프로젝트 연결 초기화",
+          button: "현재 프로젝트 초기화",
+          deletes:
+            "활성 프로젝트의 Discord 서버, Notion token/page/upload mode, registry/cache/custom rules/member roster",
+          keeps:
+            "Discord application ID/token, STT/Whisper, AI/Claude 설정, 로컬 세션/녹음/transcript/draft",
+        },
+        conflict: {
+          recording_active: "녹음 중에는 초기화할 수 없습니다.",
+          notion_upload_in_flight:
+            "Notion 업로드가 진행 중이라 초기화를 막았습니다.",
+          ai_cleanup_in_flight:
+            "AI 회의록 처리가 진행 중이라 초기화를 막았습니다.",
+          reset_already_running: "이미 초기화가 진행 중입니다.",
+        },
+        effects: {
+          discord: {
+            message:
+              "현재 프로세스의 active project gate가 갱신되어 이전 서버 명령 진입을 막습니다.",
+            action:
+              "봇이 온라인으로 보여도 활성 프로젝트 서버가 없으면 Dirong 명령은 실행되지 않습니다.",
+          },
+          notion: {
+            message:
+              "Notion 자동 업로드 후보는 project_id와 reset watermark 기준으로 다시 계산됩니다.",
+          },
+          ai: {
+            message: "AI cleanup 런타임 설정은 다음 시작 때 새 설정을 사용합니다.",
+            action: "완전 초기화 후 AI를 다시 쓰려면 Claude 설정을 다시 저장해 주세요.",
+          },
+        },
+      },
       retention: {
         audioDeleteAfterNotion: "오디오 파일은 Notion 업로드 성공 후 삭제합니다.",
         audioKept: "오디오 파일 자동 삭제가 꺼져 있습니다.",
@@ -2543,6 +2637,7 @@ export const en = {
       generatedAt: "Updated",
     },
     sidebar: {
+      projects: { label: "PROJECTS" },
       servers: { label: "SERVERS" },
       sections: { label: "SECTIONS" },
       quick: { label: "QUICK" },
@@ -2561,6 +2656,44 @@ export const en = {
     quick: {
       startRecording: "Start recording",
       refreshStatus: "Check status again",
+    },
+    projects: {
+      empty: "No projects",
+      add: "+ Add project",
+      adding: "Adding...",
+      active: "active",
+      activeContext: "active project",
+      noActive: "No active project.",
+      unavailable: "project list",
+      switching: "switching",
+      actionDone: "project update",
+      actionBlocked: "project blocked",
+      switchDone: "Switched the active project.",
+      createDone: "Created and activated a new project.",
+      createReused: "Activated an empty draft project.",
+      guildMissing: "No server selected",
+      commandEnabled: "command on",
+      commandDisabled: "command off",
+      notion: {
+        ready: "Notion ready",
+        partial: "Notion partial",
+        missing: "Notion setup",
+      },
+      lifecycle: {
+        draft: "draft",
+        ready: "ready",
+        archived: "archived",
+        resetting: "resetting",
+      },
+      blockReasons: {
+        already_switching: "Another project switch is already running.",
+        project_not_found: "Project not found.",
+        project_archived: "Archived projects cannot become active.",
+        project_resetting: "Projects currently resetting cannot become active.",
+        recording_active: "Projects cannot be switched while recording is active.",
+        notion_upload_in_flight: "Projects cannot be switched while Notion upload is in flight.",
+        ai_cleanup_in_flight: "Projects cannot be switched while AI cleanup is in flight.",
+      },
     },
     setupIncomplete: {
       banner: {
@@ -2734,23 +2867,23 @@ export const en = {
         },
       },
       notionToken: {
-        title: "Enter the Notion internal connection token",
+        title: "Enter the Notion connection access token",
         description:
-          "Copy the token from Notion internal connection settings and paste it here. The token is saved in the local secret file and the raw value is not shown again.",
+          "Create a new connection in Notion Developers, then copy and paste the access token here. The token is saved in the local secret file and the raw value is not shown again.",
         label: "Notion token",
         placeholder: "secret_ or ntn_ token",
         guide: {
           title: "How to create a Notion token",
-          profileLink: "Notion profile page",
+          profileLink: "Notion Developers",
           step1Suffix: ".",
-          step2: "Open Internal integrations from the menu.",
-          step3: "Click New integration.",
+          step2: "Click Getting started in the menu.",
+          step3: "Under Create a connection, click + New connection.",
           step4:
-            "Enter an integration name, choose the workspace where meeting notes will be created, then click Create.",
+            "Enter a clear bot name for the connection, then choose Access token as the authentication method.",
           step5:
-            "Under Content capabilities, confirm that Read content, Update content, and Insert content are enabled.",
-          step6: "In the access token area, click Show.",
-          step7: "Click Copy.",
+            "Choose the workspace where meeting notes will be created under Installable workspaces, then click Create connection.",
+          step6: "Click Connections in the menu, then click Manage for the connection you just created.",
+          step7: "Click Copy in the Access token field.",
           step8: "Return to Dirong and paste it into the Notion token field.",
         },
       },
@@ -3199,6 +3332,61 @@ export const en = {
       },
       secretsHidden: "Token and key values are never shown after saving.",
       resetDanger: "Delete and reset actions will be implemented with file verification.",
+      reset: {
+        title: "Reset Settings",
+        safetyLabel: "Local reset",
+        safetyCopy:
+          "Remote Discord applications, remote Notion DB/pages, local recordings, and local meeting history are never deleted.",
+        activeProject: "Active project",
+        deletesLabel: "Deletes",
+        keepsLabel: "Keeps",
+        confirm: "I reviewed the deletion scope",
+        running: "Resetting...",
+        success:
+          "Reset completed. The Discord bot may stay logged in, but Dirong commands will not run without an active project server.",
+        deletedSummary:
+          "Deleted {secrets} secret(s), blocked {writes} Notion write(s)",
+        full: {
+          title: "Full Reset",
+          button: "Run Full Reset",
+          deletes:
+            "Discord application ID/token, all project server/Notion connections, Notion registry/cache/rules/roster, AI/Claude settings, and OpenAI STT key",
+          keeps:
+            "local-whisper model/language/timeout, dashboard language/theme, retention, local sessions/recordings/transcripts/STT jobs/AI drafts",
+        },
+        currentProject: {
+          title: "Current Project Connection Reset",
+          button: "Reset Current Project",
+          deletes:
+            "The active project's Discord server, Notion token/page/upload mode, registry/cache/custom rules/member roster",
+          keeps:
+            "Discord application ID/token, STT/Whisper, AI/Claude settings, local sessions/recordings/transcripts/drafts",
+        },
+        conflict: {
+          recording_active: "Reset is unavailable while recording is active.",
+          notion_upload_in_flight:
+            "A Notion upload is in flight, so reset was blocked.",
+          ai_cleanup_in_flight:
+            "AI cleanup is in flight, so reset was blocked.",
+          reset_already_running: "A reset is already running.",
+        },
+        effects: {
+          discord: {
+            message:
+              "The active project gate in this process now blocks commands from the previous server.",
+            action:
+              "The bot may appear online, but Dirong commands will not run without an active project server.",
+          },
+          notion: {
+            message:
+              "Notion automatic upload candidates are recalculated with project_id and the reset watermark.",
+          },
+          ai: {
+            message: "AI cleanup runtime settings will use the new settings on next start.",
+            action: "Save Claude settings again after a full reset to use AI cleanup.",
+          },
+        },
+      },
       retention: {
         audioDeleteAfterNotion: "Audio files are deleted after a successful Notion upload.",
         audioKept: "Audio auto-delete is currently off.",

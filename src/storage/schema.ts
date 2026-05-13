@@ -2,6 +2,7 @@ import { NOTION_WRITES_SCHEMA_SQL } from "./schema-fragments/notion-002.js";
 import { NOTION_CUSTOM_PROPERTY_RULES_SCHEMA_SQL } from "./schema-fragments/notion-003.js";
 import { NOTION_REGISTRY_SCHEMA_SQL } from "./schema-fragments/notion-007.js";
 import { NOTION_MEMBER_ROSTER_SCHEMA_SQL } from "./schema-fragments/notion-009.js";
+import { PROJECT_FOUNDATION_SCHEMA_SQL } from "./schema-fragments/projects-010.js";
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS dirong_migrations (
@@ -9,8 +10,11 @@ CREATE TABLE IF NOT EXISTS dirong_migrations (
   applied_at TEXT NOT NULL
 );
 
+${PROJECT_FOUNDATION_SCHEMA_SQL}
+
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
+  project_id TEXT,
   guild_id TEXT NOT NULL,
   guild_name TEXT,
   text_channel_id TEXT,
@@ -27,7 +31,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   data_dir TEXT NOT NULL,
   last_error TEXT,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (project_id) REFERENCES dirong_projects(id)
 );
 
 CREATE TABLE IF NOT EXISTS session_speakers (

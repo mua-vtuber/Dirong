@@ -21,6 +21,11 @@ import { readManagedNotionRegistrySnapshot } from "../notion/managed-registry.js
 import type { NotionLocale } from "../notion/schema-presets.js";
 import { parseNotionPageUrl } from "../notion/target.js";
 import type { NotionRegistryStore } from "../notion/registry-store.js";
+import type { ProjectStore } from "../projects/project-store.js";
+import {
+  projectNotionTokenSecretRef,
+  type DirongProjectRow,
+} from "../projects/project-types.js";
 import { runChild } from "../process/run-child.js";
 import { validateDashboardCommandInput } from "../process/command-policy.js";
 import type { DirongUserDataPaths } from "../settings/dirong-user-data.js";
@@ -155,6 +160,7 @@ export type SetupWizardServiceOptions = {
   settingsStore: LocalSettingsStore;
   secretStore: LocalSecretStore;
   registryStore?: NotionRegistryStore;
+  projectStore?: ProjectStore;
   discordGateway?: DiscordSetupGateway;
   claudeTester?: ClaudeSetupTester;
   notionClientFactory?: (apiKey: string) => NotionClient;
@@ -165,12 +171,14 @@ export type SetupWizardServiceOptions = {
 export function createProductSetupWizardService(input: {
   paths: DirongUserDataPaths;
   registryStore?: NotionRegistryStore;
+  projectStore?: ProjectStore;
 }): SetupWizardService {
   return new SetupWizardService({
     paths: input.paths,
     settingsStore: new LocalSettingsStore(input.paths.settingsFile),
     secretStore: new LocalSecretStore(input.paths.secretsFile),
     registryStore: input.registryStore,
+    projectStore: input.projectStore,
   });
 }
 
@@ -356,6 +364,20 @@ export class SetupWizardService {
         userActionKey: "setup.discord.guildAllowlist.error.invalid.action",
       });
     }
+    if (this.options.projectStore && guildIds.length !== 1) {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.discord.guildAllowlist.error.invalid.message",
+        userActionKey: "setup.discord.guildAllowlist.error.invalid.action",
+      });
+    }
+
+    const activeProject = this.readActiveProjectForSetup();
+    if (!activeProject.ok) {
+      return this.result(activeProject.error);
+    }
 
     const settings = this.options.settingsStore.read();
     const botToken = this.options.secretStore.get(
@@ -387,13 +409,30 @@ export class SetupWizardService {
       }
 
       const selectedGuilds = botGuilds.filter((guild) => guildIds.includes(guild.id));
-      this.options.settingsStore.update((nextSettings) => ({
-        ...nextSettings,
-        discord: {
-          ...nextSettings.discord,
-          guildIds,
-        },
-      }));
+      if (this.options.projectStore && activeProject.project) {
+        const selectedGuild = selectedGuilds[0];
+        if (!selectedGuild) {
+          throw new Error("Selected Discord guild was not found.");
+        }
+        this.options.projectStore.updateProjectDiscordGuildFields({
+          projectId: activeProject.project.id,
+          guildId: selectedGuild.id,
+          guildName: selectedGuild.name,
+          guildIconUrl: selectedGuild.iconUrl,
+          nowIso: this.now().toISOString(),
+        });
+        this.writeProjectCompatibilityProjection({
+          guildIds: [selectedGuild.id],
+        });
+      } else {
+        this.options.settingsStore.update((nextSettings) => ({
+          ...nextSettings,
+          discord: {
+            ...nextSettings.discord,
+            guildIds,
+          },
+        }));
+      }
 
       return this.result({
         ok: true,
@@ -627,14 +666,33 @@ export class SetupWizardService {
       });
     }
 
-    this.options.secretStore.set(DEFAULT_SECRET_REFS.notionToken, token);
-    this.options.settingsStore.update((settings) => ({
-      ...settings,
-      notion: {
-        ...settings.notion,
-        tokenSecretRef: DEFAULT_SECRET_REFS.notionToken,
-      },
-    }));
+    const activeProject = this.readActiveProjectForSetup();
+    if (!activeProject.ok) {
+      return this.result(activeProject.error);
+    }
+
+    const secretRef = activeProject.project
+      ? projectNotionTokenSecretRef(activeProject.project.id)
+      : DEFAULT_SECRET_REFS.notionToken;
+    this.options.secretStore.set(secretRef, token);
+    if (activeProject.project && this.options.projectStore) {
+      this.options.projectStore.updateProjectNotionFields({
+        projectId: activeProject.project.id,
+        notionTokenSecretRef: secretRef,
+        nowIso: this.now().toISOString(),
+      });
+      this.writeProjectCompatibilityProjection({
+        notionTokenSecretRef: secretRef,
+      });
+    } else {
+      this.options.settingsStore.update((settings) => ({
+        ...settings,
+        notion: {
+          ...settings.notion,
+          tokenSecretRef: secretRef,
+        },
+      }));
+    }
 
     return this.result({
       ok: true,
@@ -642,7 +700,7 @@ export class SetupWizardService {
       messageKey: "setup.notion.token.save.done.message",
       userActionKey: null,
       runtimeEffectScope: "notion",
-      secret: this.options.secretStore.snapshot(DEFAULT_SECRET_REFS.notionToken),
+      secret: this.options.secretStore.snapshot(secretRef),
     });
   }
 
@@ -674,13 +732,29 @@ export class SetupWizardService {
       });
     }
 
-    this.options.settingsStore.update((settings) => ({
-      ...settings,
-      notion: {
-        ...settings.notion,
-        parentPageUrl: parsed.url ?? parentPageUrl.trim(),
-      },
-    }));
+    const activeProject = this.readActiveProjectForSetup();
+    if (!activeProject.ok) {
+      return this.result(activeProject.error);
+    }
+    const normalizedUrl = parsed.url ?? parentPageUrl.trim();
+    if (activeProject.project && this.options.projectStore) {
+      this.options.projectStore.updateProjectNotionFields({
+        projectId: activeProject.project.id,
+        notionParentPageUrl: normalizedUrl,
+        nowIso: this.now().toISOString(),
+      });
+      this.writeProjectCompatibilityProjection({
+        notionParentPageUrl: normalizedUrl,
+      });
+    } else {
+      this.options.settingsStore.update((settings) => ({
+        ...settings,
+        notion: {
+          ...settings.notion,
+          parentPageUrl: normalizedUrl,
+        },
+      }));
+    }
 
     return this.result({
       ok: true,
@@ -730,8 +804,14 @@ export class SetupWizardService {
       });
     }
 
+    const activeProject = this.readActiveProjectForSetup();
+    if (!activeProject.ok) {
+      return this.result(activeProject.error);
+    }
+    const registryProjectId = activeProject.project?.id;
     const registrySnapshot = readManagedNotionRegistrySnapshot(
       this.options.registryStore,
+      { projectId: registryProjectId },
     );
     if (registrySnapshot.status === "ready") {
       return this.result({
@@ -775,6 +855,7 @@ export class SetupWizardService {
       const created = await this.managedSchemaCreator({
         client: context.client,
         registryStore: this.options.registryStore,
+        projectId: context.projectId,
         parentPageUrl: context.parentPageUrl,
         locale,
         nowIso: this.now().toISOString(),
@@ -845,9 +926,60 @@ export class SetupWizardService {
     });
   }
 
+  private readActiveProjectForSetup():
+    | { ok: true; project: DirongProjectRow | null }
+    | { ok: false; error: ResultInput } {
+    if (!this.options.projectStore) {
+      return { ok: true, project: null };
+    }
+
+    const project = this.options.projectStore.getActiveProject();
+    if (project) {
+      return { ok: true, project };
+    }
+
+    return {
+      ok: false,
+      error: {
+        ok: false,
+        status: "not_configured",
+        httpStatus: 409,
+        messageKey: "setup.discord.guildAllowlist.error.invalid.message",
+        userActionKey: "setup.discord.guildAllowlist.error.invalid.action",
+      },
+    };
+  }
+
+  private writeProjectCompatibilityProjection(input: {
+    guildIds?: string[];
+    notionTokenSecretRef?: string;
+    notionParentPageUrl?: string;
+  }): void {
+    this.options.settingsStore.update((settings) => ({
+      ...settings,
+      discord: input.guildIds
+        ? {
+            ...settings.discord,
+            guildIds: input.guildIds,
+          }
+        : settings.discord,
+      notion:
+        input.notionTokenSecretRef || input.notionParentPageUrl
+          ? {
+              ...settings.notion,
+              tokenSecretRef:
+                input.notionTokenSecretRef ?? settings.notion.tokenSecretRef,
+              parentPageUrl:
+                input.notionParentPageUrl ?? settings.notion.parentPageUrl,
+            }
+          : settings.notion,
+    }));
+  }
+
   private readNotionContext():
     | {
         ok: true;
+        projectId?: string;
         client: NotionClient;
         parentPageUrl: string;
         parentPageId: string;
@@ -857,10 +989,21 @@ export class SetupWizardService {
         error: ResultInput;
       } {
     const settings = this.options.settingsStore.read();
-    const token = this.options.secretStore.get(
-      settings.notion.tokenSecretRef ?? DEFAULT_SECRET_REFS.notionToken,
-    );
-    if (!token || !settings.notion.parentPageUrl) {
+    const activeProject = this.readActiveProjectForSetup();
+    if (!activeProject.ok) {
+      return {
+        ok: false,
+        error: activeProject.error,
+      };
+    }
+    const notionTokenSecretRef = activeProject.project
+      ? activeProject.project.notion_token_secret_ref
+      : settings.notion.tokenSecretRef ?? DEFAULT_SECRET_REFS.notionToken;
+    const parentPageUrl = activeProject.project
+      ? activeProject.project.notion_parent_page_url
+      : settings.notion.parentPageUrl;
+    const token = this.options.secretStore.get(notionTokenSecretRef ?? undefined);
+    if (!token || !parentPageUrl) {
       return {
         ok: false,
         error: {
@@ -873,7 +1016,7 @@ export class SetupWizardService {
       };
     }
 
-    const parsed = parseNotionPageUrl(settings.notion.parentPageUrl);
+    const parsed = parseNotionPageUrl(parentPageUrl);
     if (parsed.kind === "invalid") {
       return {
         ok: false,
@@ -890,8 +1033,9 @@ export class SetupWizardService {
 
     return {
       ok: true,
+      projectId: activeProject.project?.id,
       client: this.notionClientFactory(token),
-      parentPageUrl: settings.notion.parentPageUrl,
+      parentPageUrl,
       parentPageId: parsed.id,
     };
   }
@@ -903,6 +1047,7 @@ export class SetupWizardService {
       settings,
       secretStore: this.options.secretStore,
       registryStore: this.options.registryStore,
+      projectStore: this.options.projectStore,
     });
     const steps = buildWizardSteps(setup);
     const completedStepCount = steps.filter((step) => step.status === "ready").length;

@@ -9,10 +9,14 @@ import type { NotionClient } from "./client.js";
 import { NotionRegistryStore } from "./registry-store.js";
 import { KOREAN_NOTION_SCHEMA_PRESET } from "./schema-presets.js";
 import {
+  NotionCustomPropertyRuleStore,
+} from "./property-rules.js";
+import {
   DEFAULT_NOTION_PROPERTY_NAMES,
   type NotionRuntimeSettings,
 } from "./settings.js";
 import { SqlRunner } from "../storage/sql-runner.js";
+import { ProjectStore } from "../projects/project-store.js";
 
 test("NotionDashboardService reads latest settings for snapshots", () => {
   const fixture = createFixture();
@@ -191,6 +195,90 @@ test("NotionDashboardService syncs member roster by semantic mappings with pagin
   }
 });
 
+test("NotionDashboardService reads registry, roster, and custom rules from the active project", async () => {
+  const fixture = createFixture();
+  try {
+    const runner = new SqlRunner(fixture.database);
+    const projectStore = new ProjectStore(runner);
+    projectStore.createProject({
+      id: "project-a",
+      name: "Project A",
+      nowIso: "2026-05-13T00:00:00.000Z",
+    });
+    projectStore.createProject({
+      id: "project-b",
+      name: "Project B",
+      nowIso: "2026-05-13T00:00:00.000Z",
+    });
+    const registryStore = new NotionRegistryStore(runner);
+    seedManagedRegistry(registryStore, {
+      projectId: "project-a",
+      dataSourceId: "member-data-source-a",
+    });
+    seedManagedRegistry(registryStore, {
+      projectId: "project-b",
+      dataSourceId: "member-data-source-b",
+    });
+    const ruleStore = new NotionCustomPropertyRuleStore(runner);
+    ruleStore.saveRules({
+      projectId: "project-a",
+      databaseRole: "meeting",
+      requiredPropertyNames: [],
+      nowIso: "2026-05-13T00:00:00.000Z",
+      rules: [{
+        propertyName: "Project A Note",
+        propertyType: "rich_text",
+        valueSource: "ai",
+        enabled: true,
+        promptDescription: "A only",
+      }],
+    });
+    ruleStore.saveRules({
+      projectId: "project-b",
+      databaseRole: "meeting",
+      requiredPropertyNames: [],
+      nowIso: "2026-05-13T00:00:00.000Z",
+      rules: [{
+        propertyName: "Project B Note",
+        propertyType: "rich_text",
+        valueSource: "ai",
+        enabled: true,
+        promptDescription: "B only",
+      }],
+    });
+    const client = new FakeNotionClient({
+      memberPages: [memberPage("page-b", "B Member", ["Backend"])],
+    });
+    const service = new NotionDashboardService({
+      settings: notionSettings({
+        apiKey: "ntn_test_dashboard_secret",
+        targetUrl: null,
+      }),
+      getProjectId: () => "project-b",
+      notionClientFactory: () => client,
+      database: fixture.database,
+      config: { sttLeaseMs: 60000 },
+      workerId: "notion-dashboard-test",
+    });
+
+    const syncResult = await service.syncMemberRoster();
+    const snapshot = service.getSnapshot();
+    const meetingRuleNames =
+      snapshot.customProperties.roles.meeting.rules.map((rule) => rule.propertyName);
+
+    assert.equal(syncResult.dataSourceId, "member-data-source-b");
+    assert.equal(snapshot.managedRegistry?.databases.find(
+      (database) => database.role === "member",
+    )?.name, "작업자 project-b");
+    assert.equal(snapshot.memberRoster.dataSourceId, "member-data-source-b");
+    assert.equal(snapshot.memberRoster.memberCount, 1);
+    assert.ok(meetingRuleNames.includes("Project B Note"));
+    assert.equal(meetingRuleNames.includes("Project A Note"), false);
+  } finally {
+    fixture.close();
+  }
+});
+
 class FakeNotionClient implements NotionClient {
   readonly queryBodies: Record<string, unknown>[] = [];
 
@@ -217,9 +305,9 @@ class FakeNotionClient implements NotionClient {
   }
 
   async retrieveDataSource(dataSourceId = "01234567-89ab-cdef-0123-456789abcdef"): Promise<Record<string, unknown>> {
-    if (dataSourceId === "member-data-source") {
+    if (dataSourceId.startsWith("member-data-source")) {
       return {
-        id: "member-data-source",
+        id: dataSourceId,
         name: "작업자",
         properties: {
           "디스코드 닉네임": { id: "member-discord-name-id", type: "title" },
@@ -248,7 +336,7 @@ class FakeNotionClient implements NotionClient {
     body: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     this.queryBodies.push(body);
-    if (dataSourceId === "member-data-source") {
+    if (dataSourceId.startsWith("member-data-source")) {
       const pages = this.options.memberPages ?? [];
       if (body.start_cursor === "cursor-2") {
         return {
@@ -335,8 +423,17 @@ function completeProperties(): Record<string, { id: string; type: string }> {
   };
 }
 
-function seedManagedRegistry(store: NotionRegistryStore): void {
+function seedManagedRegistry(
+  store: NotionRegistryStore,
+  options: {
+    projectId?: string;
+    dataSourceId?: string;
+  } = {},
+): void {
+  const projectId = options.projectId;
+  const dataSourceId = options.dataSourceId ?? "member-data-source";
   store.saveWorkspaceSettings({
+    projectId,
     locale: "ko",
     parentPageUrl:
       "https://www.notion.so/workspace/Dirong-99999999999999999999999999999999",
@@ -344,18 +441,20 @@ function seedManagedRegistry(store: NotionRegistryStore): void {
     nowIso: "2026-05-13T00:00:00.000Z",
   });
   store.upsertManagedDatabase({
+    projectId,
     role: "member",
     locale: "ko",
     databaseId: "member-db",
-    dataSourceId: "member-data-source",
+    dataSourceId,
     url: "https://notion.so/member-db",
-    name: "작업자",
+    name: projectId ? `작업자 ${projectId}` : "작업자",
     createdByDirong: true,
     schemaVersion: "notion-managed-db-v1",
     nowIso: "2026-05-13T00:00:00.000Z",
   });
   for (const property of KOREAN_NOTION_SCHEMA_PRESET.databases.member.properties) {
     store.upsertPropertyMapping({
+      projectId,
       databaseRole: "member",
       semanticKey: property.key,
       propertyName: property.name,

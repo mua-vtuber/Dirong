@@ -87,6 +87,7 @@ export async function applyManagedSchemaRepair(input: {
   registryStore: NotionRegistryStore;
   role: NotionDatabaseRole;
   expectedPlanHash: string;
+  projectId?: string;
   operationIds?: readonly string[];
   nowIso?: string;
   preset?: NotionSchemaPreset;
@@ -134,13 +135,17 @@ export async function applyManagedSchemaRepair(input: {
   const afterDiff = buildManagedSchemaDiff({
     databaseRole: input.role,
     properties: readDataSourceProperties(afterDataSource),
-    mappings: input.registryStore.listPropertyMappings(),
-    managedDatabases: input.registryStore.listManagedDatabases(),
+    mappings: input.registryStore.listPropertyMappings(
+      undefined,
+      input.projectId,
+    ),
+    managedDatabases: input.registryStore.listManagedDatabases(input.projectId),
     preset: input.preset,
   });
   const updatedMappings = upsertResolvedMappings({
     registryStore: input.registryStore,
     role: input.role,
+    projectId: input.projectId,
     diff: afterDiff,
     operations: selectedOperations,
     nowIso: input.nowIso ?? new Date().toISOString(),
@@ -307,6 +312,7 @@ async function loadRepairContext(input: {
   client: NotionClient;
   registryStore: NotionRegistryStore;
   role: NotionDatabaseRole;
+  projectId?: string;
   preset?: NotionSchemaPreset;
 }): Promise<{
   role: NotionDatabaseRole;
@@ -316,12 +322,20 @@ async function loadRepairContext(input: {
   managedDatabases: NotionManagedDatabase[];
   preset?: NotionSchemaPreset;
 }> {
-  const managedDatabase = input.registryStore.getManagedDatabase(input.role);
+  const managedDatabase = input.registryStore.getManagedDatabase(
+    input.role,
+    input.projectId,
+  );
   if (!managedDatabase) {
     throw new Error(`${input.role} managed Notion DB registry가 없습니다.`);
   }
-  const managedDatabases = input.registryStore.listManagedDatabases();
-  const mappings = input.registryStore.listPropertyMappings();
+  const managedDatabases = input.registryStore.listManagedDatabases(
+    input.projectId,
+  );
+  const mappings = input.registryStore.listPropertyMappings(
+    undefined,
+    input.projectId,
+  );
   const dataSource = await input.client.retrieveDataSource(
     managedDatabase.dataSourceId,
   );
@@ -388,6 +402,7 @@ function selectOperations(
 function upsertResolvedMappings(input: {
   registryStore: NotionRegistryStore;
   role: NotionDatabaseRole;
+  projectId?: string;
   diff: ManagedSchemaDiff;
   operations: readonly ManagedSchemaRepairOperation[];
   nowIso: string;
@@ -421,6 +436,7 @@ function upsertResolvedMappings(input: {
         continue;
       }
       input.registryStore.upsertPropertyMapping({
+        projectId: input.projectId,
         databaseRole: input.role,
         semanticKey: operation.semanticKey,
         propertyName: resolved.propertyName,

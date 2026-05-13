@@ -1,4 +1,5 @@
 import { SqlRunner } from "../storage/sql-runner.js";
+import { DEFAULT_PROJECT_ID } from "../projects/project-types.js";
 import {
   databaseRoleForSemanticKey,
   NOTION_DATABASE_ROLES,
@@ -35,6 +36,7 @@ const NOTION_SCHEMA_PRESET_PROPERTY_TYPES = [
 ] as const satisfies readonly NotionSchemaPresetPropertyType[];
 
 export type NotionWorkspaceSettings = {
+  projectId?: string;
   id: string;
   locale: NotionLocale;
   parentPageUrl: string;
@@ -44,6 +46,7 @@ export type NotionWorkspaceSettings = {
 };
 
 export type SaveNotionWorkspaceSettingsInput = {
+  projectId?: string;
   id?: string;
   locale: NotionLocale;
   parentPageUrl: string;
@@ -52,6 +55,7 @@ export type SaveNotionWorkspaceSettingsInput = {
 };
 
 export type NotionManagedDatabase = {
+  projectId?: string;
   role: NotionDatabaseRole;
   locale: NotionLocale;
   databaseId: string;
@@ -65,6 +69,7 @@ export type NotionManagedDatabase = {
 };
 
 export type UpsertNotionManagedDatabaseInput = {
+  projectId?: string;
   role: NotionDatabaseRole;
   locale: NotionLocale;
   databaseId: string;
@@ -77,6 +82,7 @@ export type UpsertNotionManagedDatabaseInput = {
 };
 
 export type NotionPropertyMapping = {
+  projectId?: string;
   databaseRole: NotionDatabaseRole;
   semanticKey: NotionPropertySemanticKey;
   propertyName: string;
@@ -89,6 +95,7 @@ export type NotionPropertyMapping = {
 };
 
 export type UpsertNotionPropertyMappingInput = {
+  projectId?: string;
   databaseRole: NotionDatabaseRole;
   semanticKey: NotionPropertySemanticKey;
   propertyName: string;
@@ -100,6 +107,7 @@ export type UpsertNotionPropertyMappingInput = {
 };
 
 export type ReplaceNotionPropertyMappingsInput = {
+  projectId?: string;
   databaseRole: NotionDatabaseRole;
   mappings: ReadonlyArray<
     Omit<UpsertNotionPropertyMappingInput, "databaseRole" | "nowIso">
@@ -108,6 +116,7 @@ export type ReplaceNotionPropertyMappingsInput = {
 };
 
 export type SaveNotionManagedSchemaInput = {
+  projectId?: string;
   workspaceSettings: Omit<SaveNotionWorkspaceSettingsInput, "nowIso">;
   managedDatabases: ReadonlyArray<
     Omit<UpsertNotionManagedDatabaseInput, "nowIso">
@@ -118,7 +127,14 @@ export type SaveNotionManagedSchemaInput = {
   nowIso: string;
 };
 
+export type ClearNotionRegistryProjectResult = {
+  workspaceSettings: number;
+  managedDatabases: number;
+  propertyMappings: number;
+};
+
 type NotionWorkspaceSettingsRow = {
+  project_id: string;
   id: string;
   locale: string;
   parent_page_url: string;
@@ -128,6 +144,7 @@ type NotionWorkspaceSettingsRow = {
 };
 
 type NotionManagedDatabaseRow = {
+  project_id: string;
   role: string;
   locale: string;
   database_id: string;
@@ -141,6 +158,7 @@ type NotionManagedDatabaseRow = {
 };
 
 type NotionPropertyMappingRow = {
+  project_id: string;
   database_role: string;
   semantic_key: string;
   property_name: string;
@@ -162,9 +180,12 @@ export class NotionRegistryStore {
   saveWorkspaceSettings(
     input: SaveNotionWorkspaceSettingsInput,
   ): NotionWorkspaceSettings {
-    const id = this.writeWorkspaceSettings(input);
+    const savedIdentity = this.writeWorkspaceSettings(input);
 
-    const saved = this.getWorkspaceSettings(id);
+    const saved = this.getWorkspaceSettings(
+      savedIdentity.id,
+      savedIdentity.projectId,
+    );
     if (!saved) {
       throw new Error("Notion workspace settings를 저장하지 못했습니다.");
     }
@@ -173,11 +194,14 @@ export class NotionRegistryStore {
 
   getWorkspaceSettings(
     id = DEFAULT_NOTION_WORKSPACE_SETTINGS_ID,
+    projectId = DEFAULT_PROJECT_ID,
   ): NotionWorkspaceSettings | null {
     const row = this.runner.get<NotionWorkspaceSettingsRow>(
       `SELECT *
        FROM notion_workspace_settings
-       WHERE id = ?`,
+       WHERE project_id = ?
+         AND id = ?`,
+      cleanRequiredString(projectId, "project id"),
       cleanRequiredString(id, "workspace settings id"),
     );
     return row ? rowToWorkspaceSettings(row) : null;
@@ -186,31 +210,41 @@ export class NotionRegistryStore {
   upsertManagedDatabase(
     input: UpsertNotionManagedDatabaseInput,
   ): NotionManagedDatabase {
-    const role = this.writeManagedDatabase(input);
+    const savedIdentity = this.writeManagedDatabase(input);
 
-    const saved = this.getManagedDatabase(role);
+    const saved = this.getManagedDatabase(
+      savedIdentity.role,
+      savedIdentity.projectId,
+    );
     if (!saved) {
       throw new Error("Notion managed database를 저장하지 못했습니다.");
     }
     return saved;
   }
 
-  getManagedDatabase(role: NotionDatabaseRole): NotionManagedDatabase | null {
+  getManagedDatabase(
+    role: NotionDatabaseRole,
+    projectId = DEFAULT_PROJECT_ID,
+  ): NotionManagedDatabase | null {
     const row = this.runner.get<NotionManagedDatabaseRow>(
       `SELECT *
        FROM notion_managed_databases
-       WHERE role = ?`,
+       WHERE project_id = ?
+         AND role = ?`,
+      cleanRequiredString(projectId, "project id"),
       requireNotionDatabaseRole(role),
     );
     return row ? rowToManagedDatabase(row) : null;
   }
 
-  listManagedDatabases(): NotionManagedDatabase[] {
+  listManagedDatabases(projectId = DEFAULT_PROJECT_ID): NotionManagedDatabase[] {
     return this.runner
       .all<NotionManagedDatabaseRow>(
         `SELECT *
          FROM notion_managed_databases
+         WHERE project_id = ?
          ORDER BY role ASC`,
+        cleanRequiredString(projectId, "project id"),
       )
       .map(rowToManagedDatabase);
   }
@@ -223,6 +257,7 @@ export class NotionRegistryStore {
     const saved = this.getPropertyMapping(
       input.databaseRole,
       input.semanticKey,
+      input.projectId ?? DEFAULT_PROJECT_ID,
     );
     if (!saved) {
       throw new Error("Notion property mapping을 저장하지 못했습니다.");
@@ -233,13 +268,17 @@ export class NotionRegistryStore {
   getPropertyMapping(
     databaseRole: NotionDatabaseRole,
     semanticKey: NotionPropertySemanticKey,
+    projectId = DEFAULT_PROJECT_ID,
   ): NotionPropertyMapping | null {
     const role = requireNotionDatabaseRole(databaseRole);
     const key = requireSemanticKeyForRole(semanticKey, role);
     const row = this.runner.get<NotionPropertyMappingRow>(
       `SELECT *
        FROM notion_property_mappings
-       WHERE database_role = ? AND semantic_key = ?`,
+       WHERE project_id = ?
+         AND database_role = ?
+         AND semantic_key = ?`,
+      cleanRequiredString(projectId, "project id"),
       role,
       key,
     );
@@ -248,13 +287,17 @@ export class NotionRegistryStore {
 
   listPropertyMappings(
     databaseRole?: NotionDatabaseRole,
+    projectId = DEFAULT_PROJECT_ID,
   ): NotionPropertyMapping[] {
+    const resolvedProjectId = cleanRequiredString(projectId, "project id");
     if (databaseRole === undefined) {
       return this.runner
         .all<NotionPropertyMappingRow>(
           `SELECT *
            FROM notion_property_mappings
+           WHERE project_id = ?
            ORDER BY database_role ASC, semantic_key ASC`,
+          resolvedProjectId,
         )
         .map(rowToPropertyMapping);
     }
@@ -263,8 +306,10 @@ export class NotionRegistryStore {
       .all<NotionPropertyMappingRow>(
         `SELECT *
          FROM notion_property_mappings
-         WHERE database_role = ?
+         WHERE project_id = ?
+           AND database_role = ?
          ORDER BY semantic_key ASC`,
+        resolvedProjectId,
         requireNotionDatabaseRole(databaseRole),
       )
       .map(rowToPropertyMapping);
@@ -274,36 +319,50 @@ export class NotionRegistryStore {
     input: ReplaceNotionPropertyMappingsInput,
   ): NotionPropertyMapping[] {
     const role = requireNotionDatabaseRole(input.databaseRole);
+    const projectId = cleanRequiredString(
+      input.projectId ?? DEFAULT_PROJECT_ID,
+      "project id",
+    );
     const nowIso = cleanRequiredString(input.nowIso, "nowIso");
 
     this.runner.transaction(() => {
       this.runner.run(
-        "DELETE FROM notion_property_mappings WHERE database_role = ?",
+        `DELETE FROM notion_property_mappings
+         WHERE project_id = ?
+           AND database_role = ?`,
+        projectId,
         role,
       );
       for (const mapping of input.mappings) {
         this.writePropertyMapping({
           ...mapping,
+          projectId,
           databaseRole: role,
           nowIso,
         });
       }
     });
 
-    return this.listPropertyMappings(role);
+    return this.listPropertyMappings(role, projectId);
   }
 
   saveManagedSchema(input: SaveNotionManagedSchemaInput): void {
     const nowIso = cleanRequiredString(input.nowIso, "nowIso");
+    const projectId = cleanRequiredString(
+      input.projectId ?? DEFAULT_PROJECT_ID,
+      "project id",
+    );
     this.runner.transaction(() => {
       this.writeWorkspaceSettings({
         ...input.workspaceSettings,
+        projectId,
         nowIso,
       });
 
       for (const database of input.managedDatabases) {
         this.writeManagedDatabase({
           ...database,
+          projectId,
           nowIso,
         });
       }
@@ -315,22 +374,52 @@ export class NotionRegistryStore {
       );
       for (const role of rolesWithMappings) {
         this.runner.run(
-          "DELETE FROM notion_property_mappings WHERE database_role = ?",
+          `DELETE FROM notion_property_mappings
+           WHERE project_id = ?
+             AND database_role = ?`,
+          projectId,
           role,
         );
       }
       for (const mapping of input.propertyMappings) {
         this.writePropertyMapping({
           ...mapping,
+          projectId,
           nowIso,
         });
       }
     });
   }
 
+  clearProject(projectId = DEFAULT_PROJECT_ID): ClearNotionRegistryProjectResult {
+    const resolvedProjectId = cleanRequiredString(projectId, "project id");
+    let propertyMappings = 0;
+    let managedDatabases = 0;
+    let workspaceSettings = 0;
+    this.runner.transaction(() => {
+      propertyMappings = this.runner.run(
+        "DELETE FROM notion_property_mappings WHERE project_id = ?",
+        resolvedProjectId,
+      );
+      managedDatabases = this.runner.run(
+        "DELETE FROM notion_managed_databases WHERE project_id = ?",
+        resolvedProjectId,
+      );
+      workspaceSettings = this.runner.run(
+        "DELETE FROM notion_workspace_settings WHERE project_id = ?",
+        resolvedProjectId,
+      );
+    });
+    return { workspaceSettings, managedDatabases, propertyMappings };
+  }
+
   private writeWorkspaceSettings(
     input: SaveNotionWorkspaceSettingsInput,
-  ): string {
+  ): { projectId: string; id: string } {
+    const projectId = cleanRequiredString(
+      input.projectId ?? DEFAULT_PROJECT_ID,
+      "project id",
+    );
     const id = cleanRequiredString(
       input.id ?? DEFAULT_NOTION_WORKSPACE_SETTINGS_ID,
       "workspace settings id",
@@ -348,13 +437,16 @@ export class NotionRegistryStore {
 
     this.runner.run(
       `INSERT INTO notion_workspace_settings (
-         id, locale, parent_page_url, parent_page_id, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
+         project_id, id, locale, parent_page_url, parent_page_id,
+         created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(project_id) DO UPDATE SET
+         id = excluded.id,
          locale = excluded.locale,
          parent_page_url = excluded.parent_page_url,
          parent_page_id = excluded.parent_page_id,
          updated_at = excluded.updated_at`,
+      projectId,
       id,
       locale,
       parentPageUrl,
@@ -363,12 +455,16 @@ export class NotionRegistryStore {
       nowIso,
     );
 
-    return id;
+    return { projectId, id };
   }
 
   private writeManagedDatabase(
     input: UpsertNotionManagedDatabaseInput,
-  ): NotionDatabaseRole {
+  ): { projectId: string; role: NotionDatabaseRole } {
+    const projectId = cleanRequiredString(
+      input.projectId ?? DEFAULT_PROJECT_ID,
+      "project id",
+    );
     const role = requireNotionDatabaseRole(input.role);
     const locale = requireNotionLocale(input.locale);
     const databaseId = cleanRequiredString(input.databaseId, "database id");
@@ -386,10 +482,10 @@ export class NotionRegistryStore {
 
     this.runner.run(
       `INSERT INTO notion_managed_databases (
-         role, locale, database_id, data_source_id, url, name,
+         project_id, role, locale, database_id, data_source_id, url, name,
          created_by_dirong, schema_version, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(role) DO UPDATE SET
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(project_id, role) DO UPDATE SET
          locale = excluded.locale,
          database_id = excluded.database_id,
          data_source_id = excluded.data_source_id,
@@ -398,6 +494,7 @@ export class NotionRegistryStore {
          created_by_dirong = excluded.created_by_dirong,
          schema_version = excluded.schema_version,
          updated_at = excluded.updated_at`,
+      projectId,
       role,
       locale,
       databaseId,
@@ -410,10 +507,14 @@ export class NotionRegistryStore {
       nowIso,
     );
 
-    return role;
+    return { projectId, role };
   }
 
   private writePropertyMapping(input: UpsertNotionPropertyMappingInput): void {
+    const projectId = cleanRequiredString(
+      input.projectId ?? DEFAULT_PROJECT_ID,
+      "project id",
+    );
     const databaseRole = requireNotionDatabaseRole(input.databaseRole);
     const semanticKey = requireSemanticKeyForRole(
       input.semanticKey,
@@ -427,16 +528,17 @@ export class NotionRegistryStore {
 
     this.runner.run(
       `INSERT INTO notion_property_mappings (
-         database_role, semantic_key, property_name, property_id,
+         project_id, database_role, semantic_key, property_name, property_id,
          property_type, locked, source_kind, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(database_role, semantic_key) DO UPDATE SET
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(project_id, database_role, semantic_key) DO UPDATE SET
          property_name = excluded.property_name,
          property_id = excluded.property_id,
          property_type = excluded.property_type,
          locked = excluded.locked,
          source_kind = excluded.source_kind,
          updated_at = excluded.updated_at`,
+      projectId,
       databaseRole,
       semanticKey,
       propertyName,
@@ -454,6 +556,7 @@ function rowToWorkspaceSettings(
   row: NotionWorkspaceSettingsRow,
 ): NotionWorkspaceSettings {
   return {
+    projectId: row.project_id,
     id: row.id,
     locale: requireNotionLocale(row.locale),
     parentPageUrl: row.parent_page_url,
@@ -467,6 +570,7 @@ function rowToManagedDatabase(
   row: NotionManagedDatabaseRow,
 ): NotionManagedDatabase {
   return {
+    projectId: row.project_id,
     role: requireNotionDatabaseRole(row.role),
     locale: requireNotionLocale(row.locale),
     databaseId: row.database_id,
@@ -485,6 +589,7 @@ function rowToPropertyMapping(
 ): NotionPropertyMapping {
   const databaseRole = requireNotionDatabaseRole(row.database_role);
   return {
+    projectId: row.project_id,
     databaseRole,
     semanticKey: requireSemanticKeyForRole(row.semantic_key, databaseRole),
     propertyName: row.property_name,

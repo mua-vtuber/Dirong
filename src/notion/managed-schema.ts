@@ -35,6 +35,7 @@ const MANAGED_DATABASE_CREATE_ORDER = ["member", "meeting", "task"] as const;
 type CreateManagedNotionSchemaInput = {
   client: NotionClient;
   registryStore: NotionRegistryStore;
+  projectId?: string;
   parentPageUrl: string;
   locale?: NotionLocale;
   nowIso?: string;
@@ -126,7 +127,9 @@ export async function createManagedNotionSchema(
   );
 
   input.registryStore.saveManagedSchema({
+    projectId: input.projectId,
     workspaceSettings: {
+      projectId: input.projectId,
       locale,
       parentPageUrl: parsedPage.url ?? input.parentPageUrl.trim(),
       parentPageId: parsedPage.id,
@@ -141,7 +144,7 @@ export async function createManagedNotionSchema(
     parentPageUrl: parsedPage.url ?? input.parentPageUrl.trim(),
     parentPageId: parsedPage.id,
     databases: createdDatabasesToRecord(createdByRole),
-    propertyMappings: loadSavedPropertyMappings(input.registryStore),
+    propertyMappings: loadSavedPropertyMappings(input.registryStore, input.projectId),
   };
 }
 
@@ -515,11 +518,12 @@ function createdContextToPropertyMappingInputs(
 
 function loadSavedPropertyMappings(
   registryStore: NotionRegistryStore,
+  projectId: string | undefined,
 ): Record<NotionDatabaseRole, NotionPropertyMapping[]> {
   return {
-    meeting: registryStore.listPropertyMappings("meeting"),
-    member: registryStore.listPropertyMappings("member"),
-    task: registryStore.listPropertyMappings("task"),
+    meeting: registryStore.listPropertyMappings("meeting", projectId),
+    member: registryStore.listPropertyMappings("member", projectId),
+    task: registryStore.listPropertyMappings("task", projectId),
   };
 }
 

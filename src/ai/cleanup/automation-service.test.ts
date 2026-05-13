@@ -14,6 +14,7 @@ import { FakeAiCleanupProvider } from "./fake-provider.js";
 import { AiCleanupProviderError } from "./provider.js";
 import { PHASE4_AI_CLEANUP_PROMPT_VERSION } from "./prompts.js";
 import { buildPhase4TimelineInput } from "./timeline-input.js";
+import type { AiCleanupSessionContext } from "./runner.js";
 import type {
   AiCleanupProvider,
   AiCleanupProviderInput,
@@ -78,6 +79,38 @@ test("AiCleanupAutomationService passes app locale into generated meeting notes"
     assert.equal(snapshot.status, "done");
     assert.equal(provider.lastInput?.language, "en");
     assert.deepEqual(fixture.countAiRows(), { jobs: 1, drafts: 1 });
+  } finally {
+    fixture.close();
+  }
+});
+
+test("AiCleanupAutomationService hashes and prompts with the session project context", async () => {
+  const fixture = createSessionFixture({ projectId: "project-alpha" });
+  try {
+    addCompletedRealSttChunk(fixture, 1, "Alpha 프로젝트 회의록을 정리합니다.");
+    finalizeSession(fixture);
+    const provider = new CountingFakeAiCleanupProvider();
+    const service = await createReadyAutomationService(fixture, provider, {
+      customNotionPropertyPrompt: (context) =>
+        context.projectId === "project-alpha"
+          ? "Project Alpha cleanup rule: use Alpha fields."
+          : "Project Beta cleanup rule: use Beta fields.",
+      memberRosterPrompt: (context) =>
+        context.projectId === "project-alpha"
+          ? "Known member roles for assignment hints:\n- Alpha Lead: roles=Owner"
+          : "Known member roles for assignment hints:\n- Beta Lead: roles=Owner",
+    });
+
+    const snapshot = await service.runOnce();
+
+    assert.equal(snapshot.status, "done");
+    assert.match(provider.lastUserPrompt ?? "", /Project Alpha cleanup rule/);
+    assert.match(provider.lastUserPrompt ?? "", /Alpha Lead: roles=Owner/);
+    assert.doesNotMatch(
+      provider.lastUserPrompt ?? "",
+      /Project Beta cleanup rule|Beta Lead/,
+    );
+    assert.equal(snapshot.job?.inputHash, provider.lastInput?.inputHash);
   } finally {
     fixture.close();
   }
@@ -537,14 +570,20 @@ type AutomationFixture = {
   countAiRows: () => { jobs: number; drafts: number };
 };
 
-function createSessionFixture(): AutomationFixture {
+function createSessionFixture(
+  options: { projectId?: string | null } = {},
+): AutomationFixture {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-ai-auto-"));
   const database = new DirongDatabase(path.join(dir, "dirong.sqlite"), 1000);
   const store = new SessionStore(database);
   const sessionId = "meeting_ai_auto_test";
+  if (options.projectId) {
+    insertProject(database, options.projectId, "Project Alpha");
+  }
 
   store.createSession({
     id: sessionId,
+    projectId: options.projectId,
     guildId: "guild",
     guildName: "Guild",
     textChannelId: "text",
@@ -585,9 +624,14 @@ function createSessionFixture(): AutomationFixture {
 function createAdditionalSession(
   fixture: AutomationFixture,
   sessionId: string,
+  options: { projectId?: string | null } = {},
 ): AutomationFixture {
+  if (options.projectId) {
+    insertProject(fixture.database, options.projectId, sessionId);
+  }
   fixture.store.createSession({
     id: sessionId,
+    projectId: options.projectId,
     guildId: "guild",
     guildName: "Guild",
     textChannelId: "text",
@@ -792,7 +836,7 @@ function countExpiredLeaseRepairItems(fixture: AutomationFixture): number {
 async function createReadyAutomationService(
   fixture: AutomationFixture,
   provider: AiCleanupProvider,
-  options: { sessionBatchLimit?: number; localeResolver?: AppLocaleResolver } = {},
+  options: AutomationServiceTestOptions = {},
 ): Promise<AiCleanupAutomationService> {
   const lifecycle = await createReadyLifecycle(provider);
   return createAutomationService(fixture, provider, lifecycle, options);
@@ -814,7 +858,7 @@ function createAutomationService(
   fixture: AutomationFixture,
   provider: AiCleanupProvider,
   lifecycle: AiProviderLifecycleService,
-  options: { sessionBatchLimit?: number; localeResolver?: AppLocaleResolver } = {},
+  options: AutomationServiceTestOptions = {},
 ): AiCleanupAutomationService {
   return new AiCleanupAutomationService(fixture.store, {
     enabled: true,
@@ -830,16 +874,41 @@ function createAutomationService(
       maxInputChars: 120000,
       timeoutMs: 1000,
       maxOutputBytes: 1024 * 1024,
+      customNotionPropertyPrompt: options.customNotionPropertyPrompt,
+      memberRosterPrompt: options.memberRosterPrompt,
       backup: () => [],
     },
     localeResolver: options.localeResolver,
   });
 }
 
+type AutomationServiceTestOptions = {
+  sessionBatchLimit?: number;
+  localeResolver?: AppLocaleResolver;
+  customNotionPropertyPrompt?: (context: AiCleanupSessionContext) => string;
+  memberRosterPrompt?: (context: AiCleanupSessionContext) => string;
+};
+
+function insertProject(
+  database: DirongDatabase,
+  projectId: string,
+  name: string,
+): void {
+  const now = new Date().toISOString();
+  database.db.prepare(
+    `INSERT INTO dirong_projects (
+       id, name, lifecycle_status, guild_id, guild_name, command_enabled,
+       notion_upload_mode, created_at, updated_at
+     ) VALUES (?, ?, 'ready', 'guild', 'Guild', 1, 'manual', ?, ?)
+     ON CONFLICT(id) DO NOTHING`,
+  ).run(projectId, name, now, now);
+}
+
 class CountingFakeAiCleanupProvider extends FakeAiCleanupProvider {
   preflightCalls = 0;
   generateCalls = 0;
   lastInput: AiCleanupProviderInput | null = null;
+  lastUserPrompt: string | null = null;
 
   override async preflight(): Promise<void> {
     this.preflightCalls += 1;
@@ -851,6 +920,7 @@ class CountingFakeAiCleanupProvider extends FakeAiCleanupProvider {
   ): Promise<AiCleanupProviderResult> {
     this.generateCalls += 1;
     this.lastInput = input;
+    this.lastUserPrompt = options.userPrompt;
     return super.generate(input, options);
   }
 }

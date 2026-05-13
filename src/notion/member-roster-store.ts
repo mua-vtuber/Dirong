@@ -1,6 +1,8 @@
 import { SqlRunner } from "../storage/sql-runner.js";
+import { DEFAULT_PROJECT_ID } from "../projects/project-types.js";
 
 export type NotionMemberRosterEntry = {
+  projectId?: string;
   pageId: string;
   dataSourceId: string;
   discordName: string;
@@ -21,6 +23,7 @@ export type NotionMemberRosterEntryInput = {
 };
 
 export type ReplaceNotionMemberRosterInput = {
+  projectId?: string;
   dataSourceId: string;
   entries: readonly NotionMemberRosterEntryInput[];
   syncedAt: string;
@@ -35,6 +38,7 @@ export type NotionMemberRosterSyncStatus =
   | "failed";
 
 export type NotionMemberRosterSyncSnapshot = {
+  projectId?: string;
   dataSourceId: string;
   status: NotionMemberRosterSyncStatus;
   syncedAt: string | null;
@@ -51,7 +55,13 @@ export type NotionMemberRosterStoredWarning = {
   params: Record<string, string | number>;
 };
 
+export type ClearNotionMemberRosterProjectResult = {
+  entries: number;
+  syncs: number;
+};
+
 type NotionMemberRosterEntryRow = {
+  project_id: string;
   page_id: string;
   data_source_id: string;
   discord_name: string;
@@ -66,6 +76,7 @@ type NotionMemberRosterEntryRow = {
 };
 
 type NotionMemberRosterSyncRow = {
+  project_id: string;
   data_source_id: string;
   status: string;
   synced_at: string | null;
@@ -83,24 +94,32 @@ export class NotionMemberRosterStore {
   replaceForDataSource(
     input: ReplaceNotionMemberRosterInput,
   ): NotionMemberRosterEntry[] {
+    const projectId = cleanRequiredString(
+      input.projectId ?? DEFAULT_PROJECT_ID,
+      "projectId",
+    );
     const dataSourceId = cleanRequiredString(input.dataSourceId, "dataSourceId");
     const syncedAt = cleanRequiredString(input.syncedAt, "syncedAt");
     const entries = input.entries.map((entry) =>
-      normalizeEntryInput(dataSourceId, entry, syncedAt),
+      normalizeEntryInput(projectId, dataSourceId, entry, syncedAt),
     );
 
     this.runner.transaction(() => {
       this.runner.run(
-        "DELETE FROM notion_member_roster_entries WHERE data_source_id = ?",
+        `DELETE FROM notion_member_roster_entries
+         WHERE project_id = ?
+           AND data_source_id = ?`,
+        projectId,
         dataSourceId,
       );
       for (const entry of entries) {
         this.runner.run(
           `INSERT INTO notion_member_roster_entries (
-             page_id, data_source_id, discord_name, normalized_discord_name,
+             project_id, page_id, data_source_id, discord_name, normalized_discord_name,
              organization, roles_json, normalized_roles_json, synced_at,
              raw_updated_at, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          projectId,
           entry.pageId,
           entry.dataSourceId,
           entry.discordName,
@@ -115,6 +134,7 @@ export class NotionMemberRosterStore {
         );
       }
       this.upsertSyncSnapshot({
+        projectId,
         dataSourceId,
         status: "done",
         syncedAt,
@@ -126,7 +146,7 @@ export class NotionMemberRosterStore {
       });
     });
 
-    return this.listForDataSource(dataSourceId);
+    return this.listForDataSource(dataSourceId, projectId);
   }
 
   recordSyncSnapshot(input: {
@@ -138,10 +158,16 @@ export class NotionMemberRosterStore {
     warnings?: readonly NotionMemberRosterStoredWarning[];
     lastError?: string | null;
     nowIso: string;
+    projectId?: string;
   }): NotionMemberRosterSyncSnapshot {
+    const projectId = cleanRequiredString(
+      input.projectId ?? DEFAULT_PROJECT_ID,
+      "projectId",
+    );
     const dataSourceId = cleanRequiredString(input.dataSourceId, "dataSourceId");
     const nowIso = cleanRequiredString(input.nowIso, "nowIso");
     this.upsertSyncSnapshot({
+      projectId,
       dataSourceId,
       status: input.status,
       syncedAt: input.syncedAt ?? null,
@@ -151,42 +177,56 @@ export class NotionMemberRosterStore {
       lastError: cleanNullableString(input.lastError ?? null),
       nowIso,
     });
-    const saved = this.getSyncSnapshot(dataSourceId);
+    const saved = this.getSyncSnapshot(dataSourceId, projectId);
     if (!saved) {
       throw new Error("Notion member roster sync snapshot 저장에 실패했습니다.");
     }
     return saved;
   }
 
-  listForDataSource(dataSourceId: string): NotionMemberRosterEntry[] {
+  listForDataSource(
+    dataSourceId: string,
+    projectId = DEFAULT_PROJECT_ID,
+  ): NotionMemberRosterEntry[] {
     return this.runner
       .all<NotionMemberRosterEntryRow>(
         `SELECT *
          FROM notion_member_roster_entries
-         WHERE data_source_id = ?
+         WHERE project_id = ?
+           AND data_source_id = ?
          ORDER BY normalized_discord_name ASC, page_id ASC`,
+        cleanRequiredString(projectId, "projectId"),
         cleanRequiredString(dataSourceId, "dataSourceId"),
       )
       .map(rowToEntry);
   }
 
-  listLatestForPrompt(limit = 100): NotionMemberRosterEntry[] {
+  listLatestForPrompt(
+    limit = 100,
+    projectId = DEFAULT_PROJECT_ID,
+  ): NotionMemberRosterEntry[] {
+    const resolvedProjectId = cleanRequiredString(projectId, "projectId");
     const snapshot = this.runner.get<{ data_source_id: string }>(
       `SELECT data_source_id
        FROM notion_member_roster_syncs
-       WHERE status = 'done' AND synced_at IS NOT NULL
+       WHERE project_id = ?
+         AND status = 'done'
+         AND synced_at IS NOT NULL
        ORDER BY synced_at DESC, updated_at DESC
        LIMIT 1`,
+      resolvedProjectId,
     );
     if (!snapshot) {
       return [];
     }
-    return this.listForDataSource(snapshot.data_source_id).slice(0, limit);
+    return this.listForDataSource(snapshot.data_source_id, resolvedProjectId)
+      .slice(0, limit);
   }
 
   findByDiscordName(
     dataSourceId: string,
     name: string,
+    projectId = DEFAULT_PROJECT_ID,
   ): NotionMemberRosterEntry[] {
     const normalized = normalizeMemberRosterText(name);
     if (!normalized) {
@@ -196,36 +236,65 @@ export class NotionMemberRosterStore {
       .all<NotionMemberRosterEntryRow>(
         `SELECT *
          FROM notion_member_roster_entries
-         WHERE data_source_id = ?
+         WHERE project_id = ?
+           AND data_source_id = ?
            AND normalized_discord_name = ?
          ORDER BY page_id ASC`,
+        cleanRequiredString(projectId, "projectId"),
         cleanRequiredString(dataSourceId, "dataSourceId"),
         normalized,
       )
       .map(rowToEntry);
   }
 
-  findByRole(dataSourceId: string, role: string): NotionMemberRosterEntry[] {
+  findByRole(
+    dataSourceId: string,
+    role: string,
+    projectId = DEFAULT_PROJECT_ID,
+  ): NotionMemberRosterEntry[] {
     const normalized = normalizeMemberRosterText(role);
     if (!normalized) {
       return [];
     }
-    return this.listForDataSource(dataSourceId).filter((entry) =>
+    return this.listForDataSource(dataSourceId, projectId).filter((entry) =>
       entry.normalizedRoles.includes(normalized),
     );
   }
 
-  getSyncSnapshot(dataSourceId: string): NotionMemberRosterSyncSnapshot | null {
+  getSyncSnapshot(
+    dataSourceId: string,
+    projectId = DEFAULT_PROJECT_ID,
+  ): NotionMemberRosterSyncSnapshot | null {
     const row = this.runner.get<NotionMemberRosterSyncRow>(
       `SELECT *
        FROM notion_member_roster_syncs
-       WHERE data_source_id = ?`,
+       WHERE project_id = ?
+         AND data_source_id = ?`,
+      cleanRequiredString(projectId, "projectId"),
       cleanRequiredString(dataSourceId, "dataSourceId"),
     );
     return row ? rowToSyncSnapshot(row) : null;
   }
 
+  clearProject(projectId = DEFAULT_PROJECT_ID): ClearNotionMemberRosterProjectResult {
+    const resolvedProjectId = cleanRequiredString(projectId, "projectId");
+    let entries = 0;
+    let syncs = 0;
+    this.runner.transaction(() => {
+      entries = this.runner.run(
+        "DELETE FROM notion_member_roster_entries WHERE project_id = ?",
+        resolvedProjectId,
+      );
+      syncs = this.runner.run(
+        "DELETE FROM notion_member_roster_syncs WHERE project_id = ?",
+        resolvedProjectId,
+      );
+    });
+    return { entries, syncs };
+  }
+
   private upsertSyncSnapshot(input: {
+    projectId: string;
     dataSourceId: string;
     status: NotionMemberRosterSyncStatus;
     syncedAt: string | null;
@@ -237,10 +306,10 @@ export class NotionMemberRosterStore {
   }): void {
     this.runner.run(
       `INSERT INTO notion_member_roster_syncs (
-         data_source_id, status, synced_at, member_count, warning_count,
+         project_id, data_source_id, status, synced_at, member_count, warning_count,
          warnings_json, last_error, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(data_source_id) DO UPDATE SET
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(project_id, data_source_id) DO UPDATE SET
          status = excluded.status,
          synced_at = excluded.synced_at,
          member_count = excluded.member_count,
@@ -248,6 +317,7 @@ export class NotionMemberRosterStore {
          warnings_json = excluded.warnings_json,
          last_error = excluded.last_error,
          updated_at = excluded.updated_at`,
+      input.projectId,
       input.dataSourceId,
       input.status,
       input.syncedAt,
@@ -296,6 +366,7 @@ export function normalizeMemberRosterText(value: string): string {
 }
 
 function normalizeEntryInput(
+  projectId: string,
   dataSourceId: string,
   input: NotionMemberRosterEntryInput,
   syncedAt: string,
@@ -307,6 +378,7 @@ function normalizeEntryInput(
     .map(normalizeMemberRosterText)
     .filter((role) => role.length > 0);
   return {
+    projectId,
     pageId,
     dataSourceId,
     discordName,
@@ -336,6 +408,7 @@ function normalizeRoleList(values: readonly string[]): string[] {
 
 function rowToEntry(row: NotionMemberRosterEntryRow): NotionMemberRosterEntry {
   return {
+    projectId: row.project_id,
     pageId: row.page_id,
     dataSourceId: row.data_source_id,
     discordName: row.discord_name,
@@ -352,6 +425,7 @@ function rowToSyncSnapshot(
   row: NotionMemberRosterSyncRow,
 ): NotionMemberRosterSyncSnapshot {
   return {
+    projectId: row.project_id,
     dataSourceId: row.data_source_id,
     status: requireSyncStatus(row.status),
     syncedAt: row.synced_at,

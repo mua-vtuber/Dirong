@@ -5,6 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { Phase1Config } from "../config.js";
+import type { ActiveProjectSwitchBlockReason } from "../projects/active-project-service.js";
+import type { DirongProjectRow } from "../projects/project-types.js";
 import type { RecordingProducer } from "../recording/recording-producer.js";
 import type { SessionStore } from "../storage/session-store.js";
 import type { DirongLocale } from "../settings/local-settings-store.js";
@@ -21,6 +23,8 @@ import { SetupWizardService } from "../setup/wizard-service.js";
 import type {
   DashboardNotionAutomationSource,
   DashboardNotionSource,
+  DashboardProjectsSource,
+  DashboardSettingsResetSource,
   DashboardSetupStatusSource,
   DashboardSetupWizardSource,
 } from "./server.js";
@@ -270,6 +274,36 @@ test("appendDashboardRuntimeSnapshots includes setup status without raw secrets"
   assert.doesNotMatch(serialized, /discord-secret-raw-value/);
 });
 
+test("appendDashboardRuntimeSnapshots includes project snapshots without secret refs", () => {
+  const state = {
+    generatedAt: "2026-05-13T00:00:00.000Z",
+  };
+
+  const withProjects = appendDashboardRuntimeSnapshots(state, {
+    projects: makeProjectsSource(),
+  }) as {
+    projects: {
+      activeProjectId: string | null;
+      projects: Array<{
+        id: string;
+        lifecycleStatus: string;
+        notionConnectionConfigured: boolean;
+        notion_token_secret_ref?: string;
+      }>;
+    };
+  };
+  const serialized = JSON.stringify(withProjects);
+
+  assert.equal(withProjects.projects.activeProjectId, "project-ready");
+  assert.equal(withProjects.projects.projects[0]?.lifecycleStatus, "ready");
+  assert.equal(
+    withProjects.projects.projects[0]?.notionConnectionConfigured,
+    true,
+  );
+  assert.equal(withProjects.projects.projects[0]?.notion_token_secret_ref, undefined);
+  assert.doesNotMatch(serialized, /notion\.project\.project-ready\.token/);
+});
+
 test("DashboardServer root serves the dashboard HTML without caching", async () => {
   const fixture = await startDashboardFixture();
   try {
@@ -414,6 +448,228 @@ test("DashboardServer setup wizard routes read state and post actions through th
     );
     assert.equal(savedBody.httpStatus, undefined);
     assert.deepEqual(calls, [{ applicationId: "123456789012345678" }]);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("DashboardServer project APIs list active project and create reusable draft", async () => {
+  const projects = makeProjectsSource();
+  const fixture = await startDashboardFixture({ projects });
+  try {
+    const listed = await fetch(`${fixture.baseUrl}/api/projects`);
+    const listedBody = await listed.json() as {
+      ok: boolean;
+      activeProjectId: string | null;
+      projects: Array<{
+        id: string;
+        lifecycleStatus: string;
+        commandEnabled: boolean;
+        notionConnectionConfigured: boolean;
+        notionParentPageConfigured: boolean;
+        notion_token_secret_ref?: string;
+      }>;
+    };
+    const listedText = JSON.stringify(listedBody);
+
+    assert.equal(listed.status, 200);
+    assert.equal(listedBody.ok, true);
+    assert.equal(listedBody.activeProjectId, "project-ready");
+    assert.equal(listedBody.projects[0]?.lifecycleStatus, "ready");
+    assert.equal(listedBody.projects[0]?.commandEnabled, true);
+    assert.equal(listedBody.projects[0]?.notionConnectionConfigured, true);
+    assert.equal(listedBody.projects[0]?.notionParentPageConfigured, true);
+    assert.equal(listedBody.projects[0]?.notion_token_secret_ref, undefined);
+    assert.doesNotMatch(listedText, /notion\.project\.project-ready\.token/);
+    assert.deepEqual(
+      listedBody.projects.map((project) => project.id),
+      ["project-ready", "project-empty-draft"],
+    );
+
+    const created = await postJson(fixture.baseUrl, "/api/projects", {
+      name: "Ignored when reusable",
+    });
+    const createdBody = await created.json() as {
+      ok: boolean;
+      reused: boolean;
+      project: { id: string; notion_token_secret_ref?: string };
+      switchResult: { ok: boolean; activeProject: { id: string } };
+      activeProject: { id: string };
+      activeProjectId: string | null;
+    };
+
+    assert.equal(created.status, 200);
+    assert.equal(createdBody.ok, true);
+    assert.equal(createdBody.reused, true);
+    assert.equal(createdBody.project.id, "project-empty-draft");
+    assert.equal(createdBody.project.notion_token_secret_ref, undefined);
+    assert.equal(createdBody.switchResult.activeProject.id, "project-empty-draft");
+    assert.equal(createdBody.activeProject.id, "project-empty-draft");
+    assert.equal(createdBody.activeProjectId, "project-empty-draft");
+
+    const active = await fetch(`${fixture.baseUrl}/api/projects/active`);
+    const activeBody = await active.json() as {
+      activeProjectId: string | null;
+    };
+    assert.equal(activeBody.activeProjectId, "project-empty-draft");
+
+    const switched = await postJson(fixture.baseUrl, "/api/projects/active", {
+      projectId: "project-ready",
+    });
+    const switchedBody = await switched.json() as {
+      ok: boolean;
+      status: string;
+      activeProject: { id: string };
+      activeProjectId: string | null;
+    };
+
+    assert.equal(switched.status, 200);
+    assert.equal(switchedBody.ok, true);
+    assert.equal(switchedBody.status, "done");
+    assert.equal(switchedBody.activeProject.id, "project-ready");
+    assert.equal(switchedBody.activeProjectId, "project-ready");
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("DashboardServer project switch API returns guard blocks", async () => {
+  const projects = makeProjectsSource({
+    blockReason: "recording_active",
+  });
+  const fixture = await startDashboardFixture({ projects });
+  try {
+    const response = await postJson(fixture.baseUrl, "/api/projects/active", {
+      projectId: "project-ready",
+    });
+    const body = await response.json() as {
+      ok: boolean;
+      status: string;
+      reason: string;
+      activeProject: { id: string };
+      activeProjectId: string | null;
+    };
+
+    assert.equal(response.status, 409);
+    assert.equal(body.ok, false);
+    assert.equal(body.status, "blocked");
+    assert.equal(body.reason, "recording_active");
+    assert.equal(body.activeProject.id, "project-ready");
+    assert.equal(body.activeProjectId, "project-ready");
+
+    const notFoundProjects = makeProjectsSource();
+    const notFoundFixture = await startDashboardFixture({
+      projects: notFoundProjects,
+    });
+    try {
+      const notFound = await postJson(
+        notFoundFixture.baseUrl,
+        "/api/projects/active",
+        { projectId: "missing-project" },
+      );
+      const notFoundBody = await notFound.json() as {
+        ok: boolean;
+        status: string;
+        reason: string;
+        activeProjectId: string | null;
+      };
+
+      assert.equal(notFound.status, 404);
+      assert.equal(notFoundBody.ok, false);
+      assert.equal(notFoundBody.status, "blocked");
+      assert.equal(notFoundBody.reason, "project_not_found");
+      assert.equal(notFoundBody.activeProjectId, "project-ready");
+    } finally {
+      await notFoundFixture.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("DashboardServer settings reset route validates body and returns reset results", async () => {
+  const calls: string[] = [];
+  const fixture = await startDashboardFixture({
+    settingsReset: makeSettingsResetSource(calls),
+  });
+  try {
+    const invalid = await postJson(fixture.baseUrl, "/api/settings/reset", {
+      mode: "full",
+    });
+    const success = await postJson(fixture.baseUrl, "/api/settings/reset", {
+      mode: "current_project_connection",
+      confirm: true,
+    });
+    const body = await success.json() as {
+      ok: boolean;
+      status: string;
+      mode: string;
+      deleted: { blockedNotionWrites: number };
+      activeProjectId: string | null;
+    };
+
+    assert.equal(invalid.status, 400);
+    assert.equal(success.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.status, "done");
+    assert.equal(body.mode, "current_project_connection");
+    assert.equal(body.deleted.blockedNotionWrites, 2);
+    assert.equal(body.activeProjectId, "project-fresh");
+    assert.deepEqual(calls, ["current_project_connection"]);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("DashboardServer settings reset route forwards 409 conflicts", async () => {
+  const fixture = await startDashboardFixture({
+    settingsReset: makeSettingsResetSource([], "notion_upload_in_flight"),
+  });
+  try {
+    const response = await postJson(fixture.baseUrl, "/api/settings/reset", {
+      mode: "full",
+      confirm: true,
+    });
+    const body = await response.json() as {
+      ok: boolean;
+      status: string;
+      reason: string;
+    };
+
+    assert.equal(response.status, 409);
+    assert.equal(body.ok, false);
+    assert.equal(body.status, "blocked");
+    assert.equal(body.reason, "notion_upload_in_flight");
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("DashboardServer settings reset route reports reset failures as 500", async () => {
+  const fixture = await startDashboardFixture({
+    settingsReset: {
+      reset: async () => {
+        throw new Error("reset exploded");
+      },
+    },
+  });
+  try {
+    const response = await postJson(fixture.baseUrl, "/api/settings/reset", {
+      mode: "current_project_connection",
+      confirm: true,
+    });
+    const body = await response.json() as {
+      ok: boolean;
+      status: string;
+      message: string;
+      detail: string;
+    };
+
+    assert.equal(response.status, 500);
+    assert.equal(body.ok, false);
+    assert.equal(body.status, "failed");
+    assert.equal(body.message, "Settings reset failed.");
+    assert.match(body.detail, /reset exploded/);
   } finally {
     await fixture.close();
   }
@@ -621,6 +877,10 @@ test("DashboardServer serves split dashboard client scripts", async () => {
     assert.match(apiText, /sessionStorage/);
     assert.match(apiText, /document\.body\.dataset\.view/);
     assert.match(apiText, /syncActiveViewForSetup/);
+    assert.match(apiText, /dashboardApiGetProjects/);
+    assert.match(apiText, /\/api\/projects\/active/);
+    assert.match(apiText, /dashboardApiResetSettings/);
+    assert.match(apiText, /\/api\/settings\/reset/);
     assert.match(setupText, /skipSetupToDashboard/);
     assert.match(setupText, /setupCreateManagedDatabases/);
     assert.doesNotMatch(setupText, /Hosted mode|Hosted Dirong bot|Notion OAuth/);
@@ -632,6 +892,12 @@ test("DashboardServer serves split dashboard client scripts", async () => {
     assert.match(managedDbText, /relation_target_mismatch: 'dashboard\.db\.requiredFields\.issue\.relationTarget'/);
     assert.doesNotMatch(managedDbText, /technicalDetail/);
     assert.match(dashboardText, /fetch\('\/api\/state'/);
+    assert.match(dashboardText, /renderProjectList/);
+    assert.match(dashboardText, /createProjectFromSidebar/);
+    assert.match(dashboardText, /switchProject/);
+    assert.match(dashboardText, /projectActionStatus/);
+    assert.match(dashboardText, /renderSettingsResetPanel/);
+    assert.match(dashboardText, /current_project_connection/);
     assert.match(dashboardText, /openSetupWizard/);
     assert.doesNotMatch(notionText, /onclick=/);
     assert.doesNotMatch(notionText, /onchange=/);
@@ -1022,6 +1288,8 @@ type AudioFixture = {
 type DashboardFixtureOptions = {
   audio?: AudioFixture;
   notion?: DashboardNotionSource;
+  projects?: DashboardProjectsSource;
+  settingsReset?: DashboardSettingsResetSource;
   setupStatus?: DashboardSetupStatusSource;
   setupWizard?: DashboardSetupWizardSource;
 };
@@ -1035,6 +1303,8 @@ async function startDashboardFixture(
     makeProducer(),
     {
       ...(options.notion ? { notion: options.notion } : {}),
+      ...(options.projects ? { projects: options.projects } : {}),
+      ...(options.settingsReset ? { settingsReset: options.settingsReset } : {}),
       ...(options.setupStatus ? { setupStatus: options.setupStatus } : {}),
       ...(options.setupWizard ? { setupWizard: options.setupWizard } : {}),
     },
@@ -1078,6 +1348,164 @@ async function readDashboardToken(baseUrl: string): Promise<string> {
   const token = /window\.__DIRONG_DASHBOARD_TOKEN__="([^"]+)"/.exec(html)?.[1];
   assert.ok(token);
   return token;
+}
+
+function makeProjectsSource(options: {
+  blockReason?: ActiveProjectSwitchBlockReason;
+} = {}): DashboardProjectsSource {
+  let activeProjectId = "project-ready";
+  let projectCounter = 0;
+  const projects: DirongProjectRow[] = [
+    projectRow({
+      id: "project-ready",
+      name: "Ready",
+      lifecycleStatus: "ready",
+      guildId: "111111111111111111",
+      notionTokenSecretRef: "notion.project.project-ready.token",
+      notionParentPageUrl: "https://notion.so/ready",
+    }),
+    projectRow({
+      id: "project-empty-draft",
+      name: "Empty Draft",
+      lifecycleStatus: "draft",
+    }),
+  ];
+
+  return {
+    listProjects: () => projects,
+    getActiveProject: () =>
+      projects.find((project) => project.id === activeProjectId) ?? null,
+    createDraftProject: async (input = {}) => {
+      const reusable = input.reuseEmptyDraft !== false
+        ? projects.find((project) =>
+          project.lifecycle_status === "draft" &&
+          project.archived_at === null &&
+          project.guild_id === null &&
+          project.notion_token_secret_ref === null &&
+          project.notion_parent_page_url === null)
+        : null;
+      const project = reusable ?? projectRow({
+        id: `project-created-${++projectCounter}`,
+        name: input.name ?? "Untitled Project",
+        lifecycleStatus: "draft",
+      });
+      if (!reusable) {
+        projects.push(project);
+      }
+      const switchResult = input.activate === false
+        ? undefined
+        : await switchProject(project.id);
+      return {
+        project,
+        reused: Boolean(reusable),
+        switchResult,
+      };
+    },
+    switchActiveProject: switchProject,
+  };
+
+  async function switchProject(projectId: string) {
+    const project = projects.find((entry) => entry.id === projectId);
+    if (!project) {
+      return {
+        ok: false,
+        status: "blocked",
+        reason: "project_not_found",
+        httpStatus: 404,
+        message: `Project not found: ${projectId}`,
+      } as const;
+    }
+    if (options.blockReason) {
+      return {
+        ok: false,
+        status: "blocked",
+        reason: options.blockReason,
+        httpStatus: 409,
+        message: "Switch blocked by test guard.",
+      } as const;
+    }
+    activeProjectId = project.id;
+    return {
+      ok: true,
+      status: "done",
+      activeProject: project,
+    } as const;
+  }
+}
+
+function projectRow(input: {
+  id: string;
+  name: string;
+  lifecycleStatus: DirongProjectRow["lifecycle_status"];
+  guildId?: string | null;
+  notionTokenSecretRef?: string | null;
+  notionParentPageUrl?: string | null;
+}): DirongProjectRow {
+  return {
+    id: input.id,
+    name: input.name,
+    lifecycle_status: input.lifecycleStatus,
+    guild_id: input.guildId ?? null,
+    guild_name: input.guildId ? `${input.name} Guild` : null,
+    guild_icon_url: null,
+    command_enabled: 1,
+    notion_token_secret_ref: input.notionTokenSecretRef ?? null,
+    notion_parent_page_url: input.notionParentPageUrl ?? null,
+    notion_upload_mode: "manual",
+    created_at: "2026-05-13T00:00:00.000Z",
+    updated_at: "2026-05-13T00:00:00.000Z",
+    archived_at: null,
+  };
+}
+
+function makeSettingsResetSource(
+  calls: string[] = [],
+  blockReason?: "recording_active" | "notion_upload_in_flight" | "ai_cleanup_in_flight" | "reset_already_running",
+): DashboardSettingsResetSource {
+  return {
+    reset: async (input) => {
+      calls.push(input.mode);
+      if (blockReason) {
+        return {
+          ok: false,
+          status: "blocked",
+          reason: blockReason,
+          httpStatus: 409,
+          message: "blocked by test",
+        };
+      }
+      return {
+        ok: true,
+        status: "done",
+        mode: input.mode,
+        deleted: {
+          settingsKeys: ["notion.tokenSecretRef"],
+          secretRefs: ["notion.project.project-ready.token"],
+          sqliteRows: {
+            notionWorkspaceSettings: 0,
+            notionManagedDatabases: 1,
+            notionPropertyMappings: 0,
+            notionMemberRosterEntries: 0,
+            notionMemberRosterSyncs: 0,
+            notionCustomPropertyRules: 0,
+            notionWritesBlocked: 2,
+            repairItemsIgnored: 0,
+            projectsArchived: 1,
+            projectsFreshDraft: 1,
+          },
+          blockedNotionWrites: 2,
+        },
+        runtimeEffects: [],
+        setup: makeSetupStatusSource().getSnapshot(),
+        activeProject: projectRow({
+          id: "project-fresh",
+          name: "Fresh",
+          lifecycleStatus: "draft",
+        }),
+        activeProjectId: "project-fresh",
+      };
+    },
+  };
 }
 
 async function readSignedAudioUrl(

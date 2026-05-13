@@ -1,4 +1,5 @@
 import type { SqlRunner } from "../storage/sql-runner.js";
+import { DEFAULT_PROJECT_ID } from "../projects/project-types.js";
 import type { NotionDataSourceProperties } from "./schema.js";
 import type { NotionDatabaseRole } from "./schema-presets.js";
 import { normalizeNotionId, parseNotionPageUrl } from "./target.js";
@@ -14,6 +15,7 @@ export type NotionCustomPropertyType =
 export type NotionCustomPropertyValueSource = "ai" | "participants";
 
 export type NotionCustomPropertyRule = {
+  projectId?: string;
   databaseRole?: NotionDatabaseRole;
   propertyName: string;
   propertyId: string | null;
@@ -52,6 +54,7 @@ export type NotionCustomPropertyRuleInput = {
 };
 
 type NotionCustomPropertyRuleRow = {
+  project_id: string;
   database_role: string;
   property_name: string;
   property_id: string | null;
@@ -107,24 +110,33 @@ export function withDefaultNotionMemberRelationRule(
 export class NotionCustomPropertyRuleStore {
   constructor(private readonly runner: SqlRunner) {}
 
-  listRules(databaseRole: NotionDatabaseRole): NotionCustomPropertyRule[] {
+  listRules(
+    databaseRole: NotionDatabaseRole,
+    projectId = DEFAULT_PROJECT_ID,
+  ): NotionCustomPropertyRule[] {
     return this.runner
       .all<NotionCustomPropertyRuleRow>(
         `SELECT *
          FROM notion_custom_property_rules
-         WHERE database_role = ?
+         WHERE project_id = ?
+           AND database_role = ?
          ORDER BY property_name COLLATE NOCASE ASC`,
+        cleanRequiredString(projectId, "projectId"),
         databaseRole,
       )
       .map(rowToRule);
   }
 
-  listEnabledRules(databaseRole: NotionDatabaseRole): NotionCustomPropertyRule[] {
+  listEnabledRules(
+    databaseRole: NotionDatabaseRole,
+    projectId = DEFAULT_PROJECT_ID,
+  ): NotionCustomPropertyRule[] {
     return this.runner
       .all<NotionCustomPropertyRuleRow>(
         `SELECT *
          FROM notion_custom_property_rules
-         WHERE database_role = ?
+         WHERE project_id = ?
+           AND database_role = ?
            AND enabled = 1
            AND (
              value_source = 'participants'
@@ -135,6 +147,7 @@ export class NotionCustomPropertyRuleStore {
              )
            )
          ORDER BY property_name COLLATE NOCASE ASC`,
+        cleanRequiredString(projectId, "projectId"),
         databaseRole,
       )
       .map(rowToRule);
@@ -145,7 +158,12 @@ export class NotionCustomPropertyRuleStore {
     properties: NotionDataSourceProperties;
     requiredPropertyNames: readonly string[];
     nowIso: string;
+    projectId?: string;
   }): { discovered: number; custom: number } {
+    const projectId = cleanRequiredString(
+      input.projectId ?? DEFAULT_PROJECT_ID,
+      "projectId",
+    );
     const requiredNames = buildRequiredNameSet(input.requiredPropertyNames);
     let discovered = 0;
     let custom = 0;
@@ -166,13 +184,13 @@ export class NotionCustomPropertyRuleStore {
         custom += 1;
         this.runner.run(
           `INSERT INTO notion_custom_property_rules (
-             database_role, property_name, property_id, property_type, enabled,
+             project_id, database_role, property_name, property_id, property_type, enabled,
              value_source, prompt_description, max_length, relation_target_url,
              relation_data_source_id, relation_target_page_url,
              relation_target_page_id, relation_match_property_name,
              relation_auto_create, last_seen_at, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, 0, ?, '', ?, ?, ?, NULL, NULL, ?, 0, ?, ?, ?)
-           ON CONFLICT(database_role, property_name) DO UPDATE SET
+           ) VALUES (?, ?, ?, ?, ?, 0, ?, '', ?, ?, ?, NULL, NULL, ?, 0, ?, ?, ?)
+           ON CONFLICT(project_id, database_role, property_name) DO UPDATE SET
              property_id = excluded.property_id,
              property_type = excluded.property_type,
              value_source = notion_custom_property_rules.value_source,
@@ -192,6 +210,7 @@ export class NotionCustomPropertyRuleStore {
              ),
              last_seen_at = excluded.last_seen_at,
              updated_at = excluded.updated_at`,
+          projectId,
           input.databaseRole,
           propertyName,
           propertyId,
@@ -216,7 +235,12 @@ export class NotionCustomPropertyRuleStore {
     rules: readonly NotionCustomPropertyRuleInput[];
     requiredPropertyNames: readonly string[];
     nowIso: string;
+    projectId?: string;
   }): { saved: number; deleted: number; ignored: number; warnings: string[] } {
+    const projectId = cleanRequiredString(
+      input.projectId ?? DEFAULT_PROJECT_ID,
+      "projectId",
+    );
     const requiredNames = buildRequiredNameSet(input.requiredPropertyNames);
     const warnings: string[] = [];
     let saved = 0;
@@ -246,8 +270,10 @@ export class NotionCustomPropertyRuleStore {
           }
           this.runner.run(
             `DELETE FROM notion_custom_property_rules
-             WHERE database_role = ?
+             WHERE project_id = ?
+               AND database_role = ?
                AND property_name = ?`,
+            projectId,
             input.databaseRole,
             deleteTarget,
           );
@@ -282,8 +308,10 @@ export class NotionCustomPropertyRuleStore {
         ) {
           this.runner.run(
             `DELETE FROM notion_custom_property_rules
-             WHERE database_role = ?
+             WHERE project_id = ?
+               AND database_role = ?
                AND property_name = ?`,
+            projectId,
             input.databaseRole,
             originalPropertyName,
           );
@@ -296,8 +324,10 @@ export class NotionCustomPropertyRuleStore {
         const existing = this.runner.get<NotionCustomPropertyRuleRow>(
           `SELECT *
            FROM notion_custom_property_rules
-           WHERE database_role = ?
+           WHERE project_id = ?
+             AND database_role = ?
              AND property_name = ?`,
+          projectId,
           input.databaseRole,
           propertyName,
         );
@@ -363,13 +393,13 @@ export class NotionCustomPropertyRuleStore {
 
         this.runner.run(
           `INSERT INTO notion_custom_property_rules (
-             database_role, property_name, property_id, property_type, enabled,
+             project_id, database_role, property_name, property_id, property_type, enabled,
              value_source, prompt_description, max_length, relation_target_url,
              relation_data_source_id, relation_target_page_url,
              relation_target_page_id, relation_match_property_name,
              relation_auto_create, last_seen_at, created_at, updated_at
-           ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
-           ON CONFLICT(database_role, property_name) DO UPDATE SET
+           ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+           ON CONFLICT(project_id, database_role, property_name) DO UPDATE SET
              property_type = excluded.property_type,
              value_source = excluded.value_source,
              enabled = excluded.enabled,
@@ -382,6 +412,7 @@ export class NotionCustomPropertyRuleStore {
              relation_match_property_name = excluded.relation_match_property_name,
              relation_auto_create = excluded.relation_auto_create,
              updated_at = excluded.updated_at`,
+          projectId,
           input.databaseRole,
           propertyName,
           propertyType,
@@ -403,6 +434,26 @@ export class NotionCustomPropertyRuleStore {
     });
 
     return { saved, deleted, ignored, warnings };
+  }
+
+  clearProject(
+    projectId = DEFAULT_PROJECT_ID,
+    databaseRole?: NotionDatabaseRole,
+  ): number {
+    const resolvedProjectId = cleanRequiredString(projectId, "projectId");
+    if (databaseRole) {
+      return this.runner.run(
+        `DELETE FROM notion_custom_property_rules
+         WHERE project_id = ?
+           AND database_role = ?`,
+        resolvedProjectId,
+        databaseRole,
+      );
+    }
+    return this.runner.run(
+      "DELETE FROM notion_custom_property_rules WHERE project_id = ?",
+      resolvedProjectId,
+    );
   }
 }
 
@@ -470,6 +521,7 @@ function readSupportedValueSource(
 
 function rowToRule(row: NotionCustomPropertyRuleRow): NotionCustomPropertyRule {
   return markProtectedRule({
+    projectId: row.project_id,
     databaseRole: readDatabaseRole(row.database_role),
     propertyName: row.property_name,
     propertyId: row.property_id,
@@ -571,6 +623,14 @@ function cleanDescription(value: string): string {
 
 function cleanInline(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function cleanRequiredString(value: string, label: string): string {
+  const cleaned = cleanInline(value);
+  if (!cleaned) {
+    throw new Error(`${label} must not be empty.`);
+  }
+  return cleaned;
 }
 
 function truncateForStorage(value: string, maxLength: number): string {

@@ -1,9 +1,26 @@
-async function refresh() {
+    const projectLocalState = {
+      busyProjectId: null,
+      addBusy: false,
+      lastResult: null
+    };
+    const settingsResetLocalState = {
+      confirmations: {
+        full: false,
+        current_project_connection: false
+      },
+      busyMode: null,
+      lastResult: null
+    };
+    let lastDashboardState = null;
+    let lastSetupSnapshot = null;
+
+    async function refresh() {
       try {
-        const [res, setupRes, i18nRes] = await Promise.all([
+        const [res, setupRes, i18nRes, projects] = await Promise.all([
           fetch('/api/state', { cache: 'no-store' }),
           fetch('/api/setup/state', { cache: 'no-store' }),
-          fetch('/api/i18n', { cache: 'no-store' })
+          fetch('/api/i18n', { cache: 'no-store' }),
+          dashboardApiGetProjects()
         ]);
         if (i18nRes.ok) {
           const i18n = await i18nRes.json();
@@ -16,6 +33,7 @@ async function refresh() {
           throw new Error('HTTP ' + res.status);
         }
         const state = await res.json();
+        state.projects = projects ?? state.projects ?? null;
         const setup = setupRes.ok ? await setupRes.json() : state.setup ?? null;
         renderState(state, setup);
       } catch (error) {
@@ -30,6 +48,8 @@ async function refresh() {
     }
     function renderState(state, setup) {
       const setupSnapshot = setup ?? state.setup ?? null;
+      lastDashboardState = state;
+      lastSetupSnapshot = setupSnapshot;
       syncActiveViewForSetup(setupSnapshot);
       const runtime = state.runtime ?? {};
       const theme =
@@ -102,18 +122,7 @@ async function refresh() {
       return tr('dashboard.nav.dashboard');
     }
     function renderSidebar(state, setup) {
-      const session = state.currentSession;
-      const hasServer = Boolean(session?.guild_id) || (setup?.features?.discord?.guildAllowlistCount ?? 0) > 0;
-      const serverLabel = hasServer
-        ? tr('dashboard.server.current')
-        : tr('dashboard.server.unselected');
-      setHtml('sidebarServers',
-        '<button type="button" class="server-button">' +
-        '<span>' + escapeHtml(serverLabel) + '</span><span class="muted">' +
-        escapeHtml(session?.guild_id ?? setup?.features?.discord?.guildAllowlistCount ?? '-') + '</span></button>' +
-        '<button type="button" class="server-button" onclick="setActiveView(\'settings\');setSettingsTab(\'discord\')">' +
-        i18n('dashboard.server.add.action') + '</button>'
-      );
+      setHtml('sidebarServers', renderProjectList(state.projects, state));
       const nav = [
         ...(setupIsIncomplete(setup) ? [['setup', 'dashboard.common.openWizard']] : []),
         ['dashboard', 'dashboard.nav.dashboard'],
@@ -130,6 +139,193 @@ async function refresh() {
         '<button type="button" class="nav-button" onclick="refresh()"><span>' +
         i18n('dashboard.quick.refreshStatus') + '</span></button>'
       );
+    }
+    function renderProjectList(snapshot, state) {
+      const projects = Array.isArray(snapshot?.projects) ? snapshot.projects : [];
+      const activeProjectId = snapshot?.activeProjectId ?? snapshot?.activeProject?.id ?? null;
+      const list = projects.length
+        ? '<div class="project-list">' + projects.map((project) =>
+            renderProjectButton(project, activeProjectId)
+          ).join('') + '</div>'
+        : '<div class="project-empty muted">' + i18n('dashboard.projects.empty') + '</div>';
+      const addDisabled = projectLocalState.addBusy || projectLocalState.busyProjectId !== null;
+      const addLabel = projectLocalState.addBusy
+        ? 'dashboard.projects.adding'
+        : 'dashboard.projects.add';
+      return list +
+        '<button type="button" class="server-button project-add-button"' +
+        (addDisabled ? ' disabled' : '') + ' onclick="createProjectFromSidebar()">' +
+        '<span>' + i18n(addLabel) + '</span></button>' +
+        renderProjectActionStatus(snapshot, state);
+    }
+    function renderProjectButton(project, activeProjectId) {
+      const isActive = activeProjectId === project.id;
+      const isBusy = projectLocalState.busyProjectId === project.id;
+      const lifecycleStatus = project.lifecycleStatus ?? 'draft';
+      const notionLabel = project.notionConnectionConfigured && project.notionParentPageConfigured
+        ? tr('dashboard.projects.notion.ready')
+        : project.notionConnectionConfigured || project.notionParentPageConfigured
+          ? tr('dashboard.projects.notion.partial')
+          : tr('dashboard.projects.notion.missing');
+      const guildLabel = project.guildName ?? project.guildId ?? tr('dashboard.projects.guildMissing');
+      const commandLabel = project.commandEnabled
+        ? tr('dashboard.projects.commandEnabled')
+        : tr('dashboard.projects.commandDisabled');
+      const badges = '<span class="project-badges">' +
+        (isActive ? '<span class="project-status project-status-active">' +
+          i18n('dashboard.projects.active') + '</span>' : '') +
+        '<span class="project-status ' + projectLifecycleTone(lifecycleStatus) + '">' +
+        escapeHtml(projectLifecycleLabel(lifecycleStatus)) + '</span></span>';
+      return '<button type="button" class="server-button project-button' +
+        (isActive ? ' is-active' : '') + ' project-lifecycle-' + escapeHtml(lifecycleStatus) + '"' +
+        (isActive || projectLocalState.addBusy || (projectLocalState.busyProjectId !== null && !isBusy)
+          ? ' disabled'
+          : '') +
+        ' aria-current="' + (isActive ? 'true' : 'false') + '"' +
+        ' onclick="switchProject(' + escapeHtml(JSON.stringify(project.id)) + ')">' +
+        '<span class="project-button-main"><span class="project-name">' +
+        escapeHtml(project.name) + '</span><span class="project-meta">' +
+        escapeHtml(guildLabel) + ' · ' + escapeHtml(notionLabel) + ' · ' +
+        escapeHtml(commandLabel) + '</span></span>' +
+        (isBusy ? '<span class="project-status project-status-busy">' +
+          i18n('dashboard.projects.switching') + '</span>' : badges) +
+        '</button>';
+    }
+    function renderProjectActionStatus(snapshot, state) {
+      const result = projectLocalState.lastResult;
+      if (result) {
+        const failed = result.ok === false || ['blocked', 'failed', 'not_configured'].includes(String(result.status));
+        const blockReason = result.reason ?? result.switchResult?.reason ?? null;
+        const reason = blockReason ? projectSwitchReasonLabel(blockReason) : null;
+        const message =
+          result.message ??
+          result.switchResult?.message ??
+          (result.messageKey ? tr(result.messageKey) : null);
+        return '<div id="projectActionStatus" class="project-action-status ' + (failed ? 'is-error' : 'is-ok') + '">' +
+          '<div class="label">' + i18n(failed
+            ? 'dashboard.projects.actionBlocked'
+            : 'dashboard.projects.actionDone') + '</div>' +
+          '<div class="value ' + (failed ? 'error' : 'status') + '">' +
+          escapeHtml(reason ?? projectActionSuccessText(result)) + '</div>' +
+          (message ? '<div class="muted">' + escapeHtml(message) + '</div>' : '') +
+          '</div>';
+      }
+      if (snapshot && snapshot.ok === false) {
+        const message = snapshot.message ?? (snapshot.messageKey ? tr(snapshot.messageKey) : snapshot.status ?? 'failed');
+        return '<div id="projectActionStatus" class="project-action-status is-error">' +
+          '<div class="label">' + i18n('dashboard.projects.unavailable') + '</div>' +
+          '<div class="value error">' + escapeHtml(message) + '</div></div>';
+      }
+      const active = snapshot?.activeProject;
+      if (!active) {
+        return '<div id="projectActionStatus" class="project-action-status">' +
+          '<div class="label">' + i18n('dashboard.projects.activeContext') + '</div>' +
+          '<div class="muted">' + i18n('dashboard.projects.noActive') + '</div></div>';
+      }
+      const sessionGuild = state.currentSession?.guild_id;
+      return '<div id="projectActionStatus" class="project-action-status">' +
+        '<div class="label">' + i18n('dashboard.projects.activeContext') + '</div>' +
+        '<div class="value">' + escapeHtml(active.name) + '</div>' +
+        '<div class="muted">' + escapeHtml(active.guildName ?? active.guildId ?? sessionGuild ?? tr('dashboard.projects.guildMissing')) +
+        '</div></div>';
+    }
+    function projectLifecycleLabel(status) {
+      const key = 'dashboard.projects.lifecycle.' + String(status ?? 'draft');
+      const label = tr(key);
+      return label === key ? String(status ?? 'draft') : label;
+    }
+    function projectLifecycleTone(status) {
+      const value = String(status ?? 'draft');
+      if (value === 'ready') return 'project-status-ready';
+      if (value === 'archived') return 'project-status-archived';
+      if (value === 'resetting') return 'project-status-resetting';
+      return 'project-status-draft';
+    }
+    function projectSwitchReasonLabel(reason) {
+      const key = 'dashboard.projects.blockReasons.' + String(reason ?? 'unknown');
+      const label = tr(key);
+      return label === key ? String(reason ?? 'unknown') : label;
+    }
+    function projectActionSuccessText(result) {
+      if (result?.reused) return tr('dashboard.projects.createReused');
+      if (result?.project && result?.switchResult) return tr('dashboard.projects.createDone');
+      return tr('dashboard.projects.switchDone');
+    }
+    function clearProjectScopedUiCache() {
+      notionRulesDirty = false;
+      notionSchemaResult = null;
+      if (typeof clearManagedDbCheckResult === 'function') {
+        clearManagedDbCheckResult();
+      }
+    }
+    function resetProjectSetupSelection() {
+      setupLocalState.selectedGuildId = '';
+      window.localStorage.removeItem('dirong.setup.guildId');
+    }
+    async function switchProject(projectId) {
+      if (!projectId || projectLocalState.addBusy || projectLocalState.busyProjectId) {
+        return;
+      }
+      const activeProjectId =
+        lastDashboardState?.projects?.activeProjectId ??
+        lastDashboardState?.projects?.activeProject?.id ??
+        null;
+      if (activeProjectId === projectId) {
+        return;
+      }
+      projectLocalState.busyProjectId = projectId;
+      projectLocalState.lastResult = null;
+      if (lastDashboardState) renderSidebar(lastDashboardState, lastSetupSnapshot);
+      try {
+        const result = await dashboardApiSwitchProject(projectId);
+        projectLocalState.lastResult = result;
+        if (result.ok) {
+          clearProjectScopedUiCache();
+          resetProjectSetupSelection();
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        projectLocalState.lastResult = {
+          ok: false,
+          status: 'failed',
+          message
+        };
+      } finally {
+        projectLocalState.busyProjectId = null;
+        await refresh();
+      }
+    }
+    async function createProjectFromSidebar() {
+      if (projectLocalState.addBusy || projectLocalState.busyProjectId) {
+        return;
+      }
+      projectLocalState.addBusy = true;
+      projectLocalState.lastResult = null;
+      if (lastDashboardState) renderSidebar(lastDashboardState, lastSetupSnapshot);
+      try {
+        const result = await dashboardApiCreateProject({
+          reuseEmptyDraft: true,
+          activate: true
+        });
+        projectLocalState.lastResult = result;
+        if (result.ok) {
+          clearProjectScopedUiCache();
+          resetProjectSetupSelection();
+          window.sessionStorage.removeItem(SETUP_SKIP_DASHBOARD_KEY);
+          activeView = 'setup';
+          window.localStorage.setItem('dirong.dashboard.view', activeView);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        projectLocalState.lastResult = {
+          ok: false,
+          status: 'failed',
+          message
+        };
+      } finally {
+        projectLocalState.addBusy = false;
+        await refresh();
+      }
     }
     function renderSetupIncompleteBanner(setup) {
       const root = document.getElementById('setupIncompleteBanner');
@@ -331,8 +527,7 @@ async function refresh() {
         reset: null
       };
       if (activeSettingsTab === 'reset') {
-        return '<div class="metric"><div class="label">' + i18n('dashboard.settings.tabs.reset') + '</div>' +
-          '<div class="value error">' + i18n('dashboard.settings.resetDanger') + '</div></div>';
+        return renderSettingsResetPanel(state, setup);
       }
       const theme =
         setup?.dashboardTheme ??
@@ -347,6 +542,119 @@ async function refresh() {
             renderRuntimeEffect(featureMap[activeSettingsTab]?.runtimeEffect) +
             '<div class="muted">' + i18n('dashboard.settings.secretsHidden') + '</div></div>';
       return body + renderThemeSettings(theme, setup);
+    }
+    function renderSettingsResetPanel(state, setup) {
+      const recordingActive = Boolean(state.runtime?.isRecording);
+      const notionBusy = (state.notionAutomation?.inFlightDraftIds ?? []).length > 0;
+      const aiBusy = (state.aiCleanupAutomation?.inFlightSessionIds ?? []).length > 0;
+      const blocker = recordingActive
+        ? 'recording_active'
+        : notionBusy
+          ? 'notion_upload_in_flight'
+          : aiBusy
+            ? 'ai_cleanup_in_flight'
+            : null;
+      const modes = [
+        {
+          mode: 'current_project_connection',
+          title: 'dashboard.settings.reset.currentProject.title',
+          label: 'dashboard.settings.reset.currentProject.button',
+          deletes: 'dashboard.settings.reset.currentProject.deletes',
+          keeps: 'dashboard.settings.reset.currentProject.keeps'
+        },
+        {
+          mode: 'full',
+          title: 'dashboard.settings.reset.full.title',
+          label: 'dashboard.settings.reset.full.button',
+          deletes: 'dashboard.settings.reset.full.deletes',
+          keeps: 'dashboard.settings.reset.full.keeps'
+        }
+      ];
+      const result = renderSettingsResetResult(settingsResetLocalState.lastResult);
+      const activeProject = setup?.activeProject ?? state.projects?.activeProject ?? null;
+      const activeProjectLine = '<div class="muted">' + i18n('dashboard.settings.reset.activeProject') + ': ' +
+        escapeHtml(activeProject?.name ?? tr('dashboard.common.none')) + '</div>';
+      return '<div class="section-heading"><h2>' + i18n('dashboard.settings.reset.title') + '</h2></div>' +
+        '<div class="metric"><div class="label">' + i18n('dashboard.settings.reset.safetyLabel') + '</div>' +
+        '<div class="value">' + i18n('dashboard.settings.reset.safetyCopy') + '</div>' +
+        activeProjectLine +
+        (blocker ? '<div class="display-next error">' + i18n('dashboard.settings.reset.conflict.' + blocker) + '</div>' : '') +
+        '</div>' +
+        '<div class="settings-reset-grid">' + modes.map((entry) =>
+          renderSettingsResetMode(entry, blocker)
+        ).join('') + '</div>' + result;
+    }
+    function renderSettingsResetMode(entry, blocker) {
+      const mode = entry.mode;
+      const checked = settingsResetLocalState.confirmations[mode] === true;
+      const busy = settingsResetLocalState.busyMode === mode;
+      const disabled = Boolean(blocker || settingsResetLocalState.busyMode || !checked);
+      return '<section class="settings-reset-card">' +
+        '<div class="section-heading"><h3>' + i18n(entry.title) + '</h3></div>' +
+        '<div class="settings-reset-list"><strong>' + i18n('dashboard.settings.reset.deletesLabel') + '</strong><span>' +
+        i18n(entry.deletes) + '</span></div>' +
+        '<div class="settings-reset-list"><strong>' + i18n('dashboard.settings.reset.keepsLabel') + '</strong><span>' +
+        i18n(entry.keeps) + '</span></div>' +
+        '<label class="settings-reset-confirm"><input type="checkbox" ' +
+        (checked ? 'checked ' : '') +
+        'onchange="setSettingsResetConfirm(\'' + mode + '\', this.checked)">' +
+        '<span>' + i18n('dashboard.settings.reset.confirm') + '</span></label>' +
+        '<button type="button" class="danger-button" onclick="executeSettingsReset(\'' + mode + '\')" ' +
+        (disabled ? 'disabled ' : '') + '>' +
+        (busy ? i18n('dashboard.settings.reset.running') : i18n(entry.label)) + '</button>' +
+        '</section>';
+    }
+    function renderSettingsResetResult(result) {
+      if (!result) return '';
+      const ok = result.ok === true;
+      const reason = result.reason ? i18n('dashboard.settings.reset.conflict.' + result.reason) : '';
+      const message = ok
+        ? i18n('dashboard.settings.reset.success')
+        : reason || escapeHtml(result.message ?? result.status ?? 'failed');
+      const details = ok && result.deleted
+        ? '<div class="muted">' +
+          i18n('dashboard.settings.reset.deletedSummary', {
+            secrets: result.deleted.secretRefs?.length ?? 0,
+            writes: result.deleted.blockedNotionWrites ?? 0
+          }) + '</div>'
+        : '';
+      return '<div class="setup-result ' + (ok ? 'is-ok' : 'is-error') + '">' +
+        '<div class="value ' + (ok ? 'status' : 'error') + '">' + message + '</div>' +
+        details + '</div>';
+    }
+    function setSettingsResetConfirm(mode, checked) {
+      if (mode !== 'full' && mode !== 'current_project_connection') return;
+      settingsResetLocalState.confirmations[mode] = Boolean(checked);
+      setHtml('settingsPanel', renderSettingsPanel(lastDashboardState ?? {}, lastSetupSnapshot));
+    }
+    async function executeSettingsReset(mode) {
+      if (mode !== 'full' && mode !== 'current_project_connection') return;
+      if (settingsResetLocalState.busyMode || !settingsResetLocalState.confirmations[mode]) return;
+      settingsResetLocalState.busyMode = mode;
+      settingsResetLocalState.lastResult = null;
+      setHtml('settingsPanel', renderSettingsPanel(lastDashboardState ?? {}, lastSetupSnapshot));
+      try {
+        const result = await dashboardApiResetSettings(mode);
+        settingsResetLocalState.lastResult = result;
+        if (result.ok) {
+          settingsResetLocalState.confirmations.full = false;
+          settingsResetLocalState.confirmations.current_project_connection = false;
+          window.sessionStorage.setItem(SETUP_SKIP_DASHBOARD_KEY, 'true');
+          activeView = 'settings';
+          window.localStorage.setItem('dirong.dashboard.view', activeView);
+          clearProjectScopedUiCache();
+          resetProjectSetupSelection();
+        }
+      } catch (error) {
+        settingsResetLocalState.lastResult = {
+          ok: false,
+          status: 'failed',
+          message: error instanceof Error ? error.message : String(error)
+        };
+      } finally {
+        settingsResetLocalState.busyMode = null;
+        await refresh();
+      }
     }
     function renderRetentionSettings(setup) {
       const retention = setup?.features?.dataRetention;

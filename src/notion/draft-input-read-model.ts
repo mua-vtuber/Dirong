@@ -5,6 +5,7 @@ import type {
   SessionRow,
   TranscriptSegmentRow,
 } from "../storage/session-store.js";
+import { DEFAULT_PROJECT_ID } from "../projects/project-types.js";
 import type { NotionDraftInput, NotionDraftSpeaker } from "./draft-input.js";
 
 export type NotionDraftCandidateRow = {
@@ -41,26 +42,42 @@ export class NotionDraftInputReadModel {
   }
 
   listLatestValidDraftsMissingDoneWrite(input: {
+    projectId?: string;
     targetId: string;
     limit: number;
+    createdAtOrAfter?: string | null;
   }): NotionDraftCandidateRow[] {
+    const projectId = cleanRequiredString(
+      input.projectId ?? DEFAULT_PROJECT_ID,
+      "projectId",
+    );
+    const createdAtOrAfter = input.createdAtOrAfter ?? null;
     return this.runner.all<NotionDraftCandidateRow>(
       `SELECT d.id, d.session_id, d.created_at, d.updated_at
        FROM meeting_notes_drafts d
+       INNER JOIN sessions s
+         ON s.id = d.session_id
+        AND s.project_id = ?
        INNER JOIN ai_cleanup_jobs j
          ON j.id = d.ai_cleanup_job_id
         AND j.status = 'done'
        WHERE d.validation_status = 'valid'
+         AND (? IS NULL OR d.created_at >= ?)
          AND NOT EXISTS (
            SELECT 1
            FROM notion_writes w
            WHERE w.draft_id = d.id
+             AND w.project_id = ?
              AND w.target_type = 'data_source'
              AND w.target_id = ?
              AND w.status = 'done'
          )
        ORDER BY d.created_at DESC, d.id DESC
        LIMIT ?`,
+      projectId,
+      createdAtOrAfter,
+      createdAtOrAfter,
+      projectId,
       input.targetId,
       input.limit,
     );
@@ -106,4 +123,15 @@ export class NotionDraftInputReadModel {
       ),
     };
   }
+}
+
+function cleanRequiredString(value: string, label: string): string {
+  if (typeof value !== "string") {
+    throw new Error(`${label} must be a string.`);
+  }
+  const cleaned = value.trim();
+  if (!cleaned) {
+    throw new Error(`${label} must not be empty.`);
+  }
+  return cleaned;
 }

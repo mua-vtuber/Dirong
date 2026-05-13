@@ -8,7 +8,7 @@ import type {
 export type AiCleanupProviderInput = {
   sessionId: string;
   language: DirongLocale;
-  promptVersion: "phase4-ai-cleanup-v3";
+  promptVersion: "phase4-ai-cleanup-v4";
   outputSchemaVersion: "dirong.meeting_notes_draft.v1";
   timeline: Phase4TranscriptTimeline;
   timelineMarkdown: string;

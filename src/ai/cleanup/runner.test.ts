@@ -18,7 +18,11 @@ import type {
   AiCleanupProviderResetReason,
   AiCleanupProviderResult,
 } from "./provider.js";
-import { PHASE4_AI_CLEANUP_PROMPT_VERSION } from "./prompts.js";
+import {
+  PHASE4_AI_CLEANUP_PROMPT_VERSION,
+  buildPhase4SystemPrompt,
+  buildPhase4UserPrompt,
+} from "./prompts.js";
 import { runAiCleanupForSession } from "./runner.js";
 import { buildPhase4TimelineInput, sha256Text } from "./timeline-input.js";
 
@@ -43,6 +47,31 @@ test("runAiCleanupForSession dry-run does not change the DB", async () => {
       readOnlyStore.close();
     }
     assert.deepEqual(fixture.countAiRows(), before);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("phase4 prompts request conservative STT correction and detailed notes", () => {
+  const fixture = createFinalizedTranscriptFixture({
+    text: "이번 회의에서는 노션 업로드 리스크와 블로커를 자세히 정리하겠습니다.",
+  });
+  try {
+    const timelineInput = buildPhase4TimelineInput(fixture.store, {
+      sessionId: fixture.sessionId,
+    });
+    const systemPrompt = buildPhase4SystemPrompt();
+    const userPrompt = buildPhase4UserPrompt(timelineInput, {
+      memberRosterPrompt: "Known member roles for assignment hints:\n- Taniar: roles=Owner",
+    });
+
+    assert.match(systemPrompt, /phonetic or homophone-like recognition errors/);
+    assert.match(systemPrompt, /Preserve substantive meeting content/);
+    assert.match(userPrompt, /contextually appropriate word/);
+    assert.match(userPrompt, /Do not silently correct names, dates, numbers/);
+    assert.match(userPrompt, /Preserve all substantive meeting content/);
+    assert.match(userPrompt, /Do not collapse distinct discussion threads/);
+    assert.match(userPrompt, /someone who missed the meeting/);
   } finally {
     fixture.close();
   }

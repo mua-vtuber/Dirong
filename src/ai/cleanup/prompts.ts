@@ -4,7 +4,7 @@ import {
   type DirongLocale,
 } from "../../settings/local-settings-store.js";
 
-export const PHASE4_AI_CLEANUP_PROMPT_VERSION = "phase4-ai-cleanup-v3";
+export const PHASE4_AI_CLEANUP_PROMPT_VERSION = "phase4-ai-cleanup-v4";
 
 export function buildPhase4SystemPrompt(
   locale: DirongLocale = DEFAULT_DIRONG_LOCALE,
@@ -12,7 +12,7 @@ export function buildPhase4SystemPrompt(
   const languageName = meetingNotesLanguageName(locale);
   return [
     "You are Dirong's AI cleanup engine for Discord meeting transcripts.",
-    "Create a concise meeting-notes draft from the speaker-tagged transcript timeline.",
+    "Create a clear, detailed meeting-notes draft from the speaker-tagged transcript timeline.",
     "The full response must be either one raw JSON object or one fenced json block containing only that object.",
     "Do not include prose before or after the JSON.",
     "Return only JSON that matches the provided schema. The app validates the schema, so do not add arbitrary keys.",
@@ -23,6 +23,11 @@ export function buildPhase4SystemPrompt(
     `Use ${languageName} for every user-facing draft string.`,
     `The top-level language field must be exactly "${locale}".`,
     "Every decision, action item, topic, unresolved item, and uncertainty must preserve source timeline references.",
+    "Treat the transcript as STT output that may contain phonetic or homophone-like recognition errors.",
+    "When surrounding context strongly supports a correction, use the contextually appropriate word in draft strings.",
+    "Do not silently correct names, dates, numbers, technical terms, owners, product names, or project names unless source context or provided hints support it.",
+    "If a possible correction is uncertain, keep the meaning conservative and add an uncertainty note.",
+    "Preserve substantive meeting content, including agenda, rationale, alternatives, constraints, risks, blockers, follow-up questions, decisions, and action items.",
     "For relative dates such as 내일, 금요일, tomorrow, or Friday, keep rawText and set isoDate to null.",
     "Remove or compress casual chatter only when it does not affect meeting meaning.",
   ].join("\n");
@@ -81,6 +86,13 @@ export function buildPhase4UserPrompt(
     "- If owner, due date, or decision status is not directly supported by the transcript, do not invent it.",
     "- If owner or due date is not directly supported by the transcript, use unspecified.",
     "- For relative dates, set isoDate to null.",
+    "- Treat transcript text as STT output that may contain phonetic or homophone-like recognition errors.",
+    "- When the surrounding transcript context strongly supports a correction, use the contextually appropriate word in draft strings.",
+    "- Do not silently correct names, dates, numbers, technical terms, owners, product names, channel names, or project names unless directly supported by transcript context, member roster hints, or project context.",
+    "- If a possible correction is uncertain, keep the meaning conservative and add an uncertainty note with references.",
+    "- Preserve all substantive meeting content: agenda, rationale, alternatives discussed, constraints, risks, blockers, follow-up questions, decisions, and action items.",
+    "- Do not collapse distinct discussion threads into one broad topic when the transcript supports separate topics.",
+    "- Topic summaries should be specific enough that someone who missed the meeting can understand the context and outcome.",
     "",
     "Required skeleton:",
     JSON.stringify({
@@ -159,6 +171,7 @@ export function buildPhase4RepairPrompt(input: {
     `- The top-level language field must be exactly "${locale}".`,
     "- Do not write to Notion, call Notion APIs, include Notion tokens, or give Notion instructions.",
     "- Do not invent owners, dates, decisions, or facts while repairing.",
+    "- Do not introduce new STT corrections while repairing; preserve source-grounded corrections already present in the previous response.",
     "- If an owner, date, or decision is uncertain after repair, use unspecified fields or move it to unresolvedItems instead of inventing a status.",
     "- Exact unspecified owner object: { \"status\": \"unspecified\", \"name\": null, \"userId\": null, \"evidence\": [] }.",
     "- Exact unspecified dueDate object: { \"status\": \"unspecified\", \"rawText\": null, \"isoDate\": null, \"evidence\": [] }.",

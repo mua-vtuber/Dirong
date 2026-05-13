@@ -443,6 +443,7 @@ async function syncManagedActionItemPages(input: {
         meetingPageId: input.meetingPageId,
         workerRelationPageId: workerPageId.pageId,
         sourceActionId,
+        locale: input.draftInput.draftContent.language,
       });
       warnings.push(...workerPageId.warnings);
       const existing = await findExistingActionItemPage({

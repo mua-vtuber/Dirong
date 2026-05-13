@@ -1,5 +1,6 @@
 import { MEETING_NOTES_DRAFT_SCHEMA_VERSION } from "../ai/cleanup/draft.js";
 import type { MeetingNotesDraftV1 } from "../ai/cleanup/draft.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 import type { NotionDraftInput, NotionDraftSpeaker } from "./draft-input.js";
 import type { TranscriptSegmentRow } from "../storage/session-store.js";
 
@@ -14,6 +15,7 @@ export type MakeNotionDraftInputOptions = {
   emptyDraftArrays?: boolean;
   actionItems?: MeetingNotesDraftV1["actionItems"];
   notionProperties?: MeetingNotesDraftV1["notionProperties"];
+  locale?: DirongLocale;
 };
 
 export function makeNotionDraftInput(
@@ -63,7 +65,7 @@ function makeDraftContent(
 
   return {
     schemaVersion: MEETING_NOTES_DRAFT_SCHEMA_VERSION,
-    language: "ko",
+    language: options.locale ?? "ko",
     sessionId: "session-1",
     sourceTimeline: {
       contractVersion: "phase3.5-transcript-timeline-v1",

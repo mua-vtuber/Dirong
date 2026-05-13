@@ -48,7 +48,7 @@ export function printCliError(
   console.error(formatDebugHint(locale));
 }
 
-function resolveCliLocale(): DirongLocale {
+export function resolveCliLocale(): DirongLocale {
   try {
     const paths = getDirongUserDataPaths(resolveDirongUserDataPath());
     return resolveAppLocale({

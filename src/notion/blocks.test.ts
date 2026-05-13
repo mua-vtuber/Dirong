@@ -54,6 +54,39 @@ test("renderNotionBlocks renders empty arrays as 없음 and excludes raw provide
   assert.doesNotMatch(text, /raw transcript/i);
 });
 
+test("renderNotionBlocks renders English section labels for English drafts", () => {
+  const blocks = renderNotionBlocks(
+    makeNotionDraftInput({
+      locale: "en",
+      title: "Weekly meeting",
+      summary: "We shared this week's progress.",
+      emptyDraftArrays: true,
+    }),
+    {
+      contentHash: "hash-final",
+    },
+  );
+  const headings = blocks
+    .filter((block) => block.type === "heading_2")
+    .map((block) => block.plainText);
+  const text = blocks.map((block) => block.plainText).join("\n");
+
+  assert.deepEqual(headings, [
+    "Meeting Info",
+    "Summary",
+    "Key Discussion",
+    "Decisions",
+    "Action Items",
+    "Open Questions",
+    "Uncertain Content",
+    "Noise Handling Notes",
+    "Timeline",
+    "Dirong Info",
+  ]);
+  assert.match(text, /Key Discussion\nNone/);
+  assert.match(text, /Participants: Taniar, Ari/);
+});
+
 test("renderNotionBlocks splits rich text before Notion text limits", () => {
   const longText = "가".repeat(2001);
   const blocks = renderNotionBlocks(makeNotionDraftInput({ summary: longText }));

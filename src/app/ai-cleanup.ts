@@ -3,7 +3,7 @@ import { FakeAiCleanupProvider } from "../ai/cleanup/fake-provider.js";
 import { ClaudeStreamJsonCliCleanupProvider } from "../ai/cleanup/claude-persistent-cli-provider.js";
 import { runAiCleanupForSession } from "../ai/cleanup/runner.js";
 import type { AiCleanupProvider } from "../ai/cleanup/provider.js";
-import { printCliError } from "../cli/error-output.js";
+import { printCliError, resolveCliLocale } from "../cli/error-output.js";
 import { loadPhase1Config } from "../config.js";
 import { loadAiCleanupSettingsFromEnv } from "../settings/env-settings-loader.js";
 import {
@@ -49,6 +49,7 @@ try {
     sessionId: options.sessionId,
     dryRun: options.dryRun,
     provider,
+    locale: resolveCliLocale(),
     workerId: `phase4-ai-cleanup-${provider.providerName}-${process.pid}`,
     leaseMs:
       options.leaseMs ??

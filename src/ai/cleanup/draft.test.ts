@@ -22,6 +22,33 @@ test("validateMeetingNotesDraftV1 accepts a valid draft without markdown", () =>
   );
 });
 
+test("validateMeetingNotesDraftV1 accepts the configured draft language", () => {
+  const { draft, timeline } = createValidDraftFixture();
+  const englishDraft: MeetingNotesDraftV1 = {
+    ...draft,
+    language: "en",
+  };
+
+  assert.equal(
+    validateMeetingNotesDraftV1(englishDraft, {
+      sessionId: englishDraft.sessionId,
+      inputHash: englishDraft.sourceTimeline.inputHash,
+      timeline,
+      language: "en",
+    }),
+    englishDraft,
+  );
+  assert.throws(
+    () =>
+      validateMeetingNotesDraftV1(englishDraft, {
+        sessionId: englishDraft.sessionId,
+        inputHash: englishDraft.sourceTimeline.inputHash,
+        timeline,
+      }),
+    /language must be ko/,
+  );
+});
+
 test("validateMeetingNotesDraftV1 drops a legacy markdown key before validation", () => {
   const { draft, timeline } = createValidDraftFixture();
   const normalized = validateMeetingNotesDraftV1(

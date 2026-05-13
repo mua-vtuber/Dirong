@@ -1,4 +1,9 @@
 import { DirongError, summarizeSafeText } from "../../errors.js";
+import {
+  DEFAULT_DIRONG_LOCALE,
+  type DirongLocale,
+} from "../../settings/local-settings-store.js";
+import { resolveAppLocale } from "../../i18n/app-locale.js";
 import type {
   AiCleanupFailureKind,
   AiCleanupJobRow,
@@ -88,6 +93,7 @@ export type AiCleanupRunOptions = {
   maxInputChars: number;
   timeoutMs: number;
   maxOutputBytes: number;
+  locale?: DirongLocale;
   includeFakeStt?: boolean;
   customNotionPropertyPrompt?: () => string;
   memberRosterPrompt?: () => string;
@@ -116,6 +122,7 @@ async function runAiCleanupForSessionCore(
   store: SessionStore,
   options: AiCleanupRunOptions,
 ): Promise<AiCleanupRunResult> {
+  const locale = resolveAppLocale({ locale: options.locale });
   const session = store.getSession(options.sessionId);
   if (!session) {
     throw new DirongError(
@@ -134,18 +141,20 @@ async function runAiCleanupForSessionCore(
     sessionId: options.sessionId,
     includeFakeStt: options.includeFakeStt ?? false,
   });
-  const systemPrompt = buildPhase4SystemPrompt();
+  const systemPrompt = buildPhase4SystemPrompt(locale);
   const notionCustomPropertyPrompt = options.customNotionPropertyPrompt?.() ?? "";
   const memberRosterPrompt = options.memberRosterPrompt?.() ?? "";
   const timelineInput = {
     ...baseTimelineInput,
     inputHash: buildPhase4ContextualInputHash(baseTimelineInput.inputHash, {
       memberRosterPrompt,
+      locale,
     }),
   };
   const userPrompt = buildPhase4UserPrompt(timelineInput, {
     notionCustomPropertyPrompt,
     memberRosterPrompt,
+    locale,
   });
   const inputChars = timelineInput.canonicalJson.length + timelineInput.markdown.length;
   let progressContext = makeAiCleanupProgressContext({
@@ -315,7 +324,7 @@ async function runAiCleanupForSessionCore(
 
   const providerInput: AiCleanupProviderInput = {
     sessionId: options.sessionId,
-    language: "ko",
+    language: locale,
     promptVersion: PHASE4_AI_CLEANUP_PROMPT_VERSION,
     outputSchemaVersion: MEETING_NOTES_DRAFT_SCHEMA_VERSION,
     timeline: timelineInput.timeline,
@@ -453,6 +462,7 @@ async function runAiCleanupForSessionCore(
       sessionId: options.sessionId,
       inputHash: timelineInput.inputHash,
       timeline: timelineInput.timeline,
+      language: locale,
     });
   } catch (error) {
     const validationIssues =
@@ -461,6 +471,7 @@ async function runAiCleanupForSessionCore(
       timelineInput,
       validationIssues,
       previousResponse: providerResult.rawText,
+      language: locale,
     });
     writeTextAtomic(artifactPaths.repairPromptPath, `${repairPrompt}\n`);
     await resetProviderSession(options.provider, "before_repair");
@@ -560,6 +571,7 @@ async function runAiCleanupForSessionCore(
         sessionId: options.sessionId,
         inputHash: timelineInput.inputHash,
         timeline: timelineInput.timeline,
+        language: locale,
       });
       draftRawOutputPath = artifactPaths.repairRawOutputPath;
     } catch (repairError) {
@@ -588,7 +600,7 @@ async function runAiCleanupForSessionCore(
     attempt: claimed.attempts,
   });
   const draftJson = stableStringify(draft);
-  const draftMarkdown = renderMeetingNotesDraftMarkdown(draft);
+  const draftMarkdown = renderMeetingNotesDraftMarkdown(draft, { locale });
   const outputHash = sha256Text(draftJson);
   writeTextAtomic(artifactPaths.draftJsonPath, `${draftJson}\n`);
   writeTextAtomic(artifactPaths.draftMarkdownPath, `${draftMarkdown}\n`);
@@ -630,18 +642,25 @@ async function runAiCleanupForSessionCore(
 
 export function buildPhase4ContextualInputHash(
   baseInputHash: string,
-  context: { memberRosterPrompt?: string },
+  context: { memberRosterPrompt?: string; locale?: DirongLocale },
 ): string {
   const memberRosterPrompt = context.memberRosterPrompt?.trim() ?? "";
-  if (!memberRosterPrompt) {
+  const locale = context.locale ?? DEFAULT_DIRONG_LOCALE;
+  if (!memberRosterPrompt && locale === DEFAULT_DIRONG_LOCALE) {
     return baseInputHash;
   }
-  return sha256Text(
-    stableStringify({
-      baseInputHash,
-      memberRosterPromptHash: sha256Text(memberRosterPrompt),
-    }),
-  );
+  const hashInput: {
+    baseInputHash: string;
+    locale?: DirongLocale;
+    memberRosterPromptHash?: string;
+  } = { baseInputHash };
+  if (locale !== DEFAULT_DIRONG_LOCALE) {
+    hashInput.locale = locale;
+  }
+  if (memberRosterPrompt) {
+    hashInput.memberRosterPromptHash = sha256Text(memberRosterPrompt);
+  }
+  return sha256Text(stableStringify(hashInput));
 }
 
 async function resetProviderAfterRun(

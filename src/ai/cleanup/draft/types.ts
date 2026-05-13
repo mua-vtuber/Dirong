@@ -1,4 +1,5 @@
 import type { MEETING_NOTES_DRAFT_SCHEMA_VERSION } from "./schema.js";
+import type { DirongLocale } from "../../../settings/local-settings-store.js";
 
 export type TimelineReference = {
   chunkId: string;
@@ -28,7 +29,7 @@ export type NotionPropertyExtraction = {
 
 export type MeetingNotesDraftV1 = {
   schemaVersion: typeof MEETING_NOTES_DRAFT_SCHEMA_VERSION;
-  language: "ko";
+  language: DirongLocale;
   sessionId: string;
   sourceTimeline: {
     contractVersion: "phase3.5-transcript-timeline-v1";

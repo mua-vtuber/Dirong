@@ -3,6 +3,10 @@ import type {
   Phase4TranscriptTimelineEntry,
 } from "../../../transcript/timeline.js";
 import {
+  DEFAULT_DIRONG_LOCALE,
+  type DirongLocale,
+} from "../../../settings/local-settings-store.js";
+import {
   ACTION_ITEM_KEYS,
   DECISION_KEYS,
   EVIDENCE_BOUND_DATE_KEYS,
@@ -38,6 +42,7 @@ export function validateMeetingNotesDraftV1(
     sessionId: string;
     inputHash: string;
     timeline: Phase4TranscriptTimeline;
+    language?: DirongLocale;
   },
 ): MeetingNotesDraftV1 {
   const issues: string[] = [];
@@ -54,7 +59,12 @@ export function validateMeetingNotesDraftV1(
     "schemaVersion",
     issues,
   );
-  expectEqual(draft.language, "ko", "language", issues);
+  expectEqual(
+    draft.language,
+    context.language ?? DEFAULT_DIRONG_LOCALE,
+    "language",
+    issues,
+  );
   expectEqual(draft.sessionId, context.sessionId, "sessionId", issues);
 
   const sourceTimeline = asRecord(draft.sourceTimeline, "sourceTimeline", issues);
@@ -483,4 +493,4 @@ function expectKnownKeys(
 }
 
 const RELATIVE_DATE_PATTERN =
-  /오늘|내일|모레|글피|이번|다음|월요일|화요일|수요일|목요일|금요일|토요일|일요일|주말|오전|오후/;
+  /오늘|내일|모레|글피|이번|다음|월요일|화요일|수요일|목요일|금요일|토요일|일요일|주말|오전|오후|today|tomorrow|tonight|this|next|monday|tuesday|wednesday|thursday|friday|saturday|sunday|weekend|morning|afternoon|evening/i;

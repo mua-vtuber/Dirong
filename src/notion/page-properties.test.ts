@@ -121,6 +121,27 @@ test("buildNotionPagePropertyValues applies fallbacks and participant sanitizati
   assert.equal(warnings.length, 1);
 });
 
+test("buildNotionPagePropertyValues uses English fallbacks for English drafts", () => {
+  const input = makeNotionDraftInput({
+    locale: "en",
+    title: "   ",
+    voiceChannelName: null,
+    speakers: [
+      ["", 0],
+      ["Ari", 0],
+    ],
+  });
+
+  const { values, warnings } = buildNotionPagePropertyValues({
+    draftInput: input,
+  });
+
+  assert.equal(values.title, "Meeting notes draft");
+  assert.equal(values.localStatus, "Notion upload pending");
+  assert.deepEqual(values.participants, ["Ari"]);
+  assert.match(warnings.join("\n"), /Blank participant names/);
+});
+
 test("buildNotionPagePropertyValues caps participants at 100", () => {
   const input = makeNotionDraftInput({
     speakers: Array.from({ length: 101 }, (_, index) => [

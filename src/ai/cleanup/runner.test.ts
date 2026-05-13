@@ -83,6 +83,37 @@ test("runAiCleanupForSession with fake provider creates job and draft", async ()
   }
 });
 
+test("runAiCleanupForSession creates English draft artifacts when locale is en", async () => {
+  const fixture = createFinalizedTranscriptFixture();
+  try {
+    const baseTimelineInput = buildPhase4TimelineInput(fixture.store, {
+      sessionId: fixture.sessionId,
+    });
+    const result = await runAiCleanupForSession(fixture.store, {
+      ...baseRunOptions(fixture.sessionId),
+      locale: "en",
+      provider: new FakeAiCleanupProvider(),
+      backup: () => [],
+    });
+
+    assert.equal(result.status, "done");
+    assert.notEqual(result.inputHash, baseTimelineInput.inputHash);
+    const draftJson = JSON.parse(readFileSync(result.draft?.json_path ?? "", "utf8")) as {
+      language?: unknown;
+      meetingTitle?: { text?: unknown };
+    };
+    const draftMarkdown = readFileSync(result.draft?.markdown_path ?? "", "utf8");
+    const prompt = readFileSync(result.job?.prompt_path ?? "", "utf8");
+    assert.equal(draftJson.language, "en");
+    assert.match(String(draftJson.meetingTitle?.text), /^Meeting notes draft:/);
+    assert.match(draftMarkdown, /^## Summary$/m);
+    assert.match(draftMarkdown, /^## Key Topics$/m);
+    assert.match(prompt, /language must be exactly "en"/);
+  } finally {
+    fixture.close();
+  }
+});
+
 test("runAiCleanupForSession includes roster prompt in prompt artifact and input hash", async () => {
   const fixture = createFinalizedTranscriptFixture();
   try {

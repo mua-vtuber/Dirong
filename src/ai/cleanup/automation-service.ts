@@ -299,10 +299,12 @@ export class AiCleanupAutomationService {
         sessionId: session.id,
         includeFakeStt: false,
       });
+      const locale = this.resolveLocale();
       const effectiveInputHash = buildPhase4ContextualInputHash(
         timelineInput.inputHash,
         {
           memberRosterPrompt: this.options.runner.memberRosterPrompt?.() ?? "",
+          locale,
         },
       );
       const existingJob = this.store.getAiCleanupJobByIdentity({
@@ -458,6 +460,7 @@ export class AiCleanupAutomationService {
         sessionId,
         dryRun: false,
         provider: this.options.provider,
+        locale: this.resolveLocale(),
         progress: (progress) => this.acceptProgress(progress),
       });
       this.snapshot = snapshotFromRunResult({

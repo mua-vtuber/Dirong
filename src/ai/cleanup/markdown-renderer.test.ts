@@ -50,6 +50,66 @@ test("renderMeetingNotesDraftMarkdown handles empty arrays naturally", () => {
   assert.match(markdown, /- 보존 이유: 없음/);
 });
 
+test("renderMeetingNotesDraftMarkdown renders English labels when draft language is en", () => {
+  const markdown = renderMeetingNotesDraftMarkdown({
+    ...createDraftFixture(),
+    language: "en",
+    meetingTitle: {
+      text: "Dirong meeting notes",
+      confidence: "high",
+      references: [],
+    },
+    summary: {
+      text: "Claude creates structured JSON and the app renders Markdown.",
+      references: [],
+    },
+    decisions: [
+      {
+        id: "decision_1",
+        title: "Separate Markdown rendering",
+        detail: "The app renderer creates Markdown for artifacts and the DB.",
+        status: "decided",
+        references: [],
+      },
+    ],
+    actionItems: [
+      {
+        id: "action_1",
+        task: "Add renderer tests.",
+        owner: {
+          status: "unspecified",
+          name: null,
+          userId: null,
+          evidence: [],
+        },
+        dueDate: {
+          status: "unspecified",
+          rawText: null,
+          isoDate: null,
+          evidence: [],
+        },
+        references: [],
+      },
+    ],
+    unresolvedItems: [],
+    uncertaintyNotes: [],
+    noiseHandling: {
+      removedChatterSummary: "",
+      keptBecause: [],
+    },
+  });
+
+  assert.match(markdown, /^# Dirong meeting notes$/m);
+  assert.match(markdown, /^## Summary$/m);
+  assert.match(markdown, /^## Key Topics$/m);
+  assert.match(markdown, /^## Decisions$/m);
+  assert.match(markdown, /^## Action Items$/m);
+  assert.match(markdown, /\[Decided\] Separate Markdown rendering/);
+  assert.match(markdown, /Owner: Unspecified/);
+  assert.match(markdown, /Due: Unspecified/);
+  assert.match(markdown, /- Kept because: None/);
+});
+
 function createDraftFixture(): MeetingNotesDraftV1 {
   const reference: TimelineReference = {
     chunkId: "chunk_1",

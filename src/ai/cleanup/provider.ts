@@ -1,4 +1,5 @@
 import type { Phase4TranscriptTimeline } from "../../transcript/timeline.js";
+import type { DirongLocale } from "../../settings/local-settings-store.js";
 import type {
   AiCleanupProgressContext,
   AiCleanupProgressObserver,
@@ -6,7 +7,7 @@ import type {
 
 export type AiCleanupProviderInput = {
   sessionId: string;
-  language: "ko";
+  language: DirongLocale;
   promptVersion: "phase4-ai-cleanup-v3";
   outputSchemaVersion: "dirong.meeting_notes_draft.v1";
   timeline: Phase4TranscriptTimeline;

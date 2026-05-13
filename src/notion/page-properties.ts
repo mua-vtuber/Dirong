@@ -1,6 +1,11 @@
 import type { NotionDraftInput } from "./draft-input.js";
 import type { NotionPropertySemanticKey } from "./schema-presets.js";
 import type { NotionPropertyNames } from "./settings.js";
+import {
+  DEFAULT_DIRONG_LOCALE,
+  isDirongLocale,
+  type DirongLocale,
+} from "../settings/local-settings-store.js";
 
 export type NotionPageStatus = "draft" | "done" | "retry_wait" | "failed";
 export type NotionStatusPropertyType = "select" | "status";
@@ -51,32 +56,40 @@ export function buildNotionPagePropertyValues(input: {
   draftInput: NotionDraftInput;
   status?: NotionPageStatus;
   localStatus?: string;
+  locale?: DirongLocale;
 }): { values: NotionPagePropertyValues; warnings: string[] } {
   const warnings: string[] = [];
   const session = input.draftInput.session;
+  const locale = resolveNotionDraftLocale(input.draftInput, input.locale);
+  const text = notionPagePropertyText(locale);
   const participants = sanitizeParticipantNames(
     input.draftInput.speakers
       .filter((speaker) => speaker.is_bot === 0)
       .map((speaker) => speaker.display_name_snapshot),
     warnings,
+    locale,
   );
 
   return {
     values: {
       title:
         cleanInline(input.draftInput.draftContent.meetingTitle.text) ||
-        "회의록 초안",
+        text.draftTitle,
       date: formatLocalDate(session.started_at),
-      meetingTime: formatMeetingTime(session.started_at, session.finalized_at),
+      meetingTime: formatMeetingTime(
+        session.started_at,
+        session.finalized_at,
+        locale,
+      ),
       channel:
         cleanInline(session.voice_channel_name ?? "") ||
         cleanInline(session.voice_channel_id) ||
-        "알 수 없음",
+        text.unknown,
       participants,
       status: input.status ?? "draft",
       sessionId: session.id,
       draftId: input.draftInput.draft.id,
-      localStatus: input.localStatus ?? "Notion upload pending",
+      localStatus: input.localStatus ?? text.uploadPending,
     },
     warnings,
   };
@@ -90,11 +103,13 @@ export function renderNotionPageProperties(input: {
   statusPropertyType?: NotionStatusPropertyType;
   participantsPropertyType?: NotionParticipantsPropertyType;
   localStatus?: string;
+  locale?: DirongLocale;
 }): NotionPagePropertyRenderResult {
   const { values, warnings } = buildNotionPagePropertyValues({
     draftInput: input.draftInput,
     status: input.status,
     localStatus: input.localStatus,
+    locale: input.locale,
   });
   const names = input.propertyNames;
 
@@ -149,6 +164,7 @@ export function renderNotionPagePropertiesFromSemanticMappings(input: {
   memberRelationPageIds?: readonly string[];
   status?: NotionPageStatus;
   localStatus?: string;
+  locale?: DirongLocale;
 }): NotionPagePropertyRenderResult {
   const propertyNames = propertyNamesFromSemanticMappings(
     input.propertiesBySemanticKey,
@@ -159,6 +175,7 @@ export function renderNotionPagePropertiesFromSemanticMappings(input: {
     contentHash: input.contentHash,
     status: input.status,
     localStatus: input.localStatus,
+    locale: input.locale,
     statusPropertyType: readStatusPropertyType(
       input.propertiesBySemanticKey["meeting.status"]?.type,
     ),
@@ -192,7 +209,9 @@ export function renderNotionTaskPageProperties(input: {
   meetingPageId: string;
   workerRelationPageId?: string | null;
   sourceActionId: string;
+  locale?: DirongLocale;
 }): NotionPageProperties {
+  const text = notionPagePropertyText(input.locale ?? DEFAULT_DIRONG_LOCALE);
   const title = requireSemanticProperty(input.propertiesBySemanticKey, "task.title");
   const meeting = requireSemanticProperty(input.propertiesBySemanticKey, "task.meeting");
   const workerRelation = input.propertiesBySemanticKey["task.workerRelation"];
@@ -206,14 +225,14 @@ export function renderNotionTaskPageProperties(input: {
 
   const properties: NotionPageProperties = {
     [title.name]: {
-      title: [{ text: { content: cleanInline(input.actionItem.task) || "작업" } }],
+      title: [{ text: { content: cleanInline(input.actionItem.task) || text.taskTitle } }],
     },
     [meeting.name]: {
       relation: [{ id: input.meetingPageId }],
     },
-    [status.name]: renderTaskStatusProperty(status.type),
+    [status.name]: renderTaskStatusProperty(status.type, text),
     [evidence.name]: {
-      rich_text: richText(renderActionItemEvidence(input.actionItem)),
+      rich_text: richText(renderActionItemEvidence(input.actionItem, text)),
     },
     [sourceActionId.name]: {
       rich_text: richText(input.sourceActionId),
@@ -328,18 +347,79 @@ export function richText(content: string): NotionRichText {
   return parts;
 }
 
-function renderTaskStatusProperty(propertyType: string): unknown {
-  const name = "할 일";
+type NotionPagePropertyText = {
+  draftTitle: string;
+  unknown: string;
+  uploadPending: string;
+  taskTitle: string;
+  taskStatusTodo: string;
+  noEvidence: string;
+  participantEmptyWarning: string;
+  participantsCappedWarning: string;
+  meetingTimeUnknownEnd: string;
+};
+
+const NOTION_PAGE_PROPERTY_TEXT: Record<DirongLocale, NotionPagePropertyText> = {
+  ko: {
+    draftTitle: "회의록 초안",
+    unknown: "알 수 없음",
+    uploadPending: "Notion 업로드 대기 중",
+    taskTitle: "작업",
+    taskStatusTodo: "할 일",
+    noEvidence: "근거 없음",
+    participantEmptyWarning: "빈 참여자 이름은 Notion Participants 속성에서 제외했습니다.",
+    participantsCappedWarning: "Notion Participants 속성은 최대 100명까지만 기록했습니다.",
+    meetingTimeUnknownEnd: "미정",
+  },
+  en: {
+    draftTitle: "Meeting notes draft",
+    unknown: "Unknown",
+    uploadPending: "Notion upload pending",
+    taskTitle: "Task",
+    taskStatusTodo: "To do",
+    noEvidence: "No evidence",
+    participantEmptyWarning: "Blank participant names were excluded from the Notion Participants property.",
+    participantsCappedWarning: "Only the first 100 participants were written to the Notion Participants property.",
+    meetingTimeUnknownEnd: "unknown",
+  },
+};
+
+function notionPagePropertyText(locale: unknown): NotionPagePropertyText {
+  return NOTION_PAGE_PROPERTY_TEXT[
+    isDirongLocale(locale) ? locale : DEFAULT_DIRONG_LOCALE
+  ];
+}
+
+function resolveNotionDraftLocale(
+  draftInput: NotionDraftInput,
+  locale?: DirongLocale,
+): DirongLocale {
+  if (locale) {
+    return locale;
+  }
+  return isDirongLocale(draftInput.draftContent.language)
+    ? draftInput.draftContent.language
+    : DEFAULT_DIRONG_LOCALE;
+}
+
+function renderTaskStatusProperty(
+  propertyType: string,
+  text: NotionPagePropertyText,
+): unknown {
+  const name = text.taskStatusTodo;
   return propertyType === "status" ? { status: { name } } : { select: { name } };
 }
 
-function renderActionItemEvidence(actionItem: NotionActionItemDraft): string {
+function renderActionItemEvidence(
+  actionItem: NotionActionItemDraft,
+  text: NotionPagePropertyText,
+): string {
   const references = actionItem.references
     .map((reference) =>
       `${reference.speaker} ${formatReferenceTime(reference.startMs)}-${formatReferenceTime(reference.endMs)}`,
     )
     .join(", ");
-  return references || "근거 없음";
+  return references || text.noEvidence;
 }
 
 function formatReferenceTime(ms: number): string {
@@ -352,14 +432,16 @@ function formatReferenceTime(ms: number): string {
 export function sanitizeParticipantNames(
   names: readonly string[],
   warnings: string[] = [],
+  locale: DirongLocale = DEFAULT_DIRONG_LOCALE,
 ): string[] {
+  const text = notionPagePropertyText(locale);
   const seen = new Set<string>();
   const output: string[] = [];
 
   for (const rawName of names) {
     const name = cleanInline(rawName).replaceAll(",", " ").replace(/\s+/g, " ");
     if (!name) {
-      warnings.push("빈 참여자 이름은 Notion Participants 속성에서 제외했습니다.");
+      warnings.push(text.participantEmptyWarning);
       continue;
     }
 
@@ -371,7 +453,7 @@ export function sanitizeParticipantNames(
     output.push(name);
     if (output.length === 100) {
       if (names.length > 100) {
-        warnings.push("Notion Participants 속성은 최대 100명까지만 기록했습니다.");
+        warnings.push(text.participantsCappedWarning);
       }
       break;
     }
@@ -383,11 +465,13 @@ export function sanitizeParticipantNames(
 export function formatMeetingTime(
   startedAtIso: string,
   finalizedAtIso: string | null,
+  locale: DirongLocale = DEFAULT_DIRONG_LOCALE,
 ): string {
+  const text = notionPagePropertyText(locale);
   const start = new Date(startedAtIso);
   const end = finalizedAtIso ? new Date(finalizedAtIso) : null;
   if (!end || Number.isNaN(end.getTime()) || end.getTime() < start.getTime()) {
-    return `${formatClock(start)}-미정`;
+    return `${formatClock(start)}-${text.meetingTimeUnknownEnd}`;
   }
 
   return `${formatClock(start)}-${formatClock(end)} (${formatDuration(

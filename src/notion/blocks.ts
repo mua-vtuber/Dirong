@@ -1,4 +1,9 @@
 import type { MeetingNotesDraftV1 } from "../ai/cleanup/draft.js";
+import {
+  DEFAULT_DIRONG_LOCALE,
+  isDirongLocale,
+  type DirongLocale,
+} from "../settings/local-settings-store.js";
 import { formatTranscriptTime } from "../transcript/time-format.js";
 import { sha256Canonical } from "./content-hash.js";
 import type { NotionDraftInput } from "./draft-input.js";
@@ -28,6 +33,7 @@ export type RenderedNotionBlock = {
 
 export type RenderNotionBlocksOptions = {
   contentHash?: string | null;
+  locale?: DirongLocale;
 };
 
 export function renderNotionBlocks(
@@ -35,8 +41,9 @@ export function renderNotionBlocks(
   options: RenderNotionBlocksOptions = {},
 ): RenderedNotionBlock[] {
   const draft = input.draftContent;
+  const text = notionBlockText(options.locale ?? draft.language);
   const contentHash = options.contentHash ?? "pending";
-  const rawBlocks = buildBlocks(input, draft, contentHash);
+  const rawBlocks = buildBlocks(input, draft, contentHash, text);
 
   return rawBlocks.map((block, blockIndex) => ({
     ...block,
@@ -78,105 +85,213 @@ function buildBlocks(
   input: NotionDraftInput,
   draft: MeetingNotesDraftV1,
   contentHash: string,
+  text: NotionBlockText,
 ): RawRenderedBlock[] {
   const blocks: RawRenderedBlock[] = [];
   const propertyValues = buildNotionPagePropertyValues({ draftInput: input }).values;
 
-  pushSection(blocks, "회의 정보");
+  pushSection(blocks, text.meetingInfoHeading, text);
   pushBullets(blocks, [
-    `회의 시간: ${propertyValues.meetingTime}`,
-    `채널: ${propertyValues.channel}`,
-    `참여자: ${propertyValues.participants.join(", ") || "없음"}`,
-  ]);
+    `${text.meetingTimeLabel}: ${propertyValues.meetingTime}`,
+    `${text.channelLabel}: ${propertyValues.channel}`,
+    `${text.participantsLabel}: ${propertyValues.participants.join(", ") || text.empty}`,
+  ], text);
   pushDivider(blocks);
 
-  pushSection(blocks, "요약");
-  pushParagraph(blocks, draft.summary.text || "없음");
+  pushSection(blocks, text.summaryHeading, text);
+  pushParagraph(blocks, draft.summary.text || text.empty, text);
 
-  pushSection(blocks, "주요 논의");
+  pushSection(blocks, text.topicsHeading, text);
   pushBullets(
     blocks,
     draft.topics.map(
       (topic) =>
         `${topic.title}: ${topic.summary}`,
     ),
+    text,
   );
 
-  pushSection(blocks, "결정사항");
+  pushSection(blocks, text.decisionsHeading, text);
   pushBullets(
     blocks,
     draft.decisions.map((decision) => {
-      const status = decision.status === "decided" ? "확정" : "잠정";
+      const status = decision.status === "decided" ? text.decided : text.tentative;
       return `[${status}] ${decision.title}: ${decision.detail}`;
     }),
+    text,
   );
 
-  pushSection(blocks, "할 일 목록");
+  pushSection(blocks, text.actionItemsHeading, text);
   pushBullets(
     blocks,
     draft.actionItems.map(
       (item) =>
-        `${item.task} / 담당: ${renderOwner(item.owner)} / 기한: ${renderDueDate(
+        `${item.task} / ${text.ownerLabel}: ${renderOwner(item.owner, text)} / ${text.dueLabel}: ${renderDueDate(
           item.dueDate,
+          text,
         )}`,
     ),
+    text,
   );
 
-  pushSection(blocks, "남은 질문");
+  pushSection(blocks, text.unresolvedHeading, text);
   pushBullets(
     blocks,
     draft.unresolvedItems.map(
       (item) =>
-        `${item.text} / 이유: ${item.reason}`,
+        `${item.text} / ${text.reasonLabel}: ${item.reason}`,
     ),
+    text,
   );
 
-  pushSection(blocks, "불확실한 내용");
+  pushSection(blocks, text.uncertaintyHeading, text);
   pushBullets(
     blocks,
     draft.uncertaintyNotes.map((note) => note.text),
+    text,
   );
 
-  pushSection(blocks, "노이즈 처리 메모");
+  pushSection(blocks, text.noiseHeading, text);
   pushBullets(blocks, [
-    `제거/압축: ${draft.noiseHandling.removedChatterSummary || "없음"}`,
-    `보존 이유: ${
+    `${text.removedChatterLabel}: ${draft.noiseHandling.removedChatterSummary || text.empty}`,
+    `${text.keptBecauseLabel}: ${
       draft.noiseHandling.keptBecause.length > 0
         ? draft.noiseHandling.keptBecause.join("; ")
-        : "없음"
+        : text.empty
     }`,
-  ]);
+  ], text);
 
-  pushSection(blocks, "타임라인");
-  pushBullets(blocks, input.timelineEntries.map(formatTimelineEntry));
+  pushSection(blocks, text.timelineHeading, text);
+  pushBullets(
+    blocks,
+    input.timelineEntries.map((entry) => formatTimelineEntry(entry, text)),
+    text,
+  );
 
-  pushSection(blocks, "Dirong 정보");
+  pushSection(blocks, text.dirongInfoHeading, text);
   pushBullets(blocks, [
     `Session ID: ${input.session.id}`,
     `Draft ID: ${input.draft.id}`,
     `Prompt Version: ${input.draft.prompt_version}`,
     `Provider/Model: ${input.draft.provider}/${input.draft.model}`,
     `Content Hash: ${contentHash}`,
-  ]);
+  ], text);
 
   return blocks;
 }
 
-function pushSection(blocks: RawRenderedBlock[], title: string): void {
-  pushBlock(blocks, "heading_2", title);
+type NotionBlockText = {
+  meetingInfoHeading: string;
+  meetingTimeLabel: string;
+  channelLabel: string;
+  participantsLabel: string;
+  summaryHeading: string;
+  topicsHeading: string;
+  decisionsHeading: string;
+  actionItemsHeading: string;
+  unresolvedHeading: string;
+  uncertaintyHeading: string;
+  noiseHeading: string;
+  timelineHeading: string;
+  dirongInfoHeading: string;
+  empty: string;
+  decided: string;
+  tentative: string;
+  ownerLabel: string;
+  dueLabel: string;
+  reasonLabel: string;
+  removedChatterLabel: string;
+  keptBecauseLabel: string;
+  unspecified: string;
+  noContent: string;
+};
+
+const NOTION_BLOCK_TEXT: Record<DirongLocale, NotionBlockText> = {
+  ko: {
+    meetingInfoHeading: "회의 정보",
+    meetingTimeLabel: "회의 시간",
+    channelLabel: "채널",
+    participantsLabel: "참여자",
+    summaryHeading: "요약",
+    topicsHeading: "주요 논의",
+    decisionsHeading: "결정사항",
+    actionItemsHeading: "할 일 목록",
+    unresolvedHeading: "남은 질문",
+    uncertaintyHeading: "불확실한 내용",
+    noiseHeading: "노이즈 처리 메모",
+    timelineHeading: "타임라인",
+    dirongInfoHeading: "Dirong 정보",
+    empty: "없음",
+    decided: "확정",
+    tentative: "잠정",
+    ownerLabel: "담당",
+    dueLabel: "기한",
+    reasonLabel: "이유",
+    removedChatterLabel: "제거/압축",
+    keptBecauseLabel: "보존 이유",
+    unspecified: "미지정",
+    noContent: "내용 없음",
+  },
+  en: {
+    meetingInfoHeading: "Meeting Info",
+    meetingTimeLabel: "Meeting time",
+    channelLabel: "Channel",
+    participantsLabel: "Participants",
+    summaryHeading: "Summary",
+    topicsHeading: "Key Discussion",
+    decisionsHeading: "Decisions",
+    actionItemsHeading: "Action Items",
+    unresolvedHeading: "Open Questions",
+    uncertaintyHeading: "Uncertain Content",
+    noiseHeading: "Noise Handling Notes",
+    timelineHeading: "Timeline",
+    dirongInfoHeading: "Dirong Info",
+    empty: "None",
+    decided: "Decided",
+    tentative: "Tentative",
+    ownerLabel: "Owner",
+    dueLabel: "Due",
+    reasonLabel: "reason",
+    removedChatterLabel: "Removed/compressed",
+    keptBecauseLabel: "Kept because",
+    unspecified: "Unspecified",
+    noContent: "No content",
+  },
+};
+
+function notionBlockText(locale: unknown): NotionBlockText {
+  return NOTION_BLOCK_TEXT[
+    isDirongLocale(locale) ? locale : DEFAULT_DIRONG_LOCALE
+  ];
 }
 
-function pushParagraph(blocks: RawRenderedBlock[], text: string): void {
-  pushBlock(blocks, "paragraph", text || "없음");
+function pushSection(
+  blocks: RawRenderedBlock[],
+  title: string,
+  text: NotionBlockText,
+): void {
+  pushBlock(blocks, "heading_2", title, text);
 }
 
-function pushBullets(blocks: RawRenderedBlock[], items: readonly string[]): void {
+function pushParagraph(
+  blocks: RawRenderedBlock[],
+  value: string,
+  text: NotionBlockText,
+): void {
+  pushBlock(blocks, "paragraph", value || text.empty, text);
+}
+
+function pushBullets(
+  blocks: RawRenderedBlock[],
+  items: readonly string[],
+  text: NotionBlockText,
+): void {
   if (items.length === 0) {
-    pushBlock(blocks, "bulleted_list_item", "없음");
+    pushBlock(blocks, "bulleted_list_item", text.empty, text);
     return;
   }
   for (const item of items) {
-    pushBlock(blocks, "bulleted_list_item", item || "없음");
+    pushBlock(blocks, "bulleted_list_item", item || text.empty, text);
   }
 }
 
@@ -193,8 +308,9 @@ function pushBlock(
   blocks: RawRenderedBlock[],
   type: Exclude<NotionBlockType, "divider">,
   text: string,
+  labels: NotionBlockText,
 ): void {
-  const plainText = cleanInline(text) || "없음";
+  const plainText = cleanInline(text) || labels.empty;
   const block: NotionBlockPayload = {
     type,
     [type]: { rich_text: richText(plainText) },
@@ -208,28 +324,31 @@ function pushBlock(
 
 function renderOwner(
   owner: MeetingNotesDraftV1["actionItems"][number]["owner"],
+  text: NotionBlockText,
 ): string {
   if (owner.status === "unspecified") {
-    return "미지정";
+    return text.unspecified;
   }
-  return cleanInline(owner.name ?? "") || "미지정";
+  return cleanInline(owner.name ?? "") || text.unspecified;
 }
 
 function renderDueDate(
   dueDate: MeetingNotesDraftV1["actionItems"][number]["dueDate"],
+  text: NotionBlockText,
 ): string {
   if (dueDate.status === "unspecified") {
-    return "미지정";
+    return text.unspecified;
   }
-  return cleanInline(dueDate.rawText ?? dueDate.isoDate ?? "") || "미지정";
+  return cleanInline(dueDate.rawText ?? dueDate.isoDate ?? "") || text.unspecified;
 }
 
 function formatTimelineEntry(
   entry: NotionDraftInput["timelineEntries"][number],
+  text: NotionBlockText,
 ): string {
   return `[${formatTranscriptTime(entry.start_ms)}] ${cleanInline(
     entry.display_name_snapshot,
-  )} : ${cleanInline(entry.text) || "내용 없음"}`;
+  )} : ${cleanInline(entry.text) || text.noContent}`;
 }
 
 function cleanInline(value: string): string {

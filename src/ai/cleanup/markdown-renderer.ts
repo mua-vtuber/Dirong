@@ -1,8 +1,14 @@
 import type { MeetingNotesDraftV1, TimelineReference } from "./draft.js";
 import { timelineReferenceKey } from "./draft/reference-index.js";
+import {
+  DEFAULT_DIRONG_LOCALE,
+  isDirongLocale,
+  type DirongLocale,
+} from "../../settings/local-settings-store.js";
 
 export type MeetingNotesMarkdownRenderOptions = {
   maxLineLength?: number;
+  locale?: DirongLocale;
 };
 
 const DEFAULT_MAX_LINE_LENGTH = 100;
@@ -12,32 +18,111 @@ export function renderMeetingNotesDraftMarkdown(
   draft: MeetingNotesDraftV1,
   options: MeetingNotesMarkdownRenderOptions = {},
 ): string {
+  const text = markdownText(options.locale ?? draft.language);
   const maxLineLength = Math.max(
     MIN_LINE_LENGTH,
     options.maxLineLength ?? DEFAULT_MAX_LINE_LENGTH,
   );
   const lines: string[] = [];
 
-  lines.push(`# ${cleanInline(draft.meetingTitle.text) || "회의록 초안"}`, "");
-  appendSummary(lines, draft, maxLineLength);
-  appendTopics(lines, draft, maxLineLength);
-  appendDecisions(lines, draft, maxLineLength);
-  appendActionItems(lines, draft, maxLineLength);
-  appendUnresolved(lines, draft, maxLineLength);
-  appendNoiseHandling(lines, draft, maxLineLength);
-  appendSourceTimeline(lines, draft);
+  lines.push(`# ${cleanInline(draft.meetingTitle.text) || text.draftTitle}`, "");
+  appendSummary(lines, draft, maxLineLength, text);
+  appendTopics(lines, draft, maxLineLength, text);
+  appendDecisions(lines, draft, maxLineLength, text);
+  appendActionItems(lines, draft, maxLineLength, text);
+  appendUnresolved(lines, draft, maxLineLength, text);
+  appendNoiseHandling(lines, draft, maxLineLength, text);
+  appendSourceTimeline(lines, draft, text);
 
   return trimTrailingBlankLines(lines).join("\n");
+}
+
+type MarkdownText = {
+  draftTitle: string;
+  summaryHeading: string;
+  topicsHeading: string;
+  decisionsHeading: string;
+  actionItemsHeading: string;
+  unresolvedHeading: string;
+  noiseHeading: string;
+  sourceTimelineHeading: string;
+  empty: string;
+  decided: string;
+  tentative: string;
+  ownerLabel: string;
+  dueLabel: string;
+  unspecified: string;
+  unresolvedLabel: string;
+  uncertainLabel: string;
+  reasonLabel: string;
+  removedChatterPrefix: string;
+  keptBecausePrefix: string;
+  keptBecauseHeading: string;
+  sourceLabel: string;
+};
+
+const MARKDOWN_TEXT: Record<DirongLocale, MarkdownText> = {
+  ko: {
+    draftTitle: "회의록 초안",
+    summaryHeading: "요약",
+    topicsHeading: "주요 주제",
+    decisionsHeading: "결정 사항",
+    actionItemsHeading: "할 일 목록",
+    unresolvedHeading: "미해결/불확실한 항목",
+    noiseHeading: "잡담/노이즈 처리",
+    sourceTimelineHeading: "출처 타임라인",
+    empty: "없음",
+    decided: "확정",
+    tentative: "잠정",
+    ownerLabel: "담당",
+    dueLabel: "기한",
+    unspecified: "미지정",
+    unresolvedLabel: "미해결",
+    uncertainLabel: "불확실",
+    reasonLabel: "이유",
+    removedChatterPrefix: "제거/압축: ",
+    keptBecausePrefix: "보존 이유: ",
+    keptBecauseHeading: "보존 이유:",
+    sourceLabel: "출처",
+  },
+  en: {
+    draftTitle: "Meeting notes draft",
+    summaryHeading: "Summary",
+    topicsHeading: "Key Topics",
+    decisionsHeading: "Decisions",
+    actionItemsHeading: "Action Items",
+    unresolvedHeading: "Unresolved / Uncertain Items",
+    noiseHeading: "Chatter / Noise Handling",
+    sourceTimelineHeading: "Source Timeline",
+    empty: "None",
+    decided: "Decided",
+    tentative: "Tentative",
+    ownerLabel: "Owner",
+    dueLabel: "Due",
+    unspecified: "Unspecified",
+    unresolvedLabel: "Unresolved",
+    uncertainLabel: "Uncertain",
+    reasonLabel: "reason",
+    removedChatterPrefix: "Removed/compressed: ",
+    keptBecausePrefix: "Kept because: ",
+    keptBecauseHeading: "Kept because:",
+    sourceLabel: "Source",
+  },
+};
+
+function markdownText(locale: unknown): MarkdownText {
+  return MARKDOWN_TEXT[isDirongLocale(locale) ? locale : DEFAULT_DIRONG_LOCALE];
 }
 
 function appendSummary(
   lines: string[],
   draft: MeetingNotesDraftV1,
   maxLineLength: number,
+  text: MarkdownText,
 ): void {
-  appendHeading(lines, "요약");
-  appendParagraph(lines, draft.summary.text, maxLineLength);
-  appendReferenceLine(lines, draft.summary.references, maxLineLength);
+  appendHeading(lines, text.summaryHeading);
+  appendParagraph(lines, draft.summary.text, maxLineLength, text);
+  appendReferenceLine(lines, draft.summary.references, maxLineLength, text);
   lines.push("");
 }
 
@@ -45,10 +130,11 @@ function appendTopics(
   lines: string[],
   draft: MeetingNotesDraftV1,
   maxLineLength: number,
+  text: MarkdownText,
 ): void {
-  appendHeading(lines, "주요 주제");
+  appendHeading(lines, text.topicsHeading);
   if (draft.topics.length === 0) {
-    appendEmpty(lines);
+    appendEmpty(lines, text);
   } else {
     for (const topic of draft.topics) {
       appendWrappedLine(
@@ -57,8 +143,9 @@ function appendTopics(
         "- ",
         "  ",
         maxLineLength,
+        text,
       );
-      appendReferenceLine(lines, topic.references, maxLineLength, "  ");
+      appendReferenceLine(lines, topic.references, maxLineLength, text, "  ");
     }
   }
   lines.push("");
@@ -68,21 +155,23 @@ function appendDecisions(
   lines: string[],
   draft: MeetingNotesDraftV1,
   maxLineLength: number,
+  text: MarkdownText,
 ): void {
-  appendHeading(lines, "결정 사항");
+  appendHeading(lines, text.decisionsHeading);
   if (draft.decisions.length === 0) {
-    appendEmpty(lines);
+    appendEmpty(lines, text);
   } else {
     for (const decision of draft.decisions) {
-      const status = decision.status === "decided" ? "확정" : "잠정";
+      const status = decision.status === "decided" ? text.decided : text.tentative;
       appendWrappedLine(
         lines,
         `[${status}] ${cleanInline(decision.title)}: ${cleanInline(decision.detail)}`,
         "- ",
         "  ",
         maxLineLength,
+        text,
       );
-      appendReferenceLine(lines, decision.references, maxLineLength, "  ");
+      appendReferenceLine(lines, decision.references, maxLineLength, text, "  ");
     }
   }
   lines.push("");
@@ -92,10 +181,11 @@ function appendActionItems(
   lines: string[],
   draft: MeetingNotesDraftV1,
   maxLineLength: number,
+  text: MarkdownText,
 ): void {
-  appendHeading(lines, "할 일 목록");
+  appendHeading(lines, text.actionItemsHeading);
   if (draft.actionItems.length === 0) {
-    appendEmpty(lines);
+    appendEmpty(lines, text);
   } else {
     for (const actionItem of draft.actionItems) {
       appendWrappedLine(
@@ -104,22 +194,25 @@ function appendActionItems(
         "- ",
         "  ",
         maxLineLength,
+        text,
       );
       appendWrappedLine(
         lines,
-        `담당: ${renderOwner(actionItem.owner)}`,
+        `${text.ownerLabel}: ${renderOwner(actionItem.owner, text)}`,
         "  ",
         "  ",
         maxLineLength,
+        text,
       );
       appendWrappedLine(
         lines,
-        `기한: ${renderDueDate(actionItem.dueDate)}`,
+        `${text.dueLabel}: ${renderDueDate(actionItem.dueDate, text)}`,
         "  ",
         "  ",
         maxLineLength,
+        text,
       );
-      appendReferenceLine(lines, actionItem.references, maxLineLength, "  ");
+      appendReferenceLine(lines, actionItem.references, maxLineLength, text, "  ");
     }
   }
   lines.push("");
@@ -129,10 +222,11 @@ function appendUnresolved(
   lines: string[],
   draft: MeetingNotesDraftV1,
   maxLineLength: number,
+  text: MarkdownText,
 ): void {
-  appendHeading(lines, "미해결/불확실한 항목");
+  appendHeading(lines, text.unresolvedHeading);
   if (draft.unresolvedItems.length === 0 && draft.uncertaintyNotes.length === 0) {
-    appendEmpty(lines);
+    appendEmpty(lines, text);
     lines.push("");
     return;
   }
@@ -140,22 +234,24 @@ function appendUnresolved(
   for (const item of draft.unresolvedItems) {
     appendWrappedLine(
       lines,
-      `${cleanInline(item.text)} (이유: ${cleanInline(item.reason)})`,
-      "- 미해결: ",
+      `${cleanInline(item.text)} (${text.reasonLabel}: ${cleanInline(item.reason)})`,
+      `- ${text.unresolvedLabel}: `,
       "  ",
       maxLineLength,
+      text,
     );
-    appendReferenceLine(lines, item.references, maxLineLength, "  ");
+    appendReferenceLine(lines, item.references, maxLineLength, text, "  ");
   }
   for (const note of draft.uncertaintyNotes) {
     appendWrappedLine(
       lines,
       cleanInline(note.text),
-      "- 불확실: ",
+      `- ${text.uncertainLabel}: `,
       "  ",
       maxLineLength,
+      text,
     );
-    appendReferenceLine(lines, note.references, maxLineLength, "  ");
+    appendReferenceLine(lines, note.references, maxLineLength, text, "  ");
   }
   lines.push("");
 }
@@ -164,21 +260,37 @@ function appendNoiseHandling(
   lines: string[],
   draft: MeetingNotesDraftV1,
   maxLineLength: number,
+  text: MarkdownText,
 ): void {
-  appendHeading(lines, "잡담/노이즈 처리");
+  appendHeading(lines, text.noiseHeading);
   appendWrappedLine(
     lines,
-    cleanInline(draft.noiseHandling.removedChatterSummary) || "없음",
-    "- 제거/압축: ",
+    cleanInline(draft.noiseHandling.removedChatterSummary) || text.empty,
+    `- ${text.removedChatterPrefix}`,
     "  ",
     maxLineLength,
+    text,
   );
   if (draft.noiseHandling.keptBecause.length === 0) {
-    appendWrappedLine(lines, "없음", "- 보존 이유: ", "  ", maxLineLength);
+    appendWrappedLine(
+      lines,
+      text.empty,
+      `- ${text.keptBecausePrefix}`,
+      "  ",
+      maxLineLength,
+      text,
+    );
   } else {
-    appendWrappedLine(lines, "보존 이유:", "- ", "  ", maxLineLength);
+    appendWrappedLine(lines, text.keptBecauseHeading, "- ", "  ", maxLineLength, text);
     for (const reason of draft.noiseHandling.keptBecause) {
-      appendWrappedLine(lines, cleanInline(reason), "  - ", "    ", maxLineLength);
+      appendWrappedLine(
+        lines,
+        cleanInline(reason),
+        "  - ",
+        "    ",
+        maxLineLength,
+        text,
+      );
     }
   }
   lines.push("");
@@ -187,11 +299,12 @@ function appendNoiseHandling(
 function appendSourceTimeline(
   lines: string[],
   draft: MeetingNotesDraftV1,
+  text: MarkdownText,
 ): void {
-  appendHeading(lines, "출처 타임라인");
+  appendHeading(lines, text.sourceTimelineHeading);
   const references = collectReferences(draft);
   if (references.length === 0) {
-    appendEmpty(lines);
+    appendEmpty(lines, text);
     return;
   }
 
@@ -208,57 +321,67 @@ function appendParagraph(
   lines: string[],
   text: string,
   maxLineLength: number,
+  labels: MarkdownText,
 ): void {
   const cleaned = cleanInline(text);
   if (!cleaned) {
-    appendEmpty(lines);
+    appendEmpty(lines, labels);
     return;
   }
-  appendWrappedLine(lines, cleaned, "", "", maxLineLength);
+  appendWrappedLine(lines, cleaned, "", "", maxLineLength, labels);
 }
 
 function appendReferenceLine(
   lines: string[],
   references: readonly TimelineReference[],
   maxLineLength: number,
+  text: MarkdownText,
   prefix = "",
 ): void {
   appendWrappedLine(
     lines,
-    `출처: ${formatReferences(references)}`,
+    `${text.sourceLabel}: ${formatReferences(references, text)}`,
     prefix,
     prefix,
     maxLineLength,
+    text,
   );
 }
 
-function appendEmpty(lines: string[]): void {
-  lines.push("- 없음");
+function appendEmpty(lines: string[], text: MarkdownText): void {
+  lines.push(`- ${text.empty}`);
 }
 
-function renderOwner(owner: MeetingNotesDraftV1["actionItems"][number]["owner"]): string {
+function renderOwner(
+  owner: MeetingNotesDraftV1["actionItems"][number]["owner"],
+  text: MarkdownText,
+): string {
   if (owner.status === "unspecified") {
-    return "미지정";
+    return text.unspecified;
   }
-  return cleanInline(owner.name ?? "") || "미지정";
+  return cleanInline(owner.name ?? "") || text.unspecified;
 }
 
 function renderDueDate(
   dueDate: MeetingNotesDraftV1["actionItems"][number]["dueDate"],
+  text: MarkdownText,
 ): string {
   if (dueDate.status === "unspecified") {
-    return "미지정";
+    return text.unspecified;
   }
   const rawText = cleanInline(dueDate.rawText ?? "");
   if (!rawText) {
-    return "미지정";
+    return text.unspecified;
   }
   return dueDate.isoDate ? `${rawText} (${dueDate.isoDate})` : rawText;
 }
 
-function formatReferences(references: readonly TimelineReference[]): string {
+function formatReferences(
+  references: readonly TimelineReference[],
+  text: MarkdownText,
+): string {
   if (references.length === 0) {
-    return "없음";
+    return text.empty;
   }
   return references.map(formatReference).join(", ");
 }
@@ -312,12 +435,13 @@ function collectReferences(draft: MeetingNotesDraftV1): TimelineReference[] {
 
 function appendWrappedLine(
   lines: string[],
-  text: string,
+  value: string,
   prefix: string,
   continuationPrefix: string,
   maxLineLength: number,
+  labels: MarkdownText,
 ): void {
-  const cleaned = cleanInline(text) || "없음";
+  const cleaned = cleanInline(value) || labels.empty;
   const firstWidth = Math.max(MIN_LINE_LENGTH, maxLineLength - prefix.length);
   const continuationWidth = Math.max(
     MIN_LINE_LENGTH,

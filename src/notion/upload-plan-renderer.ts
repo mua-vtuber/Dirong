@@ -3,6 +3,11 @@ import type { RenderedNotionBlock } from "./blocks.js";
 import { computeNotionContentHash } from "./content-hash.js";
 import type { NotionDraftInput } from "./draft-input.js";
 import {
+  DEFAULT_DIRONG_LOCALE,
+  isDirongLocale,
+  type DirongLocale,
+} from "../settings/local-settings-store.js";
+import {
   buildNotionPagePropertyValues,
   renderNotionPageProperties,
   renderNotionPagePropertiesFromSemanticMappings,
@@ -26,10 +31,13 @@ export function renderUploadPlan(input: {
   memberRelationPageIds: readonly string[];
   extraWarnings: readonly string[];
 }): NotionUploadPlan {
+  const locale = resolveDraftLocale(input.draftInput);
+  const localStatus = notionUploadLocalStatusText(locale);
   const propertyValues = buildNotionPagePropertyValues({
     draftInput: input.draftInput,
+    locale,
   });
-  const hashBlocks = renderNotionBlocks(input.draftInput);
+  const hashBlocks = renderNotionBlocks(input.draftInput, { locale });
   const contentHash = computeNotionContentHash({
     draftId: input.draftInput.draft.id,
     draftOutputHash: input.draftInput.draft.output_hash,
@@ -38,7 +46,7 @@ export function renderUploadPlan(input: {
     propertyValues: propertyValues.values,
     renderedBlocks: hashBlocks.map((block) => block.block),
   });
-  const blocks = renderNotionBlocks(input.draftInput, { contentHash });
+  const blocks = renderNotionBlocks(input.draftInput, { contentHash, locale });
   const properties =
     input.target.kind === "managed"
       ? renderNotionPagePropertiesFromSemanticMappings({
@@ -46,7 +54,8 @@ export function renderUploadPlan(input: {
           propertiesBySemanticKey: input.target.meetingProperties,
           contentHash,
           status: "draft",
-          localStatus: "Notion upload in progress",
+          localStatus: localStatus.inProgress,
+          locale,
           memberRelationPageIds: input.memberRelationPageIds,
         }).properties
       : renderNotionPageProperties({
@@ -60,7 +69,8 @@ export function renderUploadPlan(input: {
           participantsPropertyType: readParticipantsPropertyType(
             input.target.propertyIds.participants.type,
           ),
-          localStatus: "Notion upload in progress",
+          localStatus: localStatus.inProgress,
+          locale,
         }).properties;
   const doneProperties =
     input.target.kind === "managed"
@@ -69,7 +79,8 @@ export function renderUploadPlan(input: {
           propertiesBySemanticKey: input.target.meetingProperties,
           contentHash,
           status: "done",
-          localStatus: "Notion upload complete",
+          localStatus: localStatus.complete,
+          locale,
           memberRelationPageIds: input.memberRelationPageIds,
         }).properties
       : renderNotionPageProperties({
@@ -83,7 +94,8 @@ export function renderUploadPlan(input: {
           participantsPropertyType: readParticipantsPropertyType(
             input.target.propertyIds.participants.type,
           ),
-          localStatus: "Notion upload complete",
+          localStatus: localStatus.complete,
+          locale,
         }).properties;
 
   return {
@@ -101,4 +113,26 @@ function readStatusPropertyType(type: string): NotionStatusPropertyType {
 
 function readParticipantsPropertyType(type: string): NotionParticipantsPropertyType {
   return type === "rollup" ? "rollup" : "multi_select";
+}
+
+function resolveDraftLocale(input: NotionDraftInput): DirongLocale {
+  return isDirongLocale(input.draftContent.language)
+    ? input.draftContent.language
+    : DEFAULT_DIRONG_LOCALE;
+}
+
+function notionUploadLocalStatusText(locale: DirongLocale): {
+  inProgress: string;
+  complete: string;
+} {
+  if (locale === "en") {
+    return {
+      inProgress: "Notion upload in progress",
+      complete: "Notion upload complete",
+    };
+  }
+  return {
+    inProgress: "Notion 업로드 중",
+    complete: "Notion 업로드 완료",
+  };
 }

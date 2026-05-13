@@ -62,7 +62,7 @@ export const MEETING_NOTES_DRAFT_JSON_SCHEMA = {
   ],
   properties: {
     schemaVersion: { const: MEETING_NOTES_DRAFT_SCHEMA_VERSION },
-    language: { const: "ko" },
+    language: { enum: ["ko", "en"] },
     sessionId: { type: "string" },
     sourceTimeline: {
       type: "object",

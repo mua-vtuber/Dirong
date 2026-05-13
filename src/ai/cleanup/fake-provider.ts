@@ -121,12 +121,11 @@ function buildFakeDraft(input: AiCleanupProviderInput): MeetingNotesDraftV1 {
     endMs: first.endMs,
     speaker: first.displayNameSnapshot,
   };
-  const title = `회의록 초안: ${input.sessionId}`;
-  const summary = `총 ${input.timeline.entries.length}개의 transcript entry를 바탕으로 생성한 fake 회의록 초안입니다.`;
+  const text = fakeDraftText(input.language, input.sessionId, input.timeline.entries.length);
 
   return {
     schemaVersion: MEETING_NOTES_DRAFT_SCHEMA_VERSION,
-    language: "ko",
+    language: input.language,
     sessionId: input.sessionId,
     sourceTimeline: {
       contractVersion: input.timeline.contractVersion,
@@ -134,18 +133,18 @@ function buildFakeDraft(input: AiCleanupProviderInput): MeetingNotesDraftV1 {
       entryCount: input.timeline.entries.length,
     },
     meetingTitle: {
-      text: title,
+      text: text.title,
       confidence: "low",
       references: [reference],
     },
     summary: {
-      text: summary,
+      text: text.summary,
       references: [reference],
     },
     topics: [
       {
         id: "topic_1",
-        title: "회의 내용",
+        title: text.topicTitle,
         summary: first.text,
         references: [reference],
       },
@@ -155,9 +154,38 @@ function buildFakeDraft(input: AiCleanupProviderInput): MeetingNotesDraftV1 {
     unresolvedItems: [],
     uncertaintyNotes: [],
     noiseHandling: {
-      removedChatterSummary: "Fake provider는 실제 잡담 제거를 수행하지 않았습니다.",
-      keptBecause: ["오프라인 검증용 deterministic draft입니다."],
+      removedChatterSummary: text.removedChatterSummary,
+      keptBecause: [text.keptBecause],
     },
     notionProperties: {},
+  };
+}
+
+function fakeDraftText(
+  language: AiCleanupProviderInput["language"],
+  sessionId: string,
+  entryCount: number,
+): {
+  title: string;
+  summary: string;
+  topicTitle: string;
+  removedChatterSummary: string;
+  keptBecause: string;
+} {
+  if (language === "en") {
+    return {
+      title: `Meeting notes draft: ${sessionId}`,
+      summary: `Fake meeting notes draft generated from ${entryCount} transcript entries.`,
+      topicTitle: "Meeting content",
+      removedChatterSummary: "The fake provider did not remove real chatter.",
+      keptBecause: "Deterministic draft for offline verification.",
+    };
+  }
+  return {
+    title: `회의록 초안: ${sessionId}`,
+    summary: `총 ${entryCount}개의 transcript entry를 바탕으로 생성한 fake 회의록 초안입니다.`,
+    topicTitle: "회의 내용",
+    removedChatterSummary: "Fake provider는 실제 잡담 제거를 수행하지 않았습니다.",
+    keptBecause: "오프라인 검증용 deterministic draft입니다.",
   };
 }

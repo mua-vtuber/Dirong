@@ -63,6 +63,26 @@ test("AiCleanupAutomationService localizes runtime snapshot with app locale", as
   }
 });
 
+test("AiCleanupAutomationService passes app locale into generated meeting notes", async () => {
+  const fixture = createSessionFixture();
+  try {
+    addCompletedRealSttChunk(fixture, 1, "Friday까지 회의록을 정리하겠습니다.");
+    finalizeSession(fixture);
+    const provider = new CountingFakeAiCleanupProvider();
+    const service = await createReadyAutomationService(fixture, provider, {
+      localeResolver: () => "en",
+    });
+
+    const snapshot = await service.runOnce();
+
+    assert.equal(snapshot.status, "done");
+    assert.equal(provider.lastInput?.language, "en");
+    assert.deepEqual(fixture.countAiRows(), { jobs: 1, drafts: 1 });
+  } finally {
+    fixture.close();
+  }
+});
+
 test("AiCleanupAutomationService requeues expired STT processing leases before waiting", async () => {
   const fixture = createSessionFixture();
   try {
@@ -819,6 +839,7 @@ function createAutomationService(
 class CountingFakeAiCleanupProvider extends FakeAiCleanupProvider {
   preflightCalls = 0;
   generateCalls = 0;
+  lastInput: AiCleanupProviderInput | null = null;
 
   override async preflight(): Promise<void> {
     this.preflightCalls += 1;
@@ -829,6 +850,7 @@ class CountingFakeAiCleanupProvider extends FakeAiCleanupProvider {
     options: AiCleanupProviderOptions,
   ): Promise<AiCleanupProviderResult> {
     this.generateCalls += 1;
+    this.lastInput = input;
     return super.generate(input, options);
   }
 }

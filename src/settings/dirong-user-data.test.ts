@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 import {
+  getDirongManagedPythonPath,
   getDirongUserDataPaths,
   resolveDirongUserDataPath,
 } from "./dirong-user-data.js";
@@ -53,4 +54,15 @@ test("getDirongUserDataPaths keeps settings, secrets, sessions, models, and logs
   assert.equal(paths.databasePath, path.resolve("C:\\DirongData", "sessions", "dirong.sqlite"));
   assert.equal(paths.modelsDir, path.resolve("C:\\DirongData", "models"));
   assert.equal(paths.logsDir, path.resolve("C:\\DirongData", "logs"));
+});
+
+test("getDirongManagedPythonPath stays under the user data root", () => {
+  assert.equal(
+    getDirongManagedPythonPath("C:\\DirongData", "win32"),
+    path.resolve("C:\\DirongData", "python-venv", "Scripts", "python.exe"),
+  );
+  assert.equal(
+    getDirongManagedPythonPath("/tmp/dirong", "linux"),
+    path.resolve("/tmp/dirong", "python-venv", "bin", "python"),
+  );
 });

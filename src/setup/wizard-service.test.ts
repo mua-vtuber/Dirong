@@ -251,7 +251,7 @@ test("SetupWizardService starts local Whisper install with selected model", () =
     status: "running",
     stage: "checking_python",
     model: "medium",
-    message: "Checking bundled Python.",
+    message: "Checking Python environment.",
     detail: null,
     lastLog: null,
     startedAt: "2026-05-10T00:00:00.000Z",

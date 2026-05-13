@@ -1102,7 +1102,8 @@ export const ko = {
             lastLog: "마지막 로그 보기",
             stages: {
               idle: "아직 설치를 시작하지 않았습니다.",
-              checking_python: "내장 Python을 확인하고 있습니다.",
+              checking_python: "Python 실행 환경을 확인하고 있습니다.",
+              creating_venv: "앱 전용 Python 환경을 만들고 있습니다.",
               installing_package: "faster-whisper를 설치하고 있습니다.",
               checking_package: "faster-whisper 설치 상태를 확인하고 있습니다.",
               downloading_model: "선택한 Whisper 모델을 다운로드하고 있습니다.",
@@ -2968,7 +2969,8 @@ export const en = {
             lastLog: "Show last log",
             stages: {
               idle: "Setup has not started yet.",
-              checking_python: "Checking bundled Python.",
+              checking_python: "Checking Python environment.",
+              creating_venv: "Creating an app-managed Python environment.",
               installing_package: "Installing faster-whisper.",
               checking_package: "Checking faster-whisper installation.",
               downloading_model: "Downloading the selected Whisper model.",

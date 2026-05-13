@@ -67,6 +67,18 @@ export function getDirongUserDataPaths(root: string): DirongUserDataPaths {
   };
 }
 
+export function getDirongManagedPythonPath(
+  root: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  return path.join(
+    path.resolve(root),
+    "python-venv",
+    platform === "win32" ? "Scripts" : "bin",
+    platform === "win32" ? "python.exe" : "python",
+  );
+}
+
 function cleanPath(value: string | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;

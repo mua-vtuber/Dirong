@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { getDirongUserDataPaths } from "./dirong-user-data.js";
+import {
+  getDirongManagedPythonPath,
+  getDirongUserDataPaths,
+} from "./dirong-user-data.js";
 import { LocalSecretStore, DEFAULT_SECRET_REFS } from "./local-secret-store.js";
 import { LocalSettingsStore } from "./local-settings-store.js";
 import {
@@ -231,6 +234,47 @@ test("loadProductRuntimeSettings resolves safe tool profiles to command template
       path.join(paths.modelsDir, "faster-whisper-small"),
     );
     assert.equal(runtime.appSettings.aiCleanup.claudeCommand, "claude");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadProductRuntimeSettings prefers the managed local Whisper venv when present", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-product-"));
+  try {
+    const paths = getDirongUserDataPaths(dir);
+    const settingsStore = new LocalSettingsStore(paths.settingsFile);
+    const managedPython = getDirongManagedPythonPath(paths.root);
+    mkdirSync(path.dirname(managedPython), { recursive: true });
+    writeFileSync(managedPython, "");
+    settingsStore.write({
+      schemaVersion: 1,
+      app: { locale: "ko" },
+      discord: {},
+      stt: {
+        provider: "local-whisper",
+        localWhisper: {
+          profile: "local-whisper-python-script",
+          model: "medium",
+        },
+      },
+      ai: {},
+      notion: {},
+      recording: { aloneFinalizeEnabled: true, aloneFinalizeGraceMs: 90000 },
+      retention: { deleteAudioAfterNotionUpload: true, textDraftRetentionDays: 30 },
+    });
+
+    const runtime = loadProductRuntimeSettings({ userDataDir: dir });
+
+    assert.equal(runtime.appSettings.stt.provider, "local-whisper");
+    if (runtime.appSettings.stt.provider !== "local-whisper") {
+      throw new Error("expected local-whisper settings");
+    }
+    assert.equal(runtime.appSettings.stt.localWhisper.command, managedPython);
+    assert.equal(
+      runtime.appSettings.stt.localWhisper.model,
+      path.join(paths.modelsDir, "faster-whisper-medium"),
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

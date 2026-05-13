@@ -3,7 +3,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { getDirongUserDataPaths } from "../settings/dirong-user-data.js";
+import {
+  getDirongManagedPythonPath,
+  getDirongUserDataPaths,
+} from "../settings/dirong-user-data.js";
 import { LocalWhisperInstallService } from "./local-whisper-install-service.js";
 
 test("LocalWhisperInstallService runs package and model setup steps", async () => {
@@ -62,6 +65,62 @@ test("LocalWhisperInstallService runs package and model setup steps", async () =
       ],
     );
     assert.equal(calls.every((call) => call.command === "C:\\Dirong\\python\\python.exe"), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("LocalWhisperInstallService creates a managed venv for non-portable runs", async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-whisper-install-"));
+  const paths = getDirongUserDataPaths(dir);
+  const managedPython = getDirongManagedPythonPath(paths.root);
+  const calls: Array<{ command: string; args: string[] }> = [];
+  const service = new LocalWhisperInstallService({
+    paths,
+    env: {},
+    commandRunner: async (command, args) => {
+      calls.push({ command, args });
+      return {
+        stdout: args.includes("--version") ? "Python 3.12.0" : "{\"ok\":true}",
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      };
+    },
+  });
+
+  try {
+    service.start({ model: "small" });
+    const done = await waitForInstall(service);
+
+    assert.equal(done.status, "done");
+    assert.deepEqual(
+      calls.map((call) => ({ command: call.command, args: call.args.slice(0, 4) })),
+      [
+        { command: "python", args: ["--version"] },
+        { command: "python", args: ["-m", "venv", path.join(paths.root, "python-venv")] },
+        { command: managedPython, args: ["-m", "pip", "install", "--upgrade"] },
+        { command: managedPython, args: ["scripts/local-whisper-json.py", "--check"] },
+        {
+          command: managedPython,
+          args: [
+            "scripts/local-whisper-json.py",
+            "--download-model",
+            "--model",
+            "small",
+          ],
+        },
+        {
+          command: managedPython,
+          args: [
+            "scripts/local-whisper-json.py",
+            "--check-model",
+            "--model",
+            path.join(paths.modelsDir, "faster-whisper-small"),
+          ],
+        },
+      ],
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

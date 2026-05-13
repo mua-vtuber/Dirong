@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 import type { Phase1Config } from "../config.js";
 import type { ProjectStore } from "../projects/project-store.js";
@@ -24,6 +25,7 @@ import type {
   SttSettings,
 } from "./app-settings.js";
 import {
+  getDirongManagedPythonPath,
   getDirongUserDataPaths,
   resolveDirongUserDataPath,
   type DirongUserDataPaths,
@@ -612,7 +614,7 @@ function buildProductSttSettings(
     };
   }
 
-  const localWhisper = buildProductLocalWhisperCommand(settings);
+  const localWhisper = buildProductLocalWhisperCommand(settings, paths);
   const model =
     settings.localWhisper?.model ?? DEFAULT_STT_SETTINGS.localWhisper.model;
   return {
@@ -927,13 +929,20 @@ function buildProjectDiscordGuildStatus(
   });
 }
 
-function buildProductLocalWhisperCommand(settings: SttLocalSettings): {
+function buildProductLocalWhisperCommand(
+  settings: SttLocalSettings,
+  paths: DirongUserDataPaths,
+): {
   command: string;
   args: string[];
 } {
   const localWhisper = settings.localWhisper;
   if (localWhisper?.profile) {
-    return resolveLocalWhisperToolProfile(localWhisper.profile);
+    const profile = resolveLocalWhisperToolProfile(localWhisper.profile);
+    return {
+      command: resolvePreferredLocalWhisperPython(profile.command, paths),
+      args: profile.args,
+    };
   }
   if (localWhisper?.command || localWhisper?.args) {
     const defaults = resolveLocalWhisperToolProfile(
@@ -944,7 +953,11 @@ function buildProductLocalWhisperCommand(settings: SttLocalSettings): {
       args: localWhisper.args ?? defaults.args,
     };
   }
-  return resolveLocalWhisperToolProfile(DEFAULT_LOCAL_WHISPER_TOOL_PROFILE);
+  const profile = resolveLocalWhisperToolProfile(DEFAULT_LOCAL_WHISPER_TOOL_PROFILE);
+  return {
+    command: resolvePreferredLocalWhisperPython(profile.command, paths),
+    args: profile.args,
+  };
 }
 
 function buildProductClaudeCommand(settings: AiLocalSettings): string {
@@ -1107,6 +1120,43 @@ function resolveLocalWhisperRuntimeModel(
 
   const modelPath = path.join(paths.modelsDir, `faster-whisper-${model}`);
   return modelPath;
+}
+
+function resolvePreferredLocalWhisperPython(
+  fallbackCommand: string,
+  paths: DirongUserDataPaths,
+): string {
+  return (
+    cleanPath(process.env.DIRONG_LOCAL_WHISPER_PYTHON) ??
+    cleanPath(process.env.DIRONG_PORTABLE_PYTHON) ??
+    resolvePortableRootPython() ??
+    resolveManagedLocalWhisperPython(paths) ??
+    fallbackCommand
+  );
+}
+
+function resolvePortableRootPython(): string | null {
+  const portableRoot = cleanPath(process.env.DIRONG_PORTABLE_ROOT);
+  if (!portableRoot) {
+    return null;
+  }
+  return path.join(
+    portableRoot,
+    "python",
+    process.platform === "win32" ? "python.exe" : "python",
+  );
+}
+
+function resolveManagedLocalWhisperPython(
+  paths: DirongUserDataPaths,
+): string | null {
+  const python = getDirongManagedPythonPath(paths.root);
+  return existsSync(python) ? python : null;
+}
+
+function cleanPath(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
 }
 
 function buildProductEditableSettings(

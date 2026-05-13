@@ -1,7 +1,11 @@
 import path from "node:path";
+import { existsSync } from "node:fs";
 import { redactSensitiveText } from "../errors.js";
 import { runChild, type RunChildOptions } from "../process/run-child.js";
-import type { DirongUserDataPaths } from "../settings/dirong-user-data.js";
+import {
+  getDirongManagedPythonPath,
+  type DirongUserDataPaths,
+} from "../settings/dirong-user-data.js";
 import { DEFAULT_STT_SETTINGS } from "../settings/defaults.js";
 import {
   DEFAULT_LOCAL_WHISPER_TOOL_PROFILE,
@@ -17,6 +21,7 @@ export type LocalWhisperInstallStatus = "idle" | "running" | "done" | "failed";
 export type LocalWhisperInstallStage =
   | "idle"
   | "checking_python"
+  | "creating_venv"
   | "installing_package"
   | "checking_package"
   | "downloading_model"
@@ -67,6 +72,7 @@ type LocalWhisperInstallServiceOptions = {
 
 const STEP_TIMEOUTS = {
   checking_python: 10000,
+  creating_venv: 5 * 60 * 1000,
   installing_package: 20 * 60 * 1000,
   checking_package: 30000,
   downloading_model: 60 * 60 * 1000,
@@ -111,7 +117,7 @@ export class LocalWhisperInstallService implements LocalWhisperInstaller {
       status: "running",
       stage: "checking_python",
       model: input.model,
-      message: "Checking bundled Python.",
+      message: "Checking Python environment.",
       detail: null,
       lastLog: null,
       startedAt,
@@ -132,7 +138,8 @@ export class LocalWhisperInstallService implements LocalWhisperInstaller {
   }
 
   private async run(input: LocalWhisperInstallStartInput): Promise<void> {
-    const python = this.resolvePythonCommand();
+    const pythonPlan = await this.preparePythonCommand();
+    const python = pythonPlan.command;
     const profile = resolveLocalWhisperToolProfile(
       DEFAULT_LOCAL_WHISPER_TOOL_PROFILE,
     );
@@ -145,12 +152,6 @@ export class LocalWhisperInstallService implements LocalWhisperInstaller {
       `faster-whisper-${input.model}`,
     );
 
-    await this.runStep(
-      "checking_python",
-      "Checking bundled Python.",
-      python,
-      ["--version"],
-    );
     await this.runStep(
       "installing_package",
       "Installing faster-whisper.",
@@ -201,6 +202,47 @@ export class LocalWhisperInstallService implements LocalWhisperInstaller {
     });
   }
 
+  private async preparePythonCommand(): Promise<{ command: string }> {
+    const explicitPython = this.resolveExplicitPythonCommand();
+    if (explicitPython) {
+      await this.runStep(
+        "checking_python",
+        "Checking configured Python.",
+        explicitPython,
+        ["--version"],
+      );
+      return { command: explicitPython };
+    }
+
+    const managedPython = getDirongManagedPythonPath(this.options.paths.root);
+    if (existsSync(managedPython)) {
+      await this.runStep(
+        "checking_python",
+        "Checking managed Python environment.",
+        managedPython,
+        ["--version"],
+      );
+      return { command: managedPython };
+    }
+
+    const basePython = resolveLocalWhisperToolProfile(
+      DEFAULT_LOCAL_WHISPER_TOOL_PROFILE,
+    ).command;
+    await this.runStep(
+      "checking_python",
+      "Checking system Python for managed environment creation.",
+      basePython,
+      ["--version"],
+    );
+    await this.runStep(
+      "creating_venv",
+      "Creating managed Python environment.",
+      basePython,
+      ["-m", "venv", path.dirname(path.dirname(managedPython))],
+    );
+    return { command: managedPython };
+  }
+
   private async runStep(
     stage: Exclude<LocalWhisperInstallStage, "idle" | "done" | "failed">,
     message: string,
@@ -248,12 +290,11 @@ export class LocalWhisperInstallService implements LocalWhisperInstaller {
     };
   }
 
-  private resolvePythonCommand(): string {
+  private resolveExplicitPythonCommand(): string | null {
     return (
       cleanPath(this.env.DIRONG_LOCAL_WHISPER_PYTHON) ??
       cleanPath(this.env.DIRONG_PORTABLE_PYTHON) ??
-      this.resolvePortableRootPython() ??
-      resolveLocalWhisperToolProfile(DEFAULT_LOCAL_WHISPER_TOOL_PROFILE).command
+      this.resolvePortableRootPython()
     );
   }
 

@@ -58,3 +58,14 @@ test("setup wizard exposes updated Notion token guide copy", () => {
     "Under Create a connection, click + New connection.",
   );
 });
+
+test("dashboard settings exposes localized credit copy", () => {
+  assert.equal(t("ko", "dashboard.settings.credits.title"), "정보");
+  assert.equal(t("ko", "dashboard.settings.credits.directorLabel"), "감독");
+  assert.equal(
+    t("ko", "dashboard.settings.credits.githubUrl"),
+    "https://github.com/mua-vtuber/Agestra",
+  );
+  assert.equal(t("en", "dashboard.settings.credits.title"), "About");
+  assert.equal(t("en", "dashboard.settings.credits.madeWith"), "Built with Claude Code");
+});

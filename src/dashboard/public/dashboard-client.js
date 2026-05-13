@@ -527,7 +527,7 @@
         reset: null
       };
       if (activeSettingsTab === 'reset') {
-        return renderSettingsResetPanel(state, setup);
+        return renderSettingsResetPanel(state, setup) + renderSettingsCredits();
       }
       const theme =
         setup?.dashboardTheme ??
@@ -541,7 +541,18 @@
             renderHumanDisplay(featureMap[activeSettingsTab]) +
             renderRuntimeEffect(featureMap[activeSettingsTab]?.runtimeEffect) +
             '<div class="muted">' + i18n('dashboard.settings.secretsHidden') + '</div></div>';
-      return body + renderThemeSettings(theme, setup);
+      return body + renderThemeSettings(theme, setup) + renderSettingsCredits();
+    }
+    function renderSettingsCredits() {
+      const githubUrl = tr('dashboard.settings.credits.githubUrl');
+      return '<div class="metric settings-credits" style="margin-top:10px">' +
+        '<div class="label">' + i18n('dashboard.settings.credits.title') + '</div>' +
+        '<div class="value">' + i18n('dashboard.settings.credits.directorLabel') + ': ' +
+        i18n('dashboard.settings.credits.directorName') + '</div>' +
+        '<div class="muted">' + i18n('dashboard.settings.credits.githubLabel') + ': ' +
+        '<a href="' + escapeHtml(githubUrl) + '" target="_blank" rel="noreferrer">' +
+        escapeHtml(githubUrl) + '</a><br>' +
+        i18n('dashboard.settings.credits.madeWith') + '</div></div>';
     }
     function renderSettingsResetPanel(state, setup) {
       const recordingActive = Boolean(state.runtime?.isRecording);

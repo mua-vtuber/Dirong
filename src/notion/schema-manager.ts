@@ -1,4 +1,10 @@
-import { NOTION_PAGE_STATUS_VALUES, type NotionPageStatus } from "./page-properties.js";
+import { NOTION_PAGE_STATUS_VALUES } from "./page-properties.js";
+import {
+  readExistingOptionRefs as readPropertyExistingOptionRefs,
+  readPropertyOptionNames,
+  readRelationDataSourceId,
+  statusOptionSchema,
+} from "./property-shape.js";
 import {
   isSupportedCustomPropertyType,
   type NotionCustomPropertyRule,
@@ -151,13 +157,6 @@ const IMMUTABLE_API_TYPES = new Set([
   "synced_content",
   "place",
 ]);
-
-const STATUS_SELECT_OPTIONS: Record<NotionPageStatus, { name: string; color: string }> = {
-  draft: { name: "draft", color: "gray" },
-  done: { name: "done", color: "green" },
-  retry_wait: { name: "retry_wait", color: "yellow" },
-  failed: { name: "failed", color: "red" },
-};
 
 export function buildNotionSchemaDiff(input: {
   properties: NotionDataSourceProperties;
@@ -550,67 +549,14 @@ function readExistingOptionRefs(
   if (!actual || (actual.type !== "select" && actual.type !== "status")) {
     return [];
   }
-  const config = actual.property[actual.type];
-  if (!isRecord(config) || !Array.isArray(config.options)) {
-    return [];
-  }
-  const refs: Array<Record<string, string>> = [];
-  for (const option of config.options) {
-    if (!isRecord(option)) {
-      continue;
-    }
-    if (typeof option.id === "string") {
-      refs.push({ id: option.id });
-      continue;
-    }
-    if (typeof option.name === "string") {
-      refs.push(
-        typeof option.color === "string"
-          ? { name: option.name, color: option.color }
-          : { name: option.name },
-      );
-    }
-  }
-  return refs;
-}
-
-function statusOptionSchema(optionName: string): { name: string; color: string } {
-  if (isNotionPageStatus(optionName)) {
-    return STATUS_SELECT_OPTIONS[optionName];
-  }
-  return { name: optionName, color: "default" };
-}
-
-function isNotionPageStatus(value: string): value is NotionPageStatus {
-  return NOTION_PAGE_STATUS_VALUES.includes(value as NotionPageStatus);
+  return readPropertyExistingOptionRefs(actual.property, actual.type);
 }
 
 function readOptionNames(
   property: NotionDataSourceProperty,
   type: "select" | "status",
 ): Set<string> {
-  const config = property[type];
-  if (!isRecord(config) || !Array.isArray(config.options)) {
-    return new Set();
-  }
-  return new Set(
-    config.options
-      .map((option) =>
-        isRecord(option) && typeof option.name === "string"
-          ? option.name
-          : null,
-      )
-      .filter((name): name is string => name !== null),
-  );
-}
-
-function readRelationDataSourceId(
-  property: NotionDataSourceProperty,
-): string | null {
-  const relation = property.relation;
-  return isRecord(relation) && typeof relation.data_source_id === "string"
-    ? relation.data_source_id
-    : null;
+  return readPropertyOptionNames(property, type);
 }
 
 function mergePropertyUpdate(

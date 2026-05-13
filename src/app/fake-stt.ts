@@ -1,8 +1,9 @@
 import process from "node:process";
 import {
+  booleanOptionArg,
   parseCliArgs,
-  readPositiveIntegerArg,
-  readRequiredStringArg,
+  positiveIntegerOptionArg,
+  requiredStringOptionArg,
   type CliArgSpec,
 } from "../cli/arg-parser.js";
 import { printCliError } from "../cli/error-output.js";
@@ -80,43 +81,10 @@ function parseArgs(args: string[]): CliOptions {
 }
 
 const FAKE_STT_ARG_SPEC: Record<string, CliArgSpec<CliOptions>> = {
-  "--dry-run": {
-    kind: "boolean",
-    apply: (options) => {
-      options.dryRun = true;
-    },
-  },
-  "--debug": {
-    kind: "boolean",
-    apply: (options) => {
-      options.debug = true;
-    },
-  },
-  "--no-backup": {
-    kind: "boolean",
-    apply: (options) => {
-      options.backup = false;
-    },
-  },
-  "--limit": {
-    kind: "value",
-    read: readPositiveIntegerArg,
-    apply: (options, value) => {
-      options.limit = value;
-    },
-  },
-  "--session": {
-    kind: "value",
-    read: (value) => readRequiredStringArg(value, "--session 값이 필요합니다."),
-    apply: (options, value) => {
-      options.sessionId = value;
-    },
-  },
-  "--lease-ms": {
-    kind: "value",
-    read: readPositiveIntegerArg,
-    apply: (options, value) => {
-      options.leaseMs = value;
-    },
-  },
+  "--dry-run": booleanOptionArg("dryRun", true),
+  "--debug": booleanOptionArg("debug", true),
+  "--no-backup": booleanOptionArg("backup", false),
+  "--limit": positiveIntegerOptionArg("limit"),
+  "--session": requiredStringOptionArg("--session 값이 필요합니다.", "sessionId"),
+  "--lease-ms": positiveIntegerOptionArg("leaseMs"),
 };

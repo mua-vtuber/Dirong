@@ -31,6 +31,38 @@ export function readDataSources(database: Record<string, unknown>): unknown[] {
   return Array.isArray(database.data_sources) ? database.data_sources : [];
 }
 
+export function readRichTextPlainText(parts: readonly unknown[]): string {
+  return parts
+    .map((part) =>
+      isRecord(part) && typeof part.plain_text === "string"
+        ? part.plain_text
+        : isRecord(part) &&
+            isRecord(part.text) &&
+            typeof part.text.content === "string"
+          ? part.text.content
+          : "",
+    )
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function readTargetName(
+  dataSource: Record<string, unknown>,
+  fallback = "Notion data source",
+): string {
+  if (typeof dataSource.name === "string" && dataSource.name.trim()) {
+    return dataSource.name.trim();
+  }
+  if (Array.isArray(dataSource.title)) {
+    const title = readRichTextPlainText(dataSource.title);
+    if (title) {
+      return title;
+    }
+  }
+  return fallback;
+}
+
 export function readFirstDataSourceId(
   response: NotionDatabaseResponse,
 ): string | null {
@@ -58,6 +90,6 @@ function readOptionalString(value: JsonObject, key: string): string | null {
   return typeof raw === "string" && raw.trim() ? raw : null;
 }
 
-function isRecord(value: unknown): value is JsonObject {
+export function isRecord(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

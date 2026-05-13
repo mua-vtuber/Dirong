@@ -3,6 +3,7 @@ import type {
   SpeechStatus,
   TranscriptSegmentRow,
 } from "../storage/session-store.js";
+import { formatTranscriptTime } from "./time-format.js";
 
 export type Phase4TranscriptTimelineEntry = {
   sessionId: string;
@@ -62,7 +63,7 @@ export function renderPhase4TranscriptTimelineMarkdown(
         entry.speechStatus === "no_speech" && entry.text.trim().length === 0
           ? "(no speech)"
           : entry.text;
-      return `[${formatTime(entry.startMs)}] ${entry.displayNameSnapshot}: ${text}`;
+      return `[${formatTranscriptTime(entry.startMs)}] ${entry.displayNameSnapshot}: ${text}`;
     })
     .join("\n");
 }
@@ -85,11 +86,4 @@ function toTimelineEntry(
     model: row.model,
     inputAudioSha256: row.input_audio_sha256,
   };
-}
-
-function formatTime(ms: number): string {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }

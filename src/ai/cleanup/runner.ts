@@ -32,6 +32,7 @@ import type {
   AiCleanupProviderResetReason,
 } from "./provider.js";
 import { AiCleanupProviderError } from "./provider.js";
+import { toLegacyResetReason } from "./provider-lifecycle.js";
 import {
   PHASE4_AI_CLEANUP_PROMPT_VERSION,
   buildPhase4RepairPrompt,
@@ -685,16 +686,4 @@ function resetReasonForThrownError(
     error.failureKind === "provider_timeout"
     ? "request_timeout"
     : "request_failure";
-}
-
-function toLegacyResetReason(
-  reason: AiCleanupProviderResetReason,
-): "success" | "failure" | "timeout" {
-  if (reason === "request_timeout") {
-    return "timeout";
-  }
-  if (reason === "request_success") {
-    return "success";
-  }
-  return "failure";
 }

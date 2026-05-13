@@ -103,6 +103,42 @@ test("buildNotionSchemaUpdatePlan preserves existing select options when adding 
   });
 });
 
+test("buildNotionSchemaUpdatePlan preserves existing select option names and colors without ids", () => {
+  const diff = buildNotionSchemaDiff({
+    properties: {
+      ...completeProperties(),
+      Status: {
+        id: "status-id",
+        type: "select",
+        select: {
+          options: [{ name: "archived", color: "blue" }],
+        },
+      },
+    },
+    propertyNames: DEFAULT_NOTION_PROPERTY_NAMES,
+    customRules: [],
+  });
+
+  const plan = buildNotionSchemaUpdatePlan(diff, {
+    createMissing: true,
+    updateTypes: false,
+    deleteExtra: false,
+    confirmDeleteExtra: false,
+  });
+
+  assert.deepEqual(plan.body?.properties["status-id"], {
+    select: {
+      options: [
+        { name: "archived", color: "blue" },
+        { name: "draft", color: "gray" },
+        { name: "done", color: "green" },
+        { name: "retry_wait", color: "yellow" },
+        { name: "failed", color: "red" },
+      ],
+    },
+  });
+});
+
 test("buildNotionSchemaDiff accepts Participants rollup properties", () => {
   const diff = buildNotionSchemaDiff({
     properties: {

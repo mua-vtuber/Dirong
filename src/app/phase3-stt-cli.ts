@@ -1,7 +1,9 @@
 import {
+  booleanOptionArg,
   parseCliArgs,
-  readPositiveIntegerArg,
-  readRequiredStringArg,
+  positiveIntegerOptionArg,
+  requiredStringOptionArg,
+  valueArg,
   type CliArgSpec,
 } from "../cli/arg-parser.js";
 import type { SttProviderName } from "../settings/app-settings.js";
@@ -36,59 +38,16 @@ export function parsePhase3SttArgs(args: string[]): Phase3SttCliOptions {
 }
 
 const PHASE3_ARG_SPEC: Record<string, CliArgSpec<Phase3SttCliOptions>> = {
-  "--dry-run": {
-    kind: "boolean",
-    apply: (options) => {
-      options.dryRun = true;
-    },
-  },
-  "--debug": {
-    kind: "boolean",
-    apply: (options) => {
-      options.debug = true;
-    },
-  },
-  "--no-backup": {
-    kind: "boolean",
-    apply: (options) => {
-      options.backup = false;
-    },
-  },
-  "--limit": {
-    kind: "value",
-    read: readPositiveIntegerArg,
-    apply: (options, value) => {
-      options.limit = value;
-    },
-  },
-  "--session": {
-    kind: "value",
-    read: (value) => readRequiredStringArg(value, "--session 값이 필요합니다."),
-    apply: (options, value) => {
-      options.sessionId = value;
-    },
-  },
-  "--provider": {
-    kind: "value",
-    read: readProvider,
-    apply: (options, value) => {
-      options.provider = value;
-    },
-  },
-  "--model": {
-    kind: "value",
-    read: (value) => readRequiredStringArg(value, "--model 값이 필요합니다."),
-    apply: (options, value) => {
-      options.model = value;
-    },
-  },
-  "--lease-ms": {
-    kind: "value",
-    read: readPositiveIntegerArg,
-    apply: (options, value) => {
-      options.leaseMs = value;
-    },
-  },
+  "--dry-run": booleanOptionArg("dryRun", true),
+  "--debug": booleanOptionArg("debug", true),
+  "--no-backup": booleanOptionArg("backup", false),
+  "--limit": positiveIntegerOptionArg("limit"),
+  "--session": requiredStringOptionArg("--session 값이 필요합니다.", "sessionId"),
+  "--provider": valueArg(readProvider, (options, value) => {
+    options.provider = value;
+  }),
+  "--model": requiredStringOptionArg("--model 값이 필요합니다.", "model"),
+  "--lease-ms": positiveIntegerOptionArg("leaseMs"),
 };
 
 function readProvider(value: string | undefined): SttProviderName {

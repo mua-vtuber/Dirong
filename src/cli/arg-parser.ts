@@ -13,6 +13,66 @@ export type CliArgSpec<TOptions> =
   | CliBooleanArg<TOptions>
   | CliValueArg<TOptions>;
 
+type KeysAccepting<TOptions, TValue> = {
+  [Key in keyof TOptions]-?: TValue extends TOptions[Key] ? Key : never;
+}[keyof TOptions];
+
+export function booleanArg<TOptions>(
+  apply: (options: TOptions) => void,
+): CliBooleanArg<TOptions> {
+  return { kind: "boolean", apply };
+}
+
+export function valueArg<TOptions, TValue>(
+  read: (value: string | undefined, flag: string) => TValue,
+  apply: (options: TOptions, value: TValue) => void,
+): CliValueArg<TOptions, TValue> {
+  return { kind: "value", read, apply };
+}
+
+export function positiveIntegerArg<TOptions>(
+  apply: (options: TOptions, value: number) => void,
+): CliValueArg<TOptions, number> {
+  return valueArg(readPositiveIntegerArg, apply);
+}
+
+export function requiredStringArg<TOptions>(
+  message: string,
+  apply: (options: TOptions, value: string) => void,
+): CliValueArg<TOptions, string> {
+  return valueArg(
+    (value) => readRequiredStringArg(value, message),
+    apply,
+  );
+}
+
+export function booleanOptionArg<
+  TOptions,
+  TKey extends KeysAccepting<TOptions, boolean>,
+>(key: TKey, value: boolean): CliBooleanArg<TOptions> {
+  return booleanArg((options) => {
+    options[key] = value as TOptions[TKey];
+  });
+}
+
+export function positiveIntegerOptionArg<
+  TOptions,
+  TKey extends KeysAccepting<TOptions, number>,
+>(key: TKey): CliValueArg<TOptions, number> {
+  return positiveIntegerArg((options, value) => {
+    options[key] = value as TOptions[TKey];
+  });
+}
+
+export function requiredStringOptionArg<
+  TOptions,
+  TKey extends KeysAccepting<TOptions, string>,
+>(message: string, key: TKey): CliValueArg<TOptions, string> {
+  return requiredStringArg(message, (options, value) => {
+    options[key] = value as TOptions[TKey];
+  });
+}
+
 export function parseCliArgs<TOptions>(
   args: string[],
   options: TOptions,

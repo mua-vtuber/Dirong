@@ -15,6 +15,7 @@ import {
   readId,
   readResults,
 } from "./data-source-readers.js";
+import { buildManagedMemberMatchFilter } from "./member-match-filter.js";
 import {
   buildNotionTaskSourceActionId,
   renderNotionTaskPageProperties,
@@ -589,25 +590,6 @@ async function resolveActionItemWorkerPage(input: {
       `${input.sourceActionId}: 작업자 "${ownerName}"를 Notion 작업자 DB에서 찾지 못해 담당자 relation을 비웠습니다.`,
     ],
   };
-}
-
-function buildManagedMemberMatchFilter(
-  property: ManagedResolvedTarget["memberDiscordNameProperty"],
-  value: string,
-): Record<string, unknown> | null {
-  if (property.type === "title") {
-    return {
-      property: property.name,
-      title: { equals: value },
-    };
-  }
-  if (property.type === "rich_text") {
-    return {
-      property: property.name,
-      rich_text: { equals: value },
-    };
-  }
-  return null;
 }
 
 function loadDraftInput(

@@ -1,7 +1,12 @@
 import { extractPlainTextFromBlock } from "./blocks.js";
 import type { NotionBlockPayload, RenderedNotionBlock } from "./blocks.js";
 import type { NotionClient } from "./client.js";
-import { readId, readResults } from "./data-source-readers.js";
+import {
+  isRecord,
+  readId,
+  readResults,
+  readRichTextPlainText,
+} from "./data-source-readers.js";
 import { createWriterValidationError } from "./upload-result.js";
 import type { NotionWriteStore } from "./write-store.js";
 
@@ -115,24 +120,4 @@ function readRemotePlainText(remote: Record<string, unknown>): string {
     return "";
   }
   return readRichTextPlainText(typed.rich_text);
-}
-
-function readRichTextPlainText(value: unknown[]): string {
-  return value
-    .map((part) =>
-      isRecord(part) && typeof part.plain_text === "string"
-        ? part.plain_text
-        : isRecord(part) &&
-            isRecord(part.text) &&
-            typeof part.text.content === "string"
-          ? part.text.content
-          : "",
-    )
-    .join("")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -1,6 +1,7 @@
 import {
+  booleanOptionArg,
   parseCliArgs,
-  readRequiredStringArg,
+  requiredStringOptionArg,
   type CliArgSpec,
 } from "../cli/arg-parser.js";
 
@@ -39,36 +40,9 @@ const PHASE5_ARG_SPEC: Record<
   string,
   CliArgSpec<Phase5NotionUploadCliOptions>
 > = {
-  "--dry-run": {
-    kind: "boolean",
-    apply: (options) => {
-      options.dryRun = true;
-    },
-  },
-  "--force": {
-    kind: "boolean",
-    apply: (options) => {
-      options.force = true;
-    },
-  },
-  "--debug": {
-    kind: "boolean",
-    apply: (options) => {
-      options.debug = true;
-    },
-  },
-  "--session": {
-    kind: "value",
-    read: (value) => readRequiredStringArg(value, "--session 값이 필요합니다."),
-    apply: (options, value) => {
-      options.sessionId = value;
-    },
-  },
-  "--draft": {
-    kind: "value",
-    read: (value) => readRequiredStringArg(value, "--draft 값이 필요합니다."),
-    apply: (options, value) => {
-      options.draftId = value;
-    },
-  },
+  "--dry-run": booleanOptionArg("dryRun", true),
+  "--force": booleanOptionArg("force", true),
+  "--debug": booleanOptionArg("debug", true),
+  "--session": requiredStringOptionArg("--session 값이 필요합니다.", "sessionId"),
+  "--draft": requiredStringOptionArg("--draft 값이 필요합니다.", "draftId"),
 };

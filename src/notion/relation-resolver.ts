@@ -3,7 +3,9 @@ import {
   readDataSourceProperties,
   readId,
   readResults,
+  readTargetName,
 } from "./data-source-readers.js";
+import { buildManagedMemberMatchFilter } from "./member-match-filter.js";
 import type { NotionDraftInput } from "./draft-input.js";
 import {
   buildNotionPagePropertyValues,
@@ -11,7 +13,6 @@ import {
   sanitizeParticipantNames,
 } from "./page-properties.js";
 import type { NotionCustomPropertyRule } from "./property-rules.js";
-import type { NotionSemanticResolvedProperty } from "./schema.js";
 import {
   normalizeNotionId,
   parseNotionPageUrl,
@@ -146,25 +147,6 @@ async function findManagedMemberPageByDiscordName(input: {
   );
   const results = readResults(existing);
   return results.length === 1 ? readId(results[0]) : null;
-}
-
-function buildManagedMemberMatchFilter(
-  property: NotionSemanticResolvedProperty,
-  value: string,
-): Record<string, unknown> | null {
-  if (property.type === "title") {
-    return {
-      property: property.name,
-      title: { equals: value },
-    };
-  }
-  if (property.type === "rich_text") {
-    return {
-      property: property.name,
-      rich_text: { equals: value },
-    };
-  }
-  return null;
 }
 
 function readCustomPropertyValues(
@@ -352,35 +334,6 @@ function readCheckboxValue(value: string): boolean {
 function readDateValue(value: string): string | null {
   const trimmed = value.trim();
   return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
-}
-
-function readTargetName(dataSource: Record<string, unknown>): string {
-  if (typeof dataSource.name === "string" && dataSource.name.trim()) {
-    return dataSource.name.trim();
-  }
-  if (Array.isArray(dataSource.title)) {
-    const title = readRichTextPlainText(dataSource.title);
-    if (title) {
-      return title;
-    }
-  }
-  return "Notion data source";
-}
-
-function readRichTextPlainText(value: unknown[]): string {
-  return value
-    .map((part) =>
-      isRecord(part) && typeof part.plain_text === "string"
-        ? part.plain_text
-        : isRecord(part) &&
-            isRecord(part.text) &&
-            typeof part.text.content === "string"
-          ? part.text.content
-          : "",
-    )
-    .join("")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

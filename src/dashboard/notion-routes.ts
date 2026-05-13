@@ -16,6 +16,39 @@ import {
 import type { DashboardRuntimeSources } from "./server.js";
 import type { DirongLocale } from "../settings/local-settings-store.js";
 
+function sendNotionMissingResponse(
+  response: ServerResponse,
+  locale: DirongLocale,
+  extra: Record<string, unknown>,
+): void {
+  sendJson(response, withMessageKeys(locale, {
+    ok: false,
+    status: "not_configured",
+    messageKey: "error.dashboard.notionActionSourceMissing.message",
+    userActionKey: "error.dashboard.notionActionSourceMissing.action",
+    ...extra,
+  }));
+}
+
+function sendInvalidRequestResponse(
+  response: ServerResponse,
+  locale: DirongLocale,
+  error: unknown,
+  extra: Record<string, unknown>,
+): void {
+  const message = error instanceof Error ? error.message : String(error);
+  sendJson(response, {
+    ok: false,
+    ...extra,
+    ...withMessageKeys(locale, {
+      messageKey: "error.dashboard.requestInvalid.message",
+      userActionKey: "action.request.retry",
+      status: "failed",
+      technicalDetail: message,
+    }),
+  }, 400);
+}
+
 export async function handleNotionAction(
   request: IncomingMessage,
   response: ServerResponse,
@@ -24,13 +57,9 @@ export async function handleNotionAction(
   force: boolean,
 ): Promise<void> {
   if (!sources.notion) {
-    sendJson(response, withMessageKeys(locale, {
-      ok: false,
-      status: "not_configured",
-      messageKey: "error.dashboard.notionActionSourceMissing.message",
-      userActionKey: "error.dashboard.notionActionSourceMissing.action",
+    sendNotionMissingResponse(response, locale, {
       pageUrl: null,
-    }));
+    });
     return;
   }
 
@@ -43,18 +72,9 @@ export async function handleNotionAction(
     }, locale);
     sendJson(response, result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const localized = withMessageKeys(locale, {
-      messageKey: "error.dashboard.requestInvalid.message",
-      userActionKey: "action.request.retry",
-      status: "failed",
-      technicalDetail: message,
-    });
-    sendJson(response, {
-      ok: false,
+    sendInvalidRequestResponse(response, locale, error, {
       pageUrl: null,
-      ...localized,
-    }, 400);
+    });
   }
 }
 
@@ -65,14 +85,10 @@ export async function handleNotionPropertiesSync(
   locale: DirongLocale,
 ): Promise<void> {
   if (!sources.notion) {
-    sendJson(response, withMessageKeys(locale, {
-      ok: false,
-      status: "not_configured",
-      messageKey: "error.dashboard.notionActionSourceMissing.message",
-      userActionKey: "error.dashboard.notionActionSourceMissing.action",
+    sendNotionMissingResponse(response, locale, {
       warnings: [],
       customProperties: null,
-    }));
+    });
     return;
   }
 
@@ -83,19 +99,10 @@ export async function handleNotionPropertiesSync(
     });
     sendJson(response, result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const localized = withMessageKeys(locale, {
-      messageKey: "error.dashboard.requestInvalid.message",
-      userActionKey: "action.request.retry",
-      status: "failed",
-      technicalDetail: message,
-    });
-    sendJson(response, {
-      ok: false,
+    sendInvalidRequestResponse(response, locale, error, {
       warnings: [],
       customProperties: null,
-      ...localized,
-    }, 400);
+    });
   }
 }
 
@@ -105,39 +112,26 @@ export async function handleNotionMemberRosterSync(
   locale: DirongLocale,
 ): Promise<void> {
   if (!sources.notion) {
-    sendJson(response, withMessageKeys(locale, {
-      ok: false,
-      status: "not_configured",
-      messageKey: "error.dashboard.notionActionSourceMissing.message",
-      userActionKey: "error.dashboard.notionActionSourceMissing.action",
+    sendNotionMissingResponse(response, locale, {
       dataSourceId: null,
       syncedAt: null,
       memberCount: 0,
       roleCount: 0,
       warnings: [],
-    }));
+    });
     return;
   }
 
   try {
     sendJson(response, await sources.notion.syncMemberRoster());
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const localized = withMessageKeys(locale, {
-      messageKey: "error.dashboard.requestInvalid.message",
-      userActionKey: "action.request.retry",
-      status: "failed",
-      technicalDetail: message,
-    });
-    sendJson(response, {
-      ok: false,
+    sendInvalidRequestResponse(response, locale, error, {
       dataSourceId: null,
       syncedAt: null,
       memberCount: 0,
       roleCount: 0,
       warnings: [],
-      ...localized,
-    }, 400);
+    });
   }
 }
 
@@ -148,14 +142,10 @@ export async function handleNotionPropertiesSave(
   locale: DirongLocale,
 ): Promise<void> {
   if (!sources.notion) {
-    sendJson(response, withMessageKeys(locale, {
-      ok: false,
-      status: "not_configured",
-      messageKey: "error.dashboard.notionActionSourceMissing.message",
-      userActionKey: "error.dashboard.notionActionSourceMissing.action",
+    sendNotionMissingResponse(response, locale, {
       warnings: [],
       customProperties: null,
-    }));
+    });
     return;
   }
 
@@ -167,19 +157,10 @@ export async function handleNotionPropertiesSave(
     });
     sendJson(response, result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const localized = withMessageKeys(locale, {
-      messageKey: "error.dashboard.requestInvalid.message",
-      userActionKey: "action.request.retry",
-      status: "failed",
-      technicalDetail: message,
-    });
-    sendJson(response, {
-      ok: false,
+    sendInvalidRequestResponse(response, locale, error, {
       warnings: [],
       customProperties: null,
-      ...localized,
-    }, 400);
+    });
   }
 }
 
@@ -189,15 +170,11 @@ export async function handleNotionSchemaInspect(
   locale: DirongLocale,
 ): Promise<void> {
   if (!sources.notion) {
-    sendJson(response, withMessageKeys(locale, {
-      ok: false,
-      status: "not_configured",
-      messageKey: "error.dashboard.notionActionSourceMissing.message",
-      userActionKey: "error.dashboard.notionActionSourceMissing.action",
+    sendNotionMissingResponse(response, locale, {
       warnings: [],
       diff: null,
       operations: null,
-    }));
+    });
     return;
   }
 
@@ -212,15 +189,11 @@ export async function handleNotionSchemaApply(
   locale: DirongLocale,
 ): Promise<void> {
   if (!sources.notion) {
-    sendJson(response, withMessageKeys(locale, {
-      ok: false,
-      status: "not_configured",
-      messageKey: "error.dashboard.notionActionSourceMissing.message",
-      userActionKey: "error.dashboard.notionActionSourceMissing.action",
+    sendNotionMissingResponse(response, locale, {
       warnings: [],
       diff: null,
       operations: null,
-    }));
+    });
     return;
   }
 
@@ -231,20 +204,11 @@ export async function handleNotionSchemaApply(
     );
     sendJson(response, result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const localized = withMessageKeys(locale, {
-      messageKey: "error.dashboard.requestInvalid.message",
-      userActionKey: "action.request.retry",
-      status: "failed",
-      technicalDetail: message,
-    });
-    sendJson(response, {
-      ok: false,
+    sendInvalidRequestResponse(response, locale, error, {
       warnings: [],
       diff: null,
       operations: null,
-      ...localized,
-    }, 400);
+    });
   }
 }
 
@@ -254,33 +218,20 @@ export async function handleNotionManagedSchemaCheck(
   locale: DirongLocale,
 ): Promise<void> {
   if (!sources.notion) {
-    sendJson(response, withMessageKeys(locale, {
-      ok: false,
-      status: "not_configured",
-      messageKey: "error.dashboard.notionActionSourceMissing.message",
-      userActionKey: "error.dashboard.notionActionSourceMissing.action",
+    sendNotionMissingResponse(response, locale, {
       snapshot: null,
       plans: null,
-    }));
+    });
     return;
   }
 
   try {
     sendJson(response, await sources.notion.checkManagedSchemaWithPlans());
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const localized = withMessageKeys(locale, {
-      messageKey: "error.dashboard.requestInvalid.message",
-      userActionKey: "action.request.retry",
-      status: "failed",
-      technicalDetail: message,
-    });
-    sendJson(response, {
-      ok: false,
+    sendInvalidRequestResponse(response, locale, error, {
       snapshot: null,
       plans: null,
-      ...localized,
-    }, 400);
+    });
   }
 }
 
@@ -291,13 +242,9 @@ export async function handleNotionManagedSchemaRepair(
   locale: DirongLocale,
 ): Promise<void> {
   if (!sources.notion) {
-    sendJson(response, withMessageKeys(locale, {
-      ok: false,
-      status: "not_configured",
-      messageKey: "error.dashboard.notionActionSourceMissing.message",
-      userActionKey: "error.dashboard.notionActionSourceMissing.action",
+    sendNotionMissingResponse(response, locale, {
       snapshot: null,
-    }));
+    });
     return;
   }
 
@@ -310,7 +257,6 @@ export async function handleNotionManagedSchemaRepair(
       operations: readOptionalStringArray(body, "operations"),
     }));
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     if (error instanceof ManagedSchemaRepairStalePlanError) {
       sendJson(response, {
         ok: false,
@@ -323,17 +269,9 @@ export async function handleNotionManagedSchemaRepair(
       }, 409);
       return;
     }
-    const localized = withMessageKeys(locale, {
-      messageKey: "error.dashboard.requestInvalid.message",
-      userActionKey: "action.request.retry",
-      status: "failed",
-      technicalDetail: message,
-    });
-    sendJson(response, {
-      ok: false,
+    sendInvalidRequestResponse(response, locale, error, {
       snapshot: null,
-      ...localized,
-    }, 400);
+    });
   }
 }
 

@@ -237,7 +237,7 @@ function normalizeResetReason(
   return reason;
 }
 
-function toLegacyResetReason(
+export function toLegacyResetReason(
   reason: AiCleanupProviderResetReason,
 ): LegacyAiCleanupProviderResetReason {
   if (reason === "request_timeout") {
@@ -261,9 +261,9 @@ function inferLegacyProviderCapabilities(
 ): AiProviderCapabilityProfile {
   const readinessKind = inferReadinessKind(provider.providerName);
   return {
-      supportsWarmSession: provider.supportsWarmSession ?? false,
-      supportsStreamingProgress: provider.supportsStreamingProgress ?? false,
-      supportsJsonSchema: provider.supportsJsonSchema,
+    supportsWarmSession: provider.supportsWarmSession ?? false,
+    supportsStreamingProgress: provider.supportsStreamingProgress ?? false,
+    supportsJsonSchema: provider.supportsJsonSchema,
     supportsStructuredOutput: provider.supportsJsonSchema,
     requiresApiKey: false,
     requiresLocalServer: false,

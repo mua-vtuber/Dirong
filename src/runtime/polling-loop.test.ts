@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { PollingLoop, type PollingLoopTimer } from "./polling-loop.js";
+import {
+  EnabledPollingLoop,
+  PollingLoop,
+  type PollingLoopTimer,
+} from "./polling-loop.js";
 
 test("PollingLoop coalesces concurrent runOnce calls", async () => {
   const tick = createDeferred<number>();
@@ -81,6 +85,25 @@ test("PollingLoop stop aborts in-flight tick and returns after bounded wait", as
     ]),
     "pending",
   );
+});
+
+test("EnabledPollingLoop starts only when enabled", () => {
+  const clock = new ManualClock();
+  let enabled = false;
+  const loop = new EnabledPollingLoop<void>({
+    enabled: () => enabled,
+    intervalMs: 1000,
+    setTimeout: (callback, delayMs) => clock.setTimeout(callback, delayMs),
+    clearTimeout: (timer) => clock.clearTimeout(timer),
+    runTick: async () => undefined,
+  });
+
+  loop.start();
+  assert.equal(clock.pendingTimerCount(), 0);
+
+  enabled = true;
+  loop.start();
+  assert.equal(clock.pendingTimerCount(), 1);
 });
 
 function delay(ms: number): Promise<void> {

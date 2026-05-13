@@ -5,7 +5,9 @@ import {
   readDataSourcePropertyMap,
   readFirstDataSourceId,
   readId,
+  readRichTextPlainText,
   readResults,
+  readTargetName,
 } from "./data-source-readers.js";
 
 test("Notion data source readers preserve lenient writer property reads", () => {
@@ -43,4 +45,29 @@ test("Notion response id readers handle database children and result lists", () 
     { id: "b" },
   ]);
   assert.deepEqual(readResults({}), []);
+});
+
+test("Notion rich text readers prefer plain text and normalize fallback content", () => {
+  assert.equal(
+    readRichTextPlainText([
+      { plain_text: " hello\n" },
+      { text: { content: "world" } },
+      { text: { content: "   again" } },
+      { text: { ignored: true } },
+      null,
+    ]),
+    "hello world again",
+  );
+});
+
+test("Notion target names prefer data source name, then title, then fallback", () => {
+  assert.equal(
+    readTargetName({ name: "  회의록 DB  ", title: [{ plain_text: "ignored" }] }),
+    "회의록 DB",
+  );
+  assert.equal(
+    readTargetName({ title: [{ text: { content: "회의\n자료" } }] }),
+    "회의 자료",
+  );
+  assert.equal(readTargetName({}, "fallback"), "fallback");
 });

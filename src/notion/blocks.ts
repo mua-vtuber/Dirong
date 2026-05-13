@@ -1,4 +1,5 @@
 import type { MeetingNotesDraftV1 } from "../ai/cleanup/draft.js";
+import { formatTranscriptTime } from "../transcript/time-format.js";
 import { sha256Canonical } from "./content-hash.js";
 import type { NotionDraftInput } from "./draft-input.js";
 import { buildNotionPagePropertyValues, richText } from "./page-properties.js";
@@ -226,16 +227,9 @@ function renderDueDate(
 function formatTimelineEntry(
   entry: NotionDraftInput["timelineEntries"][number],
 ): string {
-  return `[${formatTime(entry.start_ms)}] ${cleanInline(
+  return `[${formatTranscriptTime(entry.start_ms)}] ${cleanInline(
     entry.display_name_snapshot,
   )} : ${cleanInline(entry.text) || "내용 없음"}`;
-}
-
-function formatTime(ms: number): string {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
 function cleanInline(value: string): string {

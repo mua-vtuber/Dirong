@@ -19,3 +19,30 @@ export function nextRetryAttemptIso(input: {
   );
   return new Date((input.nowMs ?? Date.now()) + backoffMs).toISOString();
 }
+
+export type JobFailureRetryPlan = {
+  status: "queued" | "failed";
+  nextAttemptAt: string;
+};
+
+export function planJobFailureRetry(input: {
+  attempts: number;
+  maxAttempts: number;
+  now: string;
+  nowMs?: number;
+}): JobFailureRetryPlan {
+  if (!canRetryJob(input)) {
+    return {
+      status: "failed",
+      nextAttemptAt: input.now,
+    };
+  }
+
+  return {
+    status: "queued",
+    nextAttemptAt: nextRetryAttemptIso({
+      attempts: input.attempts,
+      nowMs: input.nowMs,
+    }),
+  };
+}

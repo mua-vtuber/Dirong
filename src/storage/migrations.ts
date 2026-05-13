@@ -103,20 +103,51 @@ function tableExists(db: DatabaseSync, tableName: string): boolean {
   return row?.ok === 1;
 }
 
-function migrateTranscriptSegmentsSpeechStatus(db: DatabaseSync): void {
-  const transcriptColumns = db.prepare(
-    "PRAGMA table_info(transcript_segments);",
-  ).all() as Array<{ name: string }>;
-  const transcriptColumnNames = new Set(
-    transcriptColumns.map((column) => column.name),
+function readColumnNames(db: DatabaseSync, tableName: string): Set<string> {
+  return new Set(
+    (
+      db.prepare(`PRAGMA table_info(${sqliteIdentifier(tableName)});`).all() as Array<{
+        name: string;
+      }>
+    ).map((column) => column.name),
   );
+}
 
-  if (
-    transcriptColumns.length > 0 &&
-    !transcriptColumnNames.has("speech_status")
-  ) {
-    db.exec(
-      "ALTER TABLE transcript_segments ADD COLUMN speech_status TEXT NOT NULL DEFAULT 'speech';",
+function addColumnIfMissing(
+  db: DatabaseSync,
+  tableName: string,
+  columns: Set<string>,
+  columnName: string,
+  definition: string,
+): void {
+  if (columns.has(columnName)) {
+    return;
+  }
+
+  db.exec(
+    `ALTER TABLE ${sqliteIdentifier(tableName)} ADD COLUMN ${sqliteIdentifier(
+      columnName,
+    )} ${definition};`,
+  );
+  columns.add(columnName);
+}
+
+function sqliteIdentifier(value: string): string {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)) {
+    throw new Error(`Invalid SQLite identifier: ${value}`);
+  }
+  return value;
+}
+
+function migrateTranscriptSegmentsSpeechStatus(db: DatabaseSync): void {
+  const columns = readColumnNames(db, "transcript_segments");
+  if (columns.size > 0) {
+    addColumnIfMissing(
+      db,
+      "transcript_segments",
+      columns,
+      "speech_status",
+      "TEXT NOT NULL DEFAULT 'speech'",
     );
   }
 
@@ -139,63 +170,46 @@ function migrateNotionCustomPropertyRules(db: DatabaseSync): void {
 }
 
 function migrateNotionRelationPropertyRules(db: DatabaseSync): void {
-  const columns = new Set(
-    (
-      db.prepare("PRAGMA table_info(notion_custom_property_rules);").all() as Array<{
-        name: string;
-      }>
-    ).map((column) => column.name),
-  );
+  const tableName = "notion_custom_property_rules";
+  const columns = readColumnNames(db, tableName);
 
-  if (!columns.has("relation_target_url")) {
-    db.exec("ALTER TABLE notion_custom_property_rules ADD COLUMN relation_target_url TEXT;");
-  }
-  if (!columns.has("relation_data_source_id")) {
-    db.exec("ALTER TABLE notion_custom_property_rules ADD COLUMN relation_data_source_id TEXT;");
-  }
-  if (!columns.has("relation_match_property_name")) {
-    db.exec(
-      "ALTER TABLE notion_custom_property_rules ADD COLUMN relation_match_property_name TEXT NOT NULL DEFAULT 'Name';",
-    );
-  }
-  if (!columns.has("relation_auto_create")) {
-    db.exec(
-      "ALTER TABLE notion_custom_property_rules ADD COLUMN relation_auto_create INTEGER NOT NULL DEFAULT 0;",
-    );
-  }
+  addColumnIfMissing(db, tableName, columns, "relation_target_url", "TEXT");
+  addColumnIfMissing(db, tableName, columns, "relation_data_source_id", "TEXT");
+  addColumnIfMissing(
+    db,
+    tableName,
+    columns,
+    "relation_match_property_name",
+    "TEXT NOT NULL DEFAULT 'Name'",
+  );
+  addColumnIfMissing(
+    db,
+    tableName,
+    columns,
+    "relation_auto_create",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
 }
 
 function migrateNotionRelationTargetPages(db: DatabaseSync): void {
-  const columns = new Set(
-    (
-      db.prepare("PRAGMA table_info(notion_custom_property_rules);").all() as Array<{
-        name: string;
-      }>
-    ).map((column) => column.name),
-  );
+  const tableName = "notion_custom_property_rules";
+  const columns = readColumnNames(db, tableName);
 
-  if (!columns.has("relation_target_page_url")) {
-    db.exec("ALTER TABLE notion_custom_property_rules ADD COLUMN relation_target_page_url TEXT;");
-  }
-  if (!columns.has("relation_target_page_id")) {
-    db.exec("ALTER TABLE notion_custom_property_rules ADD COLUMN relation_target_page_id TEXT;");
-  }
+  addColumnIfMissing(db, tableName, columns, "relation_target_page_url", "TEXT");
+  addColumnIfMissing(db, tableName, columns, "relation_target_page_id", "TEXT");
 }
 
 function migrateNotionCustomPropertyValueSource(db: DatabaseSync): void {
-  const columns = new Set(
-    (
-      db.prepare("PRAGMA table_info(notion_custom_property_rules);").all() as Array<{
-        name: string;
-      }>
-    ).map((column) => column.name),
-  );
+  const tableName = "notion_custom_property_rules";
+  const columns = readColumnNames(db, tableName);
 
-  if (!columns.has("value_source")) {
-    db.exec(
-      "ALTER TABLE notion_custom_property_rules ADD COLUMN value_source TEXT NOT NULL DEFAULT 'ai';",
-    );
-  }
+  addColumnIfMissing(
+    db,
+    tableName,
+    columns,
+    "value_source",
+    "TEXT NOT NULL DEFAULT 'ai'",
+  );
 
   db.exec(
     `UPDATE notion_custom_property_rules
@@ -215,13 +229,7 @@ function migrateNotionCustomPropertyRuleRoles(db: DatabaseSync): void {
     return;
   }
 
-  const columns = new Set(
-    (
-      db.prepare("PRAGMA table_info(notion_custom_property_rules);").all() as Array<{
-        name: string;
-      }>
-    ).map((column) => column.name),
-  );
+  const columns = readColumnNames(db, "notion_custom_property_rules");
   if (columns.has("database_role")) {
     db.exec(`
 DROP INDEX IF EXISTS idx_notion_custom_property_rules_enabled;

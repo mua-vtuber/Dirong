@@ -8,12 +8,16 @@ import type {
   NotionSemanticSchemaWrongType,
 } from "./schema.js";
 import {
+  readExistingOptionRefs,
+  readPropertyOptionNames,
+  readRelationDataSourceId,
+} from "./property-shape.js";
+import {
   KOREAN_NOTION_SCHEMA_PRESET,
   type NotionDatabaseRole,
   type NotionPropertySemanticKey,
   type NotionSchemaPreset,
   type NotionSchemaPresetProperty,
-  type NotionSchemaPresetPropertyType,
 } from "./schema-presets.js";
 import type {
   NotionManagedDatabase,
@@ -495,7 +499,7 @@ function collectOptionIssue(input: {
     return;
   }
 
-  const optionNames = readOptionNames(input.actual.property, input.actual.type);
+  const optionNames = readPropertyOptionNames(input.actual.property, input.actual.type);
   const missingOptions = expectedOptions.filter((option) => !optionNames.has(option));
   if (missingOptions.length === 0) {
     return;
@@ -596,15 +600,6 @@ function acceptedTypes(
   return [expected.type];
 }
 
-function readRelationDataSourceId(
-  property: NotionDataSourceProperty,
-): string | null {
-  const relation = property.relation;
-  return isRecord(relation) && typeof relation.data_source_id === "string"
-    ? relation.data_source_id
-    : null;
-}
-
 function readRollupTarget(
   property: NotionDataSourceProperty,
 ): {
@@ -645,53 +640,6 @@ function sameMappingReference(
     return actualId === expected.propertyId;
   }
   return actualName === expected.propertyName;
-}
-
-function readOptionNames(
-  property: NotionDataSourceProperty,
-  type: "select" | "status" | "multi_select",
-): Set<string> {
-  const config = property[type];
-  if (!isRecord(config) || !Array.isArray(config.options)) {
-    return new Set();
-  }
-  return new Set(
-    config.options
-      .map((option) =>
-        isRecord(option) && typeof option.name === "string"
-          ? option.name
-          : null,
-      )
-      .filter((name): name is string => name !== null),
-  );
-}
-
-function readExistingOptionRefs(
-  property: NotionDataSourceProperty,
-  type: "select" | "status" | "multi_select",
-): Array<Record<string, string>> {
-  const config = property[type];
-  if (!isRecord(config) || !Array.isArray(config.options)) {
-    return [];
-  }
-  const refs: Array<Record<string, string>> = [];
-  for (const option of config.options) {
-    if (!isRecord(option)) {
-      continue;
-    }
-    if (typeof option.id === "string") {
-      refs.push({ id: option.id });
-      continue;
-    }
-    if (typeof option.name === "string") {
-      refs.push(
-        typeof option.color === "string"
-          ? { name: option.name, color: option.color }
-          : { name: option.name },
-      );
-    }
-  }
-  return refs;
 }
 
 function readOptionalString(

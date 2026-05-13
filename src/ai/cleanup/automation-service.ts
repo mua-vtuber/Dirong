@@ -1,7 +1,6 @@
 import { redactSensitiveText, summarizeSafeError } from "../../errors.js";
 import {
   buildHumanStatusDisplay,
-  formatHumanStatusDisplayForText,
   type HumanStatusDisplay,
   type HumanStatusDisplayInput,
 } from "../../messages/human-status.js";
@@ -17,7 +16,7 @@ import type {
   AiCleanupSttTerminalSnapshot,
   SessionStore,
 } from "../../storage/session-store.js";
-import { PollingLoop } from "../../runtime/polling-loop.js";
+import { EnabledPollingLoop } from "../../runtime/polling-loop.js";
 import { buildPhase4TimelineInput } from "./timeline-input.js";
 import type { AiCleanupProvider } from "./provider.js";
 import { AiCleanupProviderError } from "./provider.js";
@@ -101,7 +100,7 @@ export type AiCleanupAutomationServiceOptions = {
  * runtime progress and durable job state.
  */
 export class AiCleanupAutomationService {
-  private readonly loop: PollingLoop<AiCleanupAutomationSnapshot>;
+  private readonly loop: EnabledPollingLoop<AiCleanupAutomationSnapshot>;
   private lastReadinessRetryAt = 0;
   private readonly inFlightSessionIds = new Set<string>();
   private snapshot: AiCleanupAutomationSnapshot;
@@ -131,32 +130,36 @@ export class AiCleanupAutomationService {
       warnings: [],
       progress: null,
     });
-    this.loop = new PollingLoop({
+    this.loop = new EnabledPollingLoop({
+      enabled: () => this.options.enabled,
       intervalMs: options.pollIntervalMs,
       runTick: () => this.tick(),
-      onScheduledError: (error) => {
-        this.snapshot = this.makeSnapshot({
-          ...this.snapshot,
-          status: "failed",
-          checkedAt: new Date().toISOString(),
-          message: "AI cleanup 자동 실행 확인 중 오류가 발생했습니다.",
-          userAction: "녹음/STT는 보존됩니다. 로그와 dashboard 상태를 확인해 주세요.",
-          technicalDetail: summarizeSafeError(error),
-          progress: null,
-        });
-      },
+      onScheduledError: (error) => this.handleScheduledError(error),
     });
   }
 
   start(): void {
-    if (!this.options.enabled) {
-      return;
-    }
     this.loop.start();
   }
 
   async stop(): Promise<void> {
     await this.loop.stop();
+    this.markStopped();
+  }
+
+  private handleScheduledError(error: unknown): void {
+    this.snapshot = this.makeSnapshot({
+      ...this.snapshot,
+      status: "failed",
+      checkedAt: new Date().toISOString(),
+      message: "AI cleanup 자동 실행 확인 중 오류가 발생했습니다.",
+      userAction: "녹음/STT는 보존됩니다. 로그와 dashboard 상태를 확인해 주세요.",
+      technicalDetail: summarizeSafeError(error),
+      progress: null,
+    });
+  }
+
+  private markStopped(): void {
     this.snapshot = this.makeSnapshot({
       ...this.snapshot,
       status: "stopped",

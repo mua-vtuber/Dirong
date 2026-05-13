@@ -26,6 +26,7 @@ import {
   readDataSourcePropertyMap,
   readFirstDataSourceId,
 } from "./data-source-readers.js";
+import { managedSelectOptionSchema } from "./property-shape.js";
 
 export const NOTION_MANAGED_SCHEMA_VERSION = "notion-managed-db-v1";
 
@@ -248,7 +249,7 @@ function buildPropertySchema(input: {
   if (property.type === "select" || property.type === "status") {
     return {
       [property.type]: {
-        options: (property.options ?? []).map(selectOption),
+        options: (property.options ?? []).map(managedSelectOptionSchema),
       },
     };
   }
@@ -609,19 +610,6 @@ function requirePresetPropertyType(value: string): NotionSchemaPresetPropertyTyp
     return value;
   }
   throw new Error(`지원하지 않는 Notion property type입니다: ${value}`);
-}
-
-function selectOption(name: string): { name: string; color: string } {
-  if (name === "done" || name === "완료") {
-    return { name, color: "green" };
-  }
-  if (name === "retry_wait" || name === "진행 중") {
-    return { name, color: "yellow" };
-  }
-  if (name === "failed") {
-    return { name, color: "red" };
-  }
-  return { name, color: "gray" };
 }
 
 function richText(content: string): Array<{ type: "text"; text: { content: string } }> {

@@ -2,6 +2,7 @@ import type { RecordingRuntimeState, SessionRow } from "./session-store.js";
 import { SqlRunner } from "./sql-runner.js";
 import { t, type LocaleKey } from "../i18n/catalog.js";
 import { resolveAppLocale } from "../i18n/app-locale.js";
+import { formatSessionStatus } from "../messages/session-status.js";
 import type { DirongLocale } from "../settings/local-settings-store.js";
 
 export type StatusTextReadModelInput = {
@@ -72,38 +73,8 @@ function formatQueueStats(
     .join(" / ");
 }
 
-function formatSessionStatus(locale: DirongLocale, status: string): string {
-  const key = sessionStatusKey(status);
-  return `${t(locale, key)} (${status})`;
-}
-
 function formatSttStatus(locale: DirongLocale, status: string): string {
   return t(locale, sttStatusKey(status));
-}
-
-function sessionStatusKey(status: string): LocaleKey {
-  if (status === "created") {
-    return "runtimeStatus.recordingStatus.sessionStatus.created";
-  }
-  if (status === "active") {
-    return "runtimeStatus.recordingStatus.sessionStatus.active";
-  }
-  if (status === "reconnecting") {
-    return "runtimeStatus.recordingStatus.sessionStatus.reconnecting";
-  }
-  if (status === "stopping") {
-    return "runtimeStatus.recordingStatus.sessionStatus.stopping";
-  }
-  if (status === "finalized") {
-    return "runtimeStatus.recordingStatus.sessionStatus.finalized";
-  }
-  if (status === "failed") {
-    return "runtimeStatus.recordingStatus.sessionStatus.failed";
-  }
-  if (status === "needs_repair") {
-    return "runtimeStatus.recordingStatus.sessionStatus.needsRepair";
-  }
-  return "runtimeStatus.recordingStatus.sessionStatus.unknown";
 }
 
 function sttStatusKey(status: string): LocaleKey {

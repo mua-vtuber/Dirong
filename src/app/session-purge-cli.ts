@@ -1,6 +1,7 @@
 import {
+  booleanOptionArg,
   parseCliArgs,
-  readRequiredStringArg,
+  requiredStringArg,
   type CliArgSpec,
 } from "../cli/arg-parser.js";
 import type { SessionPurgeSelector } from "../storage/session-purge.js";
@@ -73,53 +74,14 @@ const SESSION_PURGE_ARG_SPEC: Record<
   string,
   CliArgSpec<MutableSessionPurgeCliOptions>
 > = {
-  "--session": {
-    kind: "value",
-    read: (value) => readRequiredStringArg(value, "--session 값이 필요합니다."),
-    apply: (options, value) => {
-      options.sessionIds.push(value);
-    },
-  },
-  "--missing-audio": {
-    kind: "boolean",
-    apply: (options) => {
-      options.missingAudio = true;
-    },
-  },
-  "--all": {
-    kind: "boolean",
-    apply: (options) => {
-      options.all = true;
-    },
-  },
-  "--expired-text-artifacts": {
-    kind: "boolean",
-    apply: (options) => {
-      options.expiredTextArtifacts = true;
-    },
-  },
-  "--confirm": {
-    kind: "boolean",
-    apply: (options) => {
-      options.confirm = true;
-    },
-  },
-  "--dry-run": {
-    kind: "boolean",
-    apply: (options) => {
-      options.explicitDryRun = true;
-    },
-  },
-  "--no-backup": {
-    kind: "boolean",
-    apply: (options) => {
-      options.backup = false;
-    },
-  },
-  "--debug": {
-    kind: "boolean",
-    apply: (options) => {
-      options.debug = true;
-    },
-  },
+  "--session": requiredStringArg("--session 값이 필요합니다.", (options, value) => {
+    options.sessionIds.push(value);
+  }),
+  "--missing-audio": booleanOptionArg("missingAudio", true),
+  "--all": booleanOptionArg("all", true),
+  "--expired-text-artifacts": booleanOptionArg("expiredTextArtifacts", true),
+  "--confirm": booleanOptionArg("confirm", true),
+  "--dry-run": booleanOptionArg("explicitDryRun", true),
+  "--no-backup": booleanOptionArg("backup", false),
+  "--debug": booleanOptionArg("debug", true),
 };

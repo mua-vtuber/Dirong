@@ -1,5 +1,5 @@
 import type { VoiceState } from "discord.js";
-import { redactSensitiveText, summarizeSafeError } from "../errors.js";
+import { summarizeSafeError } from "../errors.js";
 import {
   buildHumanStatusDisplay,
   formatHumanStatusDisplayForText,
@@ -212,24 +212,11 @@ export class AloneFinalizeService {
     }
 
     if (isFinalStopState(session.status)) {
-      this.cancelCountdown({ recordEvent: false });
-      this.recordImmediateSkipped({
+      this.skipSessionStatus({
         sessionId: session.id,
-        voiceChannelId: runtime.voiceChannelId,
-        reason: `session_${session.status}`,
-        level: "info",
-      });
-      this.snapshot = reduceAloneFinalizeSnapshot(this.snapshot, {
-        type: "skipped",
-        checkedAt: this.isoNow(),
-        sessionId: session.id,
+        status: session.status,
         voiceChannelId: runtime.voiceChannelId,
         nonBotMemberCount: null,
-        message: `혼자 남음 자동 종료 건너뜀: 세션 상태가 ${session.status}입니다.`,
-        userAction: null,
-        technicalDetail: null,
-        warnings: [],
-        clearCountdown: false,
       });
       return;
     }
@@ -297,29 +284,43 @@ export class AloneFinalizeService {
     }
 
     if (session.status !== "active") {
-      this.cancelCountdown({ recordEvent: false });
-      this.recordImmediateSkipped({
+      this.skipSessionStatus({
         sessionId: session.id,
-        voiceChannelId: runtime.voiceChannelId,
-        reason: `session_${session.status}`,
-        level: "info",
-      });
-      this.snapshot = reduceAloneFinalizeSnapshot(this.snapshot, {
-        type: "skipped",
-        checkedAt: this.isoNow(),
-        sessionId: session.id,
+        status: session.status,
         voiceChannelId: runtime.voiceChannelId,
         nonBotMemberCount: 0,
-        message: `혼자 남음 자동 종료 건너뜀: 세션 상태가 ${session.status}입니다.`,
-        userAction: null,
-        technicalDetail: null,
-        warnings: [],
-        clearCountdown: false,
       });
       return;
     }
 
     this.startCountdown(session.id, runtime.voiceChannelId, memberCount);
+  }
+
+  private skipSessionStatus(input: {
+    sessionId: string;
+    status: SessionStatus;
+    voiceChannelId: string;
+    nonBotMemberCount: number | null;
+  }): void {
+    this.cancelCountdown({ recordEvent: false });
+    this.recordImmediateSkipped({
+      sessionId: input.sessionId,
+      voiceChannelId: input.voiceChannelId,
+      reason: `session_${input.status}`,
+      level: "info",
+    });
+    this.snapshot = reduceAloneFinalizeSnapshot(this.snapshot, {
+      type: "skipped",
+      checkedAt: this.isoNow(),
+      sessionId: input.sessionId,
+      voiceChannelId: input.voiceChannelId,
+      nonBotMemberCount: input.nonBotMemberCount,
+      message: `혼자 남음 자동 종료 건너뜀: 세션 상태가 ${input.status}입니다.`,
+      userAction: null,
+      technicalDetail: null,
+      warnings: [],
+      clearCountdown: false,
+    });
   }
 
   private startCountdown(

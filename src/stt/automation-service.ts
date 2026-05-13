@@ -10,7 +10,7 @@ import {
   type AppLocaleResolver,
 } from "../i18n/app-locale.js";
 import { t, type LocaleKey } from "../i18n/catalog.js";
-import { PollingLoop } from "../runtime/polling-loop.js";
+import { EnabledPollingLoop } from "../runtime/polling-loop.js";
 import type { DirongLocale } from "../settings/local-settings-store.js";
 import type { SessionStore } from "../storage/session-store.js";
 import type { SttProvider } from "./provider.js";
@@ -53,7 +53,7 @@ export type SttAutomationServiceOptions = {
 };
 
 export class SttAutomationService {
-  private readonly loop: PollingLoop<SttAutomationSnapshot>;
+  private readonly loop: EnabledPollingLoop<SttAutomationSnapshot>;
   private snapshot: SttAutomationSnapshot;
 
   constructor(
@@ -73,31 +73,35 @@ export class SttAutomationService {
       technicalDetail: null,
       lastRun: null,
     });
-    this.loop = new PollingLoop({
+    this.loop = new EnabledPollingLoop({
+      enabled: () => this.options.enabled,
       intervalMs: options.pollIntervalMs,
       runTick: () => this.tick(),
-      onScheduledError: (error) => {
-        this.snapshot = this.makeSnapshot({
-          ...this.snapshot,
-          status: "failed",
-          checkedAt: new Date().toISOString(),
-          message: "STT 자동 실행 중 오류가 발생했습니다.",
-          userAction: "녹음 파일은 보존됩니다. STT 설정과 로그를 확인해 주세요.",
-          technicalDetail: summarizeSafeError(error),
-        });
-      },
+      onScheduledError: (error) => this.handleScheduledError(error),
     });
   }
 
   start(): void {
-    if (!this.options.enabled) {
-      return;
-    }
     this.loop.start();
   }
 
   async stop(): Promise<void> {
     await this.loop.stop();
+    this.markStopped();
+  }
+
+  private handleScheduledError(error: unknown): void {
+    this.snapshot = this.makeSnapshot({
+      ...this.snapshot,
+      status: "failed",
+      checkedAt: new Date().toISOString(),
+      message: "STT 자동 실행 중 오류가 발생했습니다.",
+      userAction: "녹음 파일은 보존됩니다. STT 설정과 로그를 확인해 주세요.",
+      technicalDetail: summarizeSafeError(error),
+    });
+  }
+
+  private markStopped(): void {
     this.snapshot = this.makeSnapshot({
       ...this.snapshot,
       status: "stopped",

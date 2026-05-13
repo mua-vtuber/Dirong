@@ -16,7 +16,8 @@ import {
   snapshotPhase1Config,
 } from "../config.js";
 import { createAppLocaleResolver } from "../i18n/app-locale.js";
-import { formatLocaleText, t, type LocaleKey } from "../i18n/catalog.js";
+import { formatLocaleText, t } from "../i18n/catalog.js";
+import { formatSessionStatus } from "../messages/session-status.js";
 import {
   canStartAiAutomation,
   canStartDiscordRuntime,
@@ -39,7 +40,6 @@ import { wrapAiCleanupProviderWithLifecycle } from "../ai/cleanup/provider-lifec
 import { DashboardServer } from "../dashboard/server.js";
 import { phase1GuildCommandPayloads } from "../discord/commands.js";
 import { createProductSetupWizardService } from "../setup/wizard-service.js";
-import type { DirongLocale } from "../settings/local-settings-store.js";
 import {
   redactForJson,
   safeErrorInfo,
@@ -382,7 +382,7 @@ async function handleDirongCommand(
           sessionId: result.sessionId,
         }),
         formatLocaleText(locale, "discordRuntime.status", {
-          status: formatDiscordSessionStatus(locale, result.status),
+          status: formatSessionStatus(locale, result.status),
         }),
       ].join("\n"));
 
@@ -393,7 +393,7 @@ async function handleDirongCommand(
             sessionId: result.sessionId,
           }),
           formatLocaleText(locale, "discordRuntime.status", {
-            status: formatDiscordSessionStatus(locale, result.status),
+            status: formatSessionStatus(locale, result.status),
           }),
           formatLocaleText(locale, "discordRuntime.dashboard", {
             url: dashboard.getUrl(),
@@ -749,35 +749,6 @@ function statusTextWithAiReadiness(locale = resolveAppLocale()): string {
     "",
     formatNotionAutomationForStatus(notionAutomation.getSnapshot(locale), locale),
   ].join("\n");
-}
-
-function formatDiscordSessionStatus(locale: DirongLocale, status: string): string {
-  return `${t(locale, sessionStatusKey(status))} (${status})`;
-}
-
-function sessionStatusKey(status: string): LocaleKey {
-  if (status === "created") {
-    return "runtimeStatus.recordingStatus.sessionStatus.created";
-  }
-  if (status === "active") {
-    return "runtimeStatus.recordingStatus.sessionStatus.active";
-  }
-  if (status === "reconnecting") {
-    return "runtimeStatus.recordingStatus.sessionStatus.reconnecting";
-  }
-  if (status === "stopping") {
-    return "runtimeStatus.recordingStatus.sessionStatus.stopping";
-  }
-  if (status === "finalized") {
-    return "runtimeStatus.recordingStatus.sessionStatus.finalized";
-  }
-  if (status === "failed") {
-    return "runtimeStatus.recordingStatus.sessionStatus.failed";
-  }
-  if (status === "needs_repair") {
-    return "runtimeStatus.recordingStatus.sessionStatus.needsRepair";
-  }
-  return "runtimeStatus.recordingStatus.sessionStatus.unknown";
 }
 
 async function countNonBotVoiceMembers(

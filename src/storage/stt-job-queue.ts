@@ -1,4 +1,4 @@
-import { canRetryJob, nextRetryAttemptIso } from "./job-retry-policy.js";
+import { planJobFailureRetry } from "./job-retry-policy.js";
 import type {
   ChunkRow,
   SttJobRow,
@@ -224,9 +224,10 @@ export class SttJobQueue {
     }
 
     const now = this.options.now();
-    const shouldRetry = canRetryJob({
+    const retryPlan = planJobFailureRetry({
       attempts: job.attempts,
       maxAttempts: job.max_attempts,
+      now,
     });
 
     this.sql.run(
@@ -238,8 +239,8 @@ export class SttJobQueue {
            last_error = ?,
            updated_at = ?
        WHERE id = ?`,
-      shouldRetry ? "queued" : "failed",
-      shouldRetry ? nextRetryAttemptIso({ attempts: job.attempts }) : now,
+      retryPlan.status,
+      retryPlan.nextAttemptAt,
       input.error,
       now,
       input.jobId,

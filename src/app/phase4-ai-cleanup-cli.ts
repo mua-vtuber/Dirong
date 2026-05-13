@@ -1,7 +1,9 @@
 import {
+  booleanOptionArg,
   parseCliArgs,
-  readPositiveIntegerArg,
-  readRequiredStringArg,
+  positiveIntegerOptionArg,
+  requiredStringOptionArg,
+  valueArg,
   type CliArgSpec,
 } from "../cli/arg-parser.js";
 
@@ -92,85 +94,20 @@ const PHASE4_ARG_SPEC: Record<
     debug: boolean;
   }>
 > = {
-  "--dry-run": {
-    kind: "boolean",
-    apply: (options) => {
-      options.dryRun = true;
-    },
-  },
-  "--debug": {
-    kind: "boolean",
-    apply: (options) => {
-      options.debug = true;
-    },
-  },
-  "--include-fake-stt": {
-    kind: "boolean",
-    apply: (options) => {
-      options.includeFakeStt = true;
-    },
-  },
-  "--smoke-test": {
-    kind: "boolean",
-    apply: (options) => {
-      options.smokeTest = true;
-    },
-  },
-  "--no-backup": {
-    kind: "boolean",
-    apply: (options) => {
-      options.backup = false;
-    },
-  },
-  "--session": {
-    kind: "value",
-    read: (value) => readRequiredStringArg(value, "--session 값이 필요합니다."),
-    apply: (options, value) => {
-      options.sessionId = value;
-    },
-  },
-  "--provider": {
-    kind: "value",
-    read: readProvider,
-    apply: (options, value) => {
-      options.provider = value;
-    },
-  },
-  "--model": {
-    kind: "value",
-    read: (value) => readRequiredStringArg(value, "--model 값이 필요합니다."),
-    apply: (options, value) => {
-      options.model = value;
-    },
-  },
-  "--lease-ms": {
-    kind: "value",
-    read: readPositiveIntegerArg,
-    apply: (options, value) => {
-      options.leaseMs = value;
-    },
-  },
-  "--timeout-ms": {
-    kind: "value",
-    read: readPositiveIntegerArg,
-    apply: (options, value) => {
-      options.timeoutMs = value;
-    },
-  },
-  "--max-input-chars": {
-    kind: "value",
-    read: readPositiveIntegerArg,
-    apply: (options, value) => {
-      options.maxInputChars = value;
-    },
-  },
-  "--max-output-bytes": {
-    kind: "value",
-    read: readPositiveIntegerArg,
-    apply: (options, value) => {
-      options.maxOutputBytes = value;
-    },
-  },
+  "--dry-run": booleanOptionArg("dryRun", true),
+  "--debug": booleanOptionArg("debug", true),
+  "--include-fake-stt": booleanOptionArg("includeFakeStt", true),
+  "--smoke-test": booleanOptionArg("smokeTest", true),
+  "--no-backup": booleanOptionArg("backup", false),
+  "--session": requiredStringOptionArg("--session 값이 필요합니다.", "sessionId"),
+  "--provider": valueArg(readProvider, (options, value) => {
+    options.provider = value;
+  }),
+  "--model": requiredStringOptionArg("--model 값이 필요합니다.", "model"),
+  "--lease-ms": positiveIntegerOptionArg("leaseMs"),
+  "--timeout-ms": positiveIntegerOptionArg("timeoutMs"),
+  "--max-input-chars": positiveIntegerOptionArg("maxInputChars"),
+  "--max-output-bytes": positiveIntegerOptionArg("maxOutputBytes"),
 };
 
 function readProvider(value: string | undefined): Phase4AiCleanupProviderName {

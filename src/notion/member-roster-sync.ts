@@ -2,6 +2,7 @@ import type { NotionClient } from "./client.js";
 import {
   readDataSourceProperties,
   readId,
+  readRichTextPlainText,
   readResults,
 } from "./data-source-readers.js";
 import { validateManagedDataSourceSchemaForUpload } from "./managed-schema-diff.js";
@@ -11,7 +12,6 @@ import type {
 } from "./member-roster-store.js";
 import { normalizeMemberRosterText } from "./member-roster-store.js";
 import type {
-  NotionManagedDatabase,
   NotionPropertyMapping,
   NotionRegistryStore,
 } from "./registry-store.js";
@@ -381,20 +381,6 @@ function readPageProperty(
   const properties = readRecord(pageRecord?.properties);
   const property = properties?.[propertyName];
   return readRecord(property);
-}
-
-function readRichTextPlainText(parts: readonly Record<string, unknown>[]): string {
-  return parts
-    .map((part) => {
-      if (typeof part.plain_text === "string") {
-        return part.plain_text;
-      }
-      const text = readRecord(part.text);
-      return typeof text?.content === "string" ? text.content : "";
-    })
-    .join("")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 function readRecordArray(

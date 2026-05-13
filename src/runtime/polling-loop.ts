@@ -96,6 +96,32 @@ export class PollingLoop<T> {
   }
 }
 
+export type EnabledPollingLoopOptions<T> = PollingLoopOptions<T> & {
+  enabled: () => boolean;
+};
+
+export class EnabledPollingLoop<T> {
+  private readonly loop: PollingLoop<T>;
+
+  constructor(private readonly options: EnabledPollingLoopOptions<T>) {
+    this.loop = new PollingLoop(options);
+  }
+
+  start(): void {
+    if (this.options.enabled()) {
+      this.loop.start();
+    }
+  }
+
+  async stop(): Promise<void> {
+    await this.loop.stop();
+  }
+
+  async runOnce(): Promise<T> {
+    return await this.loop.runOnce();
+  }
+}
+
 async function waitForPromiseOrTimeout(
   promise: Promise<unknown>,
   timeoutMs: number,

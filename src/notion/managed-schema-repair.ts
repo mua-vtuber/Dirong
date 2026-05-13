@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { JsonObject, NotionClient } from "./client.js";
 import { readDataSourceProperties } from "./data-source-readers.js";
+import { managedSelectOptionSchema } from "./property-shape.js";
 import {
   buildManagedSchemaDiff,
   type ManagedSchemaDiff,
@@ -284,7 +285,7 @@ export function buildManagedSchemaRepairPlan(input: {
           [issue.actual === "multi_select" ? "multi_select" : "select"]: {
             options: [
               ...(issue.existingOptions ?? []),
-              ...(issue.missingOptions ?? []).map(selectOptionSchema),
+              ...(issue.missingOptions ?? []).map(managedSelectOptionSchema),
             ],
           },
         },
@@ -459,14 +460,14 @@ function schemaForProperty(input: {
   if (property.type === "select") {
     return {
       select: {
-        options: (property.options ?? []).map(selectOptionSchema),
+        options: (property.options ?? []).map(managedSelectOptionSchema),
       },
     };
   }
   if (property.type === "multi_select") {
     return {
       multi_select: {
-        options: (property.options ?? []).map(selectOptionSchema),
+        options: (property.options ?? []).map(managedSelectOptionSchema),
       },
     };
   }
@@ -555,19 +556,6 @@ function hashRepairPlan(plan: Omit<ManagedSchemaRepairPlan, "planHash">): string
       blocked: plan.blocked,
     }))
     .digest("hex");
-}
-
-function selectOptionSchema(name: string): { name: string; color: string } {
-  if (name === "done" || name === "완료") {
-    return { name, color: "green" };
-  }
-  if (name === "retry_wait" || name === "진행 중") {
-    return { name, color: "yellow" };
-  }
-  if (name === "failed") {
-    return { name, color: "red" };
-  }
-  return { name, color: "gray" };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

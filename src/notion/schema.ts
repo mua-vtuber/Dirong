@@ -1,5 +1,6 @@
 import type { NotionPropertyNames } from "./settings.js";
 import { NOTION_PAGE_STATUS_VALUES } from "./page-properties.js";
+import { readPropertyOptionNames } from "./property-shape.js";
 import type {
   NotionDatabaseRole,
   NotionPropertySemanticKey,
@@ -249,25 +250,6 @@ export function validateNotionDataSourceSchemaBySemanticKey(input: {
   };
 }
 
-function readPropertyOptionNames(
-  property: NotionDataSourceProperty,
-  type: "select" | "status",
-): Set<string> {
-  const config = property[type];
-  if (!isRecord(config) || !Array.isArray(config.options)) {
-    return new Set();
-  }
-  return new Set(
-    config.options
-      .map((option) =>
-        isRecord(option) && typeof option.name === "string"
-          ? option.name
-          : null,
-      )
-      .filter((name): name is string => name !== null),
-  );
-}
-
 function semanticRequirement(semanticKey: NotionPropertySemanticKey): {
   expected: string;
   accepts: readonly string[];
@@ -412,6 +394,3 @@ function cleanInline(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}

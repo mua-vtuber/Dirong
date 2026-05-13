@@ -3,6 +3,7 @@ import {
   readDataSourceProperties,
   readDataSources,
   readId,
+  readTargetName,
 } from "./data-source-readers.js";
 import {
   blockPartialManagedNotionRegistry,
@@ -451,35 +452,3 @@ export async function resolveTarget(
   };
 }
 
-function readTargetName(dataSource: Record<string, unknown>): string {
-  if (typeof dataSource.name === "string" && dataSource.name.trim()) {
-    return dataSource.name.trim();
-  }
-  if (Array.isArray(dataSource.title)) {
-    const title = readRichTextPlainText(dataSource.title);
-    if (title) {
-      return title;
-    }
-  }
-  return "Notion data source";
-}
-
-function readRichTextPlainText(value: unknown[]): string {
-  return value
-    .map((part) =>
-      isRecord(part) && typeof part.plain_text === "string"
-        ? part.plain_text
-        : isRecord(part) &&
-            isRecord(part.text) &&
-            typeof part.text.content === "string"
-          ? part.text.content
-          : "",
-    )
-    .join("")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}

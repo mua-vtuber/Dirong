@@ -1,4 +1,6 @@
 import type { Phase1Config } from "../config.js";
+import type { ProjectStore } from "../projects/project-store.js";
+import type { DirongProjectRow } from "../projects/project-types.js";
 import { t, type LocaleKey } from "../i18n/catalog.js";
 import {
   buildHumanStatusDisplay,
@@ -135,6 +137,34 @@ export type ProductSetupStatusSnapshot = {
       textDraftRetentionDays: number;
     };
   };
+  projectSetup?: ProductProjectSetupSnapshot;
+};
+
+export type ProductProjectSummarySnapshot = {
+  id: string;
+  name: string;
+  lifecycleStatus: DirongProjectRow["lifecycle_status"];
+  guildId: string | null;
+  guildName: string | null;
+  notionTokenConfigured: boolean;
+  notionParentPageConfigured: boolean;
+  notionUploadMode: DirongProjectRow["notion_upload_mode"];
+  updatedAt: string;
+};
+
+export type ProductProjectSetupSnapshot = {
+  activeProject: ProductProjectSummarySnapshot | null;
+  global: {
+    discordBot: ProductSetupFeatureSnapshot;
+    stt: ProductSetupStatusSnapshot["features"]["stt"];
+    ai: ProductSetupStatusSnapshot["features"]["ai"];
+    dataRetention: ProductSetupStatusSnapshot["features"]["dataRetention"];
+  };
+  project: {
+    discordGuild: ProductSetupFeatureSnapshot;
+    notion: ProductSetupStatusSnapshot["features"]["notion"];
+    recording: ProductSetupFeatureSnapshot;
+  };
 };
 
 export type ProductSetupDefaultsSnapshot = {
@@ -177,6 +207,7 @@ export class ProductSetupStatusSource {
     private readonly settingsStore: LocalSettingsStore,
     private readonly secretStore: LocalSecretStore,
     private readonly registryStore?: NotionRegistryStore,
+    private readonly projectStore?: ProjectStore,
   ) {}
 
   getSnapshot(): ProductSetupStatusSnapshot {
@@ -185,6 +216,7 @@ export class ProductSetupStatusSource {
       settings: this.settingsStore.read(),
       secretStore: this.secretStore,
       registryStore: this.registryStore,
+      projectStore: this.projectStore,
     });
   }
 
@@ -244,21 +276,28 @@ export function loadProductRuntimeSettings(
 export function createProductSetupStatusSource(input: {
   paths: DirongUserDataPaths;
   registryStore?: NotionRegistryStore;
+  projectStore?: ProjectStore;
 }): ProductSetupStatusSource {
   return new ProductSetupStatusSource(
     input.paths,
     new LocalSettingsStore(input.paths.settingsFile),
     new LocalSecretStore(input.paths.secretsFile),
     input.registryStore,
+    input.projectStore,
   );
 }
 
 export function createProductNotionRuntimeSettingsProvider(input: {
   paths: DirongUserDataPaths;
+  projectStore?: ProjectStore;
 }): NotionRuntimeSettingsProvider {
   const settingsStore = new LocalSettingsStore(input.paths.settingsFile);
   const secretStore = new LocalSecretStore(input.paths.secretsFile);
-  return () => buildProductNotionSettings(settingsStore.read(), secretStore);
+  return () =>
+    buildProductNotionSettings(
+      projectSettingsProjection(settingsStore.read(), input.projectStore).settings,
+      secretStore,
+    );
 }
 
 export function buildProductPhase1Config(
@@ -333,18 +372,25 @@ export function buildProductSetupStatus(input: {
   settings: DirongLocalSettings;
   secretStore: LocalSecretStore;
   registryStore?: NotionRegistryStore;
+  projectStore?: ProjectStore;
 }): ProductSetupStatusSnapshot {
+  const projectContext = projectSettingsProjection(
+    input.settings,
+    input.projectStore,
+  );
+  const settings = projectContext.settings;
   const locale = input.settings.app.locale ?? DEFAULT_DIRONG_LOCALE;
   const dashboardTheme =
     input.settings.app.dashboardTheme ?? DEFAULT_DIRONG_DASHBOARD_THEME;
   const discordSecretRef =
-    input.settings.discord.botTokenSecretRef ?? DEFAULT_SECRET_REFS.discordBotToken;
+    settings.discord.botTokenSecretRef ?? DEFAULT_SECRET_REFS.discordBotToken;
   const openAiSecretRef =
-    input.settings.stt.openAiApiKeySecretRef ?? DEFAULT_SECRET_REFS.openAiApiKey;
+    settings.stt.openAiApiKeySecretRef ?? DEFAULT_SECRET_REFS.openAiApiKey;
   const claudeSecretRef =
-    input.settings.ai.apiKeySecretRef ?? DEFAULT_SECRET_REFS.claudeApiKey;
-  const notionSecretRef =
-    input.settings.notion.tokenSecretRef ?? DEFAULT_SECRET_REFS.notionToken;
+    settings.ai.apiKeySecretRef ?? DEFAULT_SECRET_REFS.claudeApiKey;
+  const notionSecretRef = projectContext.usesProjectBoundary
+    ? projectContext.activeProject?.notion_token_secret_ref ?? undefined
+    : settings.notion.tokenSecretRef ?? DEFAULT_SECRET_REFS.notionToken;
 
   const secrets = {
     discordBot: input.secretStore.snapshot(discordSecretRef),
@@ -353,17 +399,20 @@ export function buildProductSetupStatus(input: {
     notion: input.secretStore.snapshot(notionSecretRef),
   };
 
-  const discord = buildDiscordStatus(locale, input.settings, secrets.discordBot);
-  const stt = buildSttStatus(locale, input.settings, secrets.openAi);
-  const ai = buildAiStatus(locale, input.settings, secrets.claude);
+  const discord = buildDiscordStatus(locale, settings, secrets.discordBot);
+  const stt = buildSttStatus(locale, settings, secrets.openAi);
+  const ai = buildAiStatus(locale, settings, secrets.claude);
   const notion = buildNotionStatus(
     locale,
-    input.settings,
+    settings,
     secrets.notion,
     input.registryStore,
+    projectContext.registryProjectId,
   );
   const recording = buildRecordingStatus(locale, discord, stt);
-  const dataRetention = buildDataRetentionStatus(locale, input.settings);
+  const dataRetention = buildDataRetentionStatus(locale, settings);
+  const globalDiscordBot = buildDiscordBotStatus(locale, settings, secrets.discordBot);
+  const projectDiscordGuild = buildProjectDiscordGuildStatus(locale, settings);
   const featureStatuses = [
     discord.status,
     stt.status,
@@ -373,7 +422,7 @@ export function buildProductSetupStatus(input: {
     dataRetention.status,
   ];
 
-  return {
+  const snapshot: ProductSetupStatusSnapshot = {
     generatedAt: new Date().toISOString(),
     locale,
     notionSchemaLocale: locale,
@@ -400,7 +449,24 @@ export function buildProductSetupStatus(input: {
       notion,
       dataRetention,
     },
+    projectSetup: {
+      activeProject: projectContext.activeProject
+        ? projectToSummary(projectContext.activeProject, secrets.notion.configured)
+        : null,
+      global: {
+        discordBot: globalDiscordBot,
+        stt,
+        ai,
+        dataRetention,
+      },
+      project: {
+        discordGuild: projectDiscordGuild,
+        notion,
+        recording,
+      },
+    },
   };
+  return snapshot;
 }
 
 export function canStartDiscordRuntime(
@@ -545,6 +611,67 @@ function buildProductNotionSettings(
     leaseMs: DEFAULT_NOTION_SETTINGS.leaseMs,
     maxAttempts: DEFAULT_NOTION_SETTINGS.maxAttempts,
     propertyNames: { ...DEFAULT_NOTION_SETTINGS.propertyNames },
+  };
+}
+
+type ProjectSettingsProjection = {
+  settings: DirongLocalSettings;
+  activeProject: DirongProjectRow | null;
+  registryProjectId?: string | null;
+  usesProjectBoundary: boolean;
+};
+
+function projectSettingsProjection(
+  settings: DirongLocalSettings,
+  projectStore: ProjectStore | undefined,
+): ProjectSettingsProjection {
+  if (!projectStore) {
+    return {
+      settings,
+      activeProject: null,
+      registryProjectId: undefined,
+      usesProjectBoundary: false,
+    };
+  }
+
+  const activeProject = projectStore.getActiveProject();
+  const projectedSettings: DirongLocalSettings = {
+    ...settings,
+    discord: {
+      ...settings.discord,
+      guildIds: activeProject?.guild_id ? [activeProject.guild_id] : undefined,
+    },
+    notion: activeProject
+      ? {
+          tokenSecretRef: activeProject.notion_token_secret_ref ?? undefined,
+          parentPageUrl: activeProject.notion_parent_page_url ?? undefined,
+          uploadMode: activeProject.notion_upload_mode,
+        }
+      : {},
+  };
+
+  return {
+    settings: projectedSettings,
+    activeProject,
+    registryProjectId: activeProject?.id ?? null,
+    usesProjectBoundary: true,
+  };
+}
+
+function projectToSummary(
+  project: DirongProjectRow,
+  notionTokenConfigured: boolean,
+): ProductProjectSummarySnapshot {
+  return {
+    id: project.id,
+    name: project.name,
+    lifecycleStatus: project.lifecycle_status,
+    guildId: project.guild_id,
+    guildName: project.guild_name,
+    notionTokenConfigured,
+    notionParentPageConfigured: Boolean(project.notion_parent_page_url),
+    notionUploadMode: project.notion_upload_mode,
+    updatedAt: project.updated_at,
   };
 }
 
@@ -699,6 +826,62 @@ function buildAiStatus(
   });
 }
 
+function buildDiscordBotStatus(
+  locale: DirongLocale,
+  settings: DirongLocalSettings,
+  secret: SecretPresenceSnapshot,
+): ProductSetupFeatureSnapshot {
+  const missing = [
+    settings.discord.applicationId ? null : "discord.applicationId",
+    secret.configured ? null : "discord.botToken",
+  ].filter((key): key is string => key !== null);
+
+  if (missing.length > 0) {
+    return withLocalizedText(locale, {
+      status: "not_configured",
+      messageKey: "setup.discord.status.notConfigured.message",
+      userActionKey: "setup.discord.status.notConfigured.action",
+      missing,
+      runtimeEffect: buildSettingsRuntimeEffect(locale, "discord"),
+    });
+  }
+
+  return withLocalizedText(locale, {
+    status: "ready",
+    messageKey: "setup.discord.status.ready.message",
+    userActionKey: null,
+    missing: [],
+    runtimeEffect: buildSettingsRuntimeEffect(locale, "discord"),
+  });
+}
+
+function buildProjectDiscordGuildStatus(
+  locale: DirongLocale,
+  settings: DirongLocalSettings,
+): ProductSetupFeatureSnapshot {
+  const missing = (settings.discord.guildIds?.length ?? 0) > 0
+    ? []
+    : ["discord.guildAllowlist"];
+
+  if (missing.length > 0) {
+    return withLocalizedText(locale, {
+      status: "not_configured",
+      messageKey: "setup.discord.status.notConfigured.message",
+      userActionKey: "setup.discord.status.notConfigured.action",
+      missing,
+      runtimeEffect: buildSettingsRuntimeEffect(locale, "discord"),
+    });
+  }
+
+  return withLocalizedText(locale, {
+    status: "ready",
+    messageKey: "setup.discord.status.ready.message",
+    userActionKey: null,
+    missing: [],
+    runtimeEffect: buildSettingsRuntimeEffect(locale, "discord"),
+  });
+}
+
 function buildProductLocalWhisperCommand(settings: SttLocalSettings): {
   command: string;
   args: string[];
@@ -734,9 +917,12 @@ function buildNotionStatus(
   settings: DirongLocalSettings,
   notionSecret: SecretPresenceSnapshot,
   registryStore: NotionRegistryStore | undefined,
+  registryProjectId?: string | null,
 ): ProductSetupStatusSnapshot["features"]["notion"] {
   const parentPageConfigured = Boolean(settings.notion.parentPageUrl);
-  const managedRegistry = readManagedNotionRegistrySnapshot(registryStore);
+  const managedRegistry = readManagedNotionRegistrySnapshot(registryStore, {
+    projectId: registryProjectId,
+  });
   const missing = [
     notionSecret.configured ? null : "notion.token",
     parentPageConfigured ? null : "notion.parentPageUrl",

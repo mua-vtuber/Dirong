@@ -111,6 +111,7 @@ export async function resolveUploadTarget(input: {
   client: NotionClient;
   settings: NotionRuntimeSettings;
   registryStore: NotionRegistryStore | null;
+  projectId?: string | null;
   baseResult: NotionUploadResult;
 }): Promise<
   | { ok: true; target: ResolvedTarget }
@@ -118,6 +119,7 @@ export async function resolveUploadTarget(input: {
 > {
   const registryBlock = blockPartialManagedNotionRegistry(input.registryStore, {
     includeDatabases: true,
+    projectId: input.projectId,
   });
   if (registryBlock) {
     return {
@@ -132,7 +134,10 @@ export async function resolveUploadTarget(input: {
     };
   }
 
-  const managedCandidate = loadManagedUploadRegistryCandidate(input.registryStore);
+  const managedCandidate = loadManagedUploadRegistryCandidate(
+    input.registryStore,
+    input.projectId,
+  );
   if (managedCandidate) {
     return await resolveManagedUploadTarget({
       client: input.client,
@@ -361,22 +366,23 @@ async function resolveManagedActionItemTarget(input: {
 
 function loadManagedUploadRegistryCandidate(
   registryStore: NotionRegistryStore | null,
+  projectId: string | null | undefined,
 ): ManagedUploadRegistryCandidate | null {
-  if (!registryStore) {
+  if (!registryStore || projectId === null) {
     return null;
   }
 
-  const meetingDatabase = registryStore.getManagedDatabase("meeting");
-  const memberDatabase = registryStore.getManagedDatabase("member");
-  const taskDatabase = registryStore.getManagedDatabase("task");
+  const meetingDatabase = registryStore.getManagedDatabase("meeting", projectId);
+  const memberDatabase = registryStore.getManagedDatabase("member", projectId);
+  const taskDatabase = registryStore.getManagedDatabase("task", projectId);
   if (!meetingDatabase || !memberDatabase) {
     return null;
   }
 
-  const managedDatabases = registryStore.listManagedDatabases();
-  const allMappings = registryStore.listPropertyMappings();
-  const meetingMappings = registryStore.listPropertyMappings("meeting");
-  const memberMappings = registryStore.listPropertyMappings("member");
+  const managedDatabases = registryStore.listManagedDatabases(projectId);
+  const allMappings = registryStore.listPropertyMappings(undefined, projectId);
+  const meetingMappings = registryStore.listPropertyMappings("meeting", projectId);
+  const memberMappings = registryStore.listPropertyMappings("member", projectId);
   if (
     !hasRequiredMappings(meetingMappings, MANAGED_MEETING_UPLOAD_SEMANTIC_KEYS) ||
     !hasRequiredMappings(memberMappings, MANAGED_MEMBER_UPLOAD_SEMANTIC_KEYS)

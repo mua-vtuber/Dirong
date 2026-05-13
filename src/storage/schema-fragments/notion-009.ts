@@ -1,6 +1,7 @@
 export const NOTION_MEMBER_ROSTER_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS notion_member_roster_entries (
-  page_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL DEFAULT 'default',
+  page_id TEXT NOT NULL,
   data_source_id TEXT NOT NULL,
   discord_name TEXT NOT NULL,
   normalized_discord_name TEXT NOT NULL,
@@ -10,17 +11,14 @@ CREATE TABLE IF NOT EXISTS notion_member_roster_entries (
   synced_at TEXT NOT NULL,
   raw_updated_at TEXT,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (project_id, page_id),
+  FOREIGN KEY (project_id) REFERENCES dirong_projects(id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_notion_member_roster_entries_discord_name
-  ON notion_member_roster_entries(normalized_discord_name);
-
-CREATE INDEX IF NOT EXISTS idx_notion_member_roster_entries_data_source
-  ON notion_member_roster_entries(data_source_id, synced_at);
-
 CREATE TABLE IF NOT EXISTS notion_member_roster_syncs (
-  data_source_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL DEFAULT 'default',
+  data_source_id TEXT NOT NULL,
   status TEXT NOT NULL,
   synced_at TEXT,
   member_count INTEGER NOT NULL DEFAULT 0,
@@ -28,6 +26,8 @@ CREATE TABLE IF NOT EXISTS notion_member_roster_syncs (
   warnings_json TEXT NOT NULL DEFAULT '[]',
   last_error TEXT,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (project_id, data_source_id),
+  FOREIGN KEY (project_id) REFERENCES dirong_projects(id)
 );
 `;

@@ -31,6 +31,7 @@ export type RepairItemStore = {
 export type SessionLifecycleStore = {
   createSession(input: {
     id: string;
+    projectId?: string | null;
     guildId: string;
     guildName: string | null;
     textChannelId: string | null;

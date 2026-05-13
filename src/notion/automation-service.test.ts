@@ -19,6 +19,7 @@ import { makeNotionDraftInput } from "./test-fixtures.js";
 import { NotionWriteStore } from "./write-store.js";
 import { SqlRunner } from "../storage/sql-runner.js";
 import { DirongDatabase } from "../storage/sqlite.js";
+import { DEFAULT_PROJECT_ID } from "../projects/project-types.js";
 
 const nowIso = "2026-05-07T00:00:00.000Z";
 const targetId = "01234567-89ab-cdef-0123-456789abcdef";
@@ -183,6 +184,22 @@ test("NotionAutomationService blocks partial managed registry before legacy fall
 
 test("NotionAutomationService ignores drafts that are not valid", async () => {
   const fixture = createFixture({ validationStatus: "invalid" });
+  try {
+    const client = new FakeNotionClient();
+    const service = createService(fixture, { client });
+
+    const snapshot = await service.runOnce();
+
+    assert.equal(snapshot.status, "idle");
+    assert.equal(countNotionWrites(fixture.database), 0);
+    assert.deepEqual(client.calls, []);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("NotionAutomationService does not upload drafts whose session project is unresolved", async () => {
+  const fixture = createFixture({ projectId: null });
   try {
     const client = new FakeNotionClient();
     const service = createService(fixture, { client });
@@ -390,13 +407,19 @@ type AutomationFixture = {
 
 function createFixture(options: {
   validationStatus?: "valid" | "invalid";
+  projectId?: string | null;
 } = {}): AutomationFixture {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-notion-auto-"));
   const database = new DirongDatabase(path.join(dir, "dirong.sqlite"), 1000);
   const runner = new SqlRunner(database);
   const writeStore = new NotionWriteStore(runner);
   const draftInput = makeNotionDraftInput();
-  insertSession(database, dir, draftInput);
+  insertSession(
+    database,
+    dir,
+    draftInput,
+    "projectId" in options ? options.projectId ?? null : DEFAULT_PROJECT_ID,
+  );
   insertSpeaker(database, draftInput);
   insertAiCleanupJob(database, draftInput);
   insertDraft(database, draftInput, options.validationStatus ?? "valid");
@@ -499,21 +522,23 @@ function insertSession(
   database: DirongDatabase,
   dir: string,
   input: ReturnType<typeof makeNotionDraftInput>,
+  projectId: string | null,
 ): void {
   database.db
     .prepare(
       `INSERT INTO sessions (
-         id, guild_id, guild_name, text_channel_id, voice_channel_id,
+         id, project_id, guild_id, guild_name, text_channel_id, voice_channel_id,
          voice_channel_name, started_by_user_id, started_by_display_name,
          stopped_by_user_id, stopped_by_display_name, status, started_at,
          stopped_at, finalized_at, data_dir, last_error, created_at, updated_at
        ) VALUES (
-         ?, 'guild', 'Guild', 'text', ?, ?, 'starter', 'Taniar',
+         ?, ?, 'guild', 'Guild', 'text', ?, ?, 'starter', 'Taniar',
          NULL, NULL, 'finalized', ?, ?, ?, ?, NULL, ?, ?
        )`,
     )
     .run(
       input.session.id,
+      projectId,
       input.session.voice_channel_id,
       input.session.voice_channel_name,
       input.session.started_at,

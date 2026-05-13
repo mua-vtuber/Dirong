@@ -16,6 +16,7 @@ import type {
   NotionRegistryStore,
   NotionWorkspaceSettings,
 } from "./registry-store.js";
+import { DEFAULT_NOTION_WORKSPACE_SETTINGS_ID } from "./registry-store.js";
 
 export type ManagedNotionRegistryStatus = "missing" | "partial" | "ready";
 
@@ -54,11 +55,15 @@ export type ManagedNotionRegistrySnapshot = {
 
 export function readManagedNotionRegistrySnapshot(
   registryStore: NotionRegistryStore | null | undefined,
-  options: { remoteCheck?: ManagedNotionSchemaStatusSnapshot | null } = {},
+  options: {
+    projectId?: string | null;
+    remoteCheck?: ManagedNotionSchemaStatusSnapshot | null;
+  } = {},
 ): ManagedNotionRegistrySnapshot {
-  const workspace = registryStore?.getWorkspaceSettings() ?? null;
-  const managedDatabases = registryStore?.listManagedDatabases() ?? [];
-  const propertyMappings = registryStore?.listPropertyMappings() ?? [];
+  const registry = readRegistryRows(registryStore, options.projectId);
+  const workspace = registry.workspace;
+  const managedDatabases = registry.managedDatabases;
+  const propertyMappings = registry.propertyMappings;
   const databases = NOTION_DATABASE_ROLES.map((role) =>
     buildDatabaseSnapshot({
       role,
@@ -134,5 +139,39 @@ function workspaceToSnapshot(
   return {
     locale: workspace.locale,
     parentPageUrl: workspace.parentPageUrl,
+  };
+}
+
+function readRegistryRows(
+  registryStore: NotionRegistryStore | null | undefined,
+  projectId: string | null | undefined,
+): {
+  workspace: NotionWorkspaceSettings | null;
+  managedDatabases: NotionManagedDatabase[];
+  propertyMappings: NotionPropertyMapping[];
+} {
+  if (!registryStore || projectId === null) {
+    return {
+      workspace: null,
+      managedDatabases: [],
+      propertyMappings: [],
+    };
+  }
+
+  if (projectId === undefined) {
+    return {
+      workspace: registryStore.getWorkspaceSettings(),
+      managedDatabases: registryStore.listManagedDatabases(),
+      propertyMappings: registryStore.listPropertyMappings(),
+    };
+  }
+
+  return {
+    workspace: registryStore.getWorkspaceSettings(
+      DEFAULT_NOTION_WORKSPACE_SETTINGS_ID,
+      projectId,
+    ),
+    managedDatabases: registryStore.listManagedDatabases(projectId),
+    propertyMappings: registryStore.listPropertyMappings(undefined, projectId),
   };
 }

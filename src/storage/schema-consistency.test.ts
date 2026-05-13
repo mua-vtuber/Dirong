@@ -8,6 +8,9 @@ import { applySchemaMigrations } from "./migrations.js";
 import { SCHEMA_SQL } from "./schema.js";
 
 const CRITICAL_NOTION_TABLES = [
+  "dirong_projects",
+  "dirong_project_state",
+  "notion_upload_scope",
   "notion_writes",
   "notion_blocks",
   "notion_custom_property_rules",

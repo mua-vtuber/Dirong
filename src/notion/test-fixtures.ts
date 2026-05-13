@@ -3,6 +3,7 @@ import type { MeetingNotesDraftV1 } from "../ai/cleanup/draft.js";
 import type { DirongLocale } from "../settings/local-settings-store.js";
 import type { NotionDraftInput, NotionDraftSpeaker } from "./draft-input.js";
 import type { TranscriptSegmentRow } from "../storage/session-store.js";
+import { DEFAULT_PROJECT_ID } from "../projects/project-types.js";
 
 type SpeakerFixture = [name: string, isBot: number];
 
@@ -16,6 +17,7 @@ export type MakeNotionDraftInputOptions = {
   actionItems?: MeetingNotesDraftV1["actionItems"];
   notionProperties?: MeetingNotesDraftV1["notionProperties"];
   locale?: DirongLocale;
+  projectId?: string | null;
 };
 
 export function makeNotionDraftInput(
@@ -25,6 +27,9 @@ export function makeNotionDraftInput(
   return {
     session: {
       id: "session-1",
+      project_id: "projectId" in options
+        ? options.projectId ?? null
+        : DEFAULT_PROJECT_ID,
       started_at: "2026-05-07T19:00:00+09:00",
       finalized_at: "2026-05-07T20:12:00+09:00",
       voice_channel_id: "voice-1",

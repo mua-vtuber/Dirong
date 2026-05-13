@@ -62,6 +62,7 @@ export type RunNotionUploadOptions = {
   readModel: NotionDraftInputReadModel;
   writeStore: NotionWriteStore | null;
   registryStore?: NotionRegistryStore | null;
+  projectId?: string | null;
   memberRosterStore?: NotionMemberRosterStore | null;
   customPropertyRules?: readonly NotionCustomPropertyRule[];
 };
@@ -104,6 +105,7 @@ export async function runNotionUpload(
       client: options.client,
       settings: options.settings,
       registryStore: options.registryStore ?? null,
+      projectId: options.projectId,
       baseResult,
     });
     if (!targetResolution.ok) {
@@ -120,6 +122,21 @@ export async function runNotionUpload(
         targetName: target.name,
         message: "No valid meeting notes draft was found.",
         userAction: "Phase 4 AI cleanup을 먼저 완료한 뒤 다시 시도해 주세요.",
+      };
+    }
+
+    if (!draftInput.session.project_id) {
+      return {
+        ...baseResult,
+        status: "blocked",
+        sessionId: draftInput.session.id,
+        draftId: draftInput.draft.id,
+        targetId: target.id,
+        targetName: target.name,
+        message: "Notion upload is blocked because the session project is unresolved.",
+        userAction:
+          "프로젝트가 애매한 legacy session은 default project로 자동 업로드하지 않습니다.",
+        technicalDetail: `session ${draftInput.session.id} has no project_id`,
       };
     }
 
@@ -193,8 +210,13 @@ async function executeWrite(input: {
   if (!writeStore) {
     throw new Error("Notion write store is required.");
   }
+  const projectId = draftInput.session.project_id;
+  if (!projectId) {
+    throw new Error("Notion write requires a resolved session project.");
+  }
 
   const write = writeStore.createOrGetWrite({
+    projectId,
     sessionId: draftInput.session.id,
     draftId: draftInput.draft.id,
     targetType: "data_source",

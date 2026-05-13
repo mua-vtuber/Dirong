@@ -17,7 +17,12 @@ export type NotionDraftSpeaker = {
 export type NotionDraftInput = {
   session: Pick<
     SessionRow,
-    "id" | "started_at" | "finalized_at" | "voice_channel_id" | "voice_channel_name"
+    | "id"
+    | "project_id"
+    | "started_at"
+    | "finalized_at"
+    | "voice_channel_id"
+    | "voice_channel_name"
   >;
   draft: Pick<
     MeetingNotesDraftRow,

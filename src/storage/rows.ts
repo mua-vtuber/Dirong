@@ -27,6 +27,7 @@ export type RepairScanSummary = {
 export type RecordingRuntimeState = {
   isRecording: boolean;
   sessionId: string | null;
+  projectId?: string | null;
   guildId?: string | null;
   voiceChannelId: string | null;
   voiceChannelName: string | null;
@@ -35,6 +36,7 @@ export type RecordingRuntimeState = {
 
 export type SessionRow = {
   id: string;
+  project_id: string | null;
   guild_id: string;
   guild_name: string | null;
   text_channel_id: string | null;

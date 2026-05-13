@@ -104,6 +104,7 @@ export class SessionStore {
 
   createSession(input: {
     id: string;
+    projectId?: string | null;
     guildId: string;
     guildName: string | null;
     textChannelId: string | null;

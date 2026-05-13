@@ -1,5 +1,4 @@
 import {
-  hasReadyManagedNotionRegistry,
   readManagedNotionRegistrySnapshot,
   type ManagedNotionRegistrySnapshot,
 } from "./managed-registry.js";
@@ -20,9 +19,11 @@ export type ManagedNotionRegistryBlock = {
 
 export function blockPartialManagedNotionRegistry(
   registryStore: NotionRegistryStore | null | undefined,
-  options: { includeDatabases?: boolean } = {},
+  options: { includeDatabases?: boolean; projectId?: string | null } = {},
 ): ManagedNotionRegistryBlock | null {
-  const snapshot = readManagedNotionRegistrySnapshot(registryStore);
+  const snapshot = readManagedNotionRegistrySnapshot(registryStore, {
+    projectId: options.projectId,
+  });
   if (snapshot.status !== "partial") {
     return null;
   }
@@ -36,8 +37,11 @@ export function blockPartialManagedNotionRegistry(
 
 export function hasCompleteManagedNotionUploadRegistry(
   registryStore: NotionRegistryStore | null | undefined,
+  options: { projectId?: string | null } = {},
 ): boolean {
-  return hasReadyManagedNotionRegistry(registryStore);
+  return readManagedNotionRegistrySnapshot(registryStore, {
+    projectId: options.projectId,
+  }).status === "ready";
 }
 
 function managedRegistryDetail(

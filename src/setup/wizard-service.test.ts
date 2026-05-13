@@ -27,6 +27,7 @@ import {
 import { getDirongUserDataPaths } from "../settings/dirong-user-data.js";
 import { SqlRunner } from "../storage/sql-runner.js";
 import { DirongDatabase } from "../storage/sqlite.js";
+import { ProjectStore } from "../projects/project-store.js";
 import {
   SetupWizardService,
   type ClaudeSetupTester,
@@ -323,6 +324,136 @@ test("SetupWizardService verifies a Notion parent page and creates managed DBs t
   }
 });
 
+test("SetupWizardService stores project-scoped Discord and Notion setup values", async () => {
+  const fixture = createFixture({ withProjectStore: true });
+  try {
+    if (!fixture.projectStore) {
+      throw new Error("expected project store");
+    }
+    fixture.projectStore.createDraftProject({
+      id: "project-active",
+      nowIso: "2026-05-10T00:00:00.000Z",
+    });
+    fixture.projectStore.setActiveProjectId("project-active");
+    fixture.service.saveDiscordApplicationId({ applicationId: appId });
+    fixture.service.saveDiscordBotToken({ botToken: "discord-secret-raw-value" });
+
+    const guild = await fixture.service.saveDiscordGuildAllowlist({
+      guildIds: [guildId],
+    });
+    const token = fixture.service.saveNotionToken({
+      token: "notion-secret-raw-value",
+    });
+    const parent = fixture.service.saveNotionParentPageUrl({ parentPageUrl });
+
+    const project = fixture.projectStore.getProject("project-active");
+    assert.equal(guild.ok, true);
+    assert.equal(token.ok, true);
+    assert.equal(parent.ok, true);
+    assert.equal(project?.guild_id, guildId);
+    assert.equal(project?.guild_name, "Dirong Test Server");
+    assert.equal(
+      project?.notion_token_secret_ref,
+      "notion.project.project-active.token",
+    );
+    assert.equal(project?.notion_parent_page_url, parentPageUrl);
+    assert.equal(
+      fixture.secrets.get("notion.project.project-active.token"),
+      "notion-secret-raw-value",
+    );
+    assert.deepEqual(fixture.settings.read().discord.guildIds, [guildId]);
+    assert.equal(
+      fixture.settings.read().notion.tokenSecretRef,
+      "notion.project.project-active.token",
+    );
+  } finally {
+    fixture.close();
+  }
+});
+
+test("SetupWizardService saves managed registry rows under the active project", async () => {
+  const fixture = createFixture({
+    withProjectStore: true,
+    notionClientFactory: () => ({
+      retrievePage: async (pageId: string) => ({ id: pageId }),
+    } as unknown as NotionClient),
+    managedSchemaCreator: async (input) => {
+      input.registryStore.saveManagedSchema({
+        projectId: input.projectId,
+        workspaceSettings: {
+          locale: "ko",
+          parentPageUrl,
+          parentPageId,
+        },
+        managedDatabases: [
+          managedDatabase("meeting", "회의록", "meeting-db-id", "meeting-ds-id"),
+          managedDatabase("member", "작업자", "member-db-id", "member-ds-id"),
+          managedDatabase("task", "할 일 목록", "task-db-id", "task-ds-id"),
+        ],
+        propertyMappings: allKoreanPropertyMappings(),
+        nowIso: "2026-05-10T00:00:00.000Z",
+      });
+      return {
+        locale: "ko",
+        parentPageUrl,
+        parentPageId,
+        databases: {
+          meeting: {
+            role: "meeting",
+            name: "회의록",
+            databaseId: "meeting-db-id",
+            dataSourceId: "meeting-ds-id",
+            url: "https://notion.so/meeting",
+          },
+          member: {
+            role: "member",
+            name: "작업자",
+            databaseId: "member-db-id",
+            dataSourceId: "member-ds-id",
+            url: "https://notion.so/member",
+          },
+          task: {
+            role: "task",
+            name: "할 일 목록",
+            databaseId: "task-db-id",
+            dataSourceId: "task-ds-id",
+            url: "https://notion.so/task",
+          },
+        },
+        propertyMappings: {
+          meeting: allKoreanPropertyMappings("meeting"),
+          member: allKoreanPropertyMappings("member"),
+          task: allKoreanPropertyMappings("task"),
+        },
+      } satisfies ManagedNotionSchemaCreationResult;
+    },
+  });
+  try {
+    if (!fixture.projectStore) {
+      throw new Error("expected project store");
+    }
+    fixture.projectStore.createDraftProject({
+      id: "project-active",
+      nowIso: "2026-05-10T00:00:00.000Z",
+    });
+    fixture.projectStore.setActiveProjectId("project-active");
+    fixture.service.saveNotionToken({ token: "notion-secret-raw-value" });
+    fixture.service.saveNotionParentPageUrl({ parentPageUrl });
+
+    const created = await fixture.service.createManagedDatabases();
+
+    assert.equal(created.ok, true);
+    assert.equal(
+      fixture.registryStore.getManagedDatabase("meeting", "project-active")?.dataSourceId,
+      "meeting-ds-id",
+    );
+    assert.equal(fixture.registryStore.getManagedDatabase("meeting"), null);
+    assert.equal(created.setup.features.notion.managedRegistryReady, true);
+  } finally {
+    fixture.close();
+  }
+});
+
 test("SetupWizardService blocks managed DB creation when registry is partial", async () => {
   const fixture = createFixture();
   try {
@@ -359,17 +490,23 @@ function createFixture(options: {
   claudeTester?: ClaudeSetupTester;
   notionClientFactory?: (apiKey: string) => NotionClient;
   managedSchemaCreator?: ConstructorParameters<typeof SetupWizardService>[0]["managedSchemaCreator"];
+  withProjectStore?: boolean;
 } = {}): {
   service: SetupWizardService;
   settings: LocalSettingsStore;
   secrets: LocalSecretStore;
   registryStore: NotionRegistryStore;
+  projectStore?: ProjectStore;
   close: () => void;
 } {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-setup-wizard-"));
   const paths = getDirongUserDataPaths(dir);
   const database = new DirongDatabase(path.join(dir, "dirong.sqlite"), 1000);
-  const registryStore = new NotionRegistryStore(new SqlRunner(database));
+  const runner = new SqlRunner(database);
+  const registryStore = new NotionRegistryStore(runner);
+  const projectStore = options.withProjectStore
+    ? new ProjectStore(runner)
+    : undefined;
   const settingsStore = new LocalSettingsStore(paths.settingsFile);
   const secretStore = new LocalSecretStore(paths.secretsFile);
   return {
@@ -378,6 +515,7 @@ function createFixture(options: {
       settingsStore,
       secretStore,
       registryStore,
+      projectStore,
       discordGateway: options.discordGateway ?? fakeDiscordGateway(),
       claudeTester: options.claudeTester ?? fakeClaudeTester(),
       notionClientFactory: options.notionClientFactory,
@@ -387,6 +525,7 @@ function createFixture(options: {
     settings: settingsStore,
     secrets: secretStore,
     registryStore,
+    projectStore,
     close: () => {
       database.close();
       rmSync(dir, { recursive: true, force: true });

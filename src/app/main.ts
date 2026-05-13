@@ -70,6 +70,8 @@ import {
 } from "../notion/member-roster-store.js";
 import { NotionRegistryStore } from "../notion/registry-store.js";
 import { NotionWriteStore } from "../notion/write-store.js";
+import { DEFAULT_PROJECT_ID } from "../projects/project-types.js";
+import { ProjectStore } from "../projects/project-store.js";
 import { RecordingProducer } from "../recording/recording-producer.js";
 import { runStartupRepair } from "../storage/repair-scan.js";
 import {
@@ -100,6 +102,11 @@ const DIRONG_DISCORD_IMAGE_PATH = fileURLToPath(
 );
 
 const database = new DirongDatabase(config.dbPath, config.dbBusyTimeoutMs);
+const notionSqlRunner = new SqlRunner(database);
+const projectStore = new ProjectStore(notionSqlRunner);
+projectStore.backfillDefaultProjectFromLegacySettings({
+  settings: productRuntime.localSettings,
+});
 const store = new SessionStore(database, {
   storageRoot: config.dataDir,
   normalizeStoredPaths: true,
@@ -116,20 +123,22 @@ const sttAutomation = createSttAutomationService(
   sttProviderSelection.settings.language,
   sttProviderSelection.settings.timeoutMs,
 );
-const notionSqlRunner = new SqlRunner(database);
 const notionPropertyRuleStore = new NotionCustomPropertyRuleStore(notionSqlRunner);
 const notionRegistryStore = new NotionRegistryStore(notionSqlRunner);
 const notionMemberRosterStore = new NotionMemberRosterStore(notionSqlRunner);
 const getNotionRuntimeSettings = createProductNotionRuntimeSettingsProvider({
   paths: productRuntime.paths,
+  projectStore,
 });
 const setupStatus = createProductSetupStatusSource({
   paths: productRuntime.paths,
   registryStore: notionRegistryStore,
+  projectStore,
 });
 const setupWizard = createProductSetupWizardService({
   paths: productRuntime.paths,
   registryStore: notionRegistryStore,
+  projectStore,
 });
 const aiCleanupProvider = createAiCleanupProvider();
 const aiLifecycle = createAiLifecycleService(aiCleanupProvider);
@@ -594,6 +603,9 @@ function createNotionAutomationService(
     batchLimit: 1,
     workerId: `phase5-notion-auto-${process.pid}`,
     leaseMs: settings.leaseMs || config.sttLeaseMs,
+    getProjectId: () => projectStore.getActiveProjectId() ?? DEFAULT_PROJECT_ID,
+    getAutomaticUploadAfter: (projectId) =>
+      projectStore.getUploadScope(projectId)?.automatic_upload_after ?? null,
     registryStore: new NotionRegistryStore(runner),
     memberRosterStore: new NotionMemberRosterStore(runner),
     customPropertyRules: () => notionPropertyRuleStore.listEnabledRules("meeting"),

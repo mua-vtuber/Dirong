@@ -14,7 +14,7 @@ Double-click:
 Dirong Start.bat
 ```
 
-The launcher installs dependencies, builds the TypeScript app, starts Dirong, and opens the local dashboard.
+The launcher installs Node dependencies, builds the TypeScript app, starts Dirong, and opens the local dashboard. It does not create the local Whisper Python environment; the setup wizard does that when you choose local Whisper and start installation.
 
 Default dashboard:
 
@@ -44,11 +44,14 @@ To create a clean portable Windows folder:
 npm run bundle:portable
 ```
 
-The bundle is written to `portable/Dirong/`. It includes a copied Node.js runtime, built app files, runtime dependencies, helper scripts, and an empty `data/` directory. Existing local settings and secrets are not copied.
+The bundle is written to `portable/Dirong/`. It includes copied Node.js and Python runtimes, built app files, runtime dependencies, helper scripts, and an empty `data/` directory. Existing local settings and secrets are not copied.
+
+Portable bundle creation requires a Python runtime source. Set `DIRONG_PORTABLE_PYTHON_DIR` or place a runtime at `runtime/python` before running `npm run bundle:portable`.
 
 ## Requirements
 
 - Node.js 22.12.0 or newer.
+- For a normal git/manual run with local Whisper, Python with `venv` support must be available to bootstrap the app-managed environment.
 - A Discord application and bot token.
 - A Discord server where the bot has been invited.
 - For STT, either:
@@ -57,7 +60,7 @@ The bundle is written to `portable/Dirong/`. It includes a copied Node.js runtim
 - For AI meeting-note cleanup, Claude Code CLI is currently the only supported runtime path.
 - For Notion upload, a Notion integration token and a parent page are needed.
 
-Local Whisper requires Python plus either `faster-whisper` or `openai-whisper` installed in the Python environment used by the app.
+For local Whisper, the setup wizard creates an app-managed `python-venv`, installs `faster-whisper`, and downloads the selected model. A portable bundle uses its bundled Python runtime instead of requiring Python on the user's computer. OpenAI STT does not require local Python.
 
 ## First-Time Setup Workflow
 
@@ -69,6 +72,8 @@ Local Whisper requires Python plus either `faster-whisper` or `openai-whisper` i
    - save the Discord bot token,
    - select the Discord guild allowlist,
    - choose the STT provider,
+   - for local Whisper, click save and install, then wait for the Python environment, package, and model checks to finish,
+   - for OpenAI STT, enter the API key and run the connection test,
    - configure Claude Code CLI for AI meeting-note cleanup,
    - configure Notion if you want uploads,
    - create or verify the managed Notion databases.
@@ -179,6 +184,8 @@ Important local files include:
 - `secrets/secrets.json`
 - `sessions/dirong.sqlite`
 - `sessions/`
+- `python-venv/`
+- `models/`
 - `logs/`
 
 Secrets are stored locally and dashboard/API status responses expose only redacted snapshots.
@@ -214,7 +221,7 @@ The project uses TypeScript, native Node.js test runner, Discord.js, SQLite, loc
 Dirong Start.bat
 ```
 
-이 실행 파일은 의존성 설치, TypeScript 빌드, 앱 시작, 로컬 대시보드 열기를 순서대로 처리합니다.
+이 실행 파일은 Node 의존성 설치, TypeScript 빌드, 앱 시작, 로컬 대시보드 열기를 순서대로 처리합니다. local Whisper용 Python 환경은 여기서 만들지 않고, 설정 마법사에서 local Whisper를 선택해 설치를 시작할 때 만듭니다.
 
 기본 대시보드 주소:
 
@@ -244,11 +251,14 @@ npm run dev
 npm run bundle:portable
 ```
 
-번들은 `portable/Dirong/`에 생성됩니다. 복사된 Node.js runtime, 빌드된 앱 파일, runtime dependency, 보조 스크립트, 빈 `data/` 폴더가 포함됩니다. 기존 로컬 설정과 secrets는 복사하지 않습니다.
+번들은 `portable/Dirong/`에 생성됩니다. 복사된 Node.js와 Python runtime, 빌드된 앱 파일, runtime dependency, 보조 스크립트, 빈 `data/` 폴더가 포함됩니다. 기존 로컬 설정과 secrets는 복사하지 않습니다.
+
+포터블 번들을 만들려면 Python runtime 원본이 필요합니다. `npm run bundle:portable` 실행 전에 `DIRONG_PORTABLE_PYTHON_DIR`을 지정하거나 `runtime/python`에 Python runtime을 두세요.
 
 ## 필요 조건
 
 - Node.js 22.12.0 이상.
+- 일반 git/manual 실행에서 local Whisper를 쓰려면 앱 전용 환경을 만들 수 있는 `venv` 지원 Python이 필요합니다.
 - Discord application과 bot token.
 - 봇이 초대된 Discord 서버.
 - STT용 설정 중 하나:
@@ -257,7 +267,7 @@ npm run bundle:portable
 - AI 회의록 정리는 현재 Claude Code CLI만 지원합니다.
 - Notion 업로드에는 Notion integration token과 parent page가 필요합니다.
 
-Local Whisper를 쓰려면 앱이 사용하는 Python 환경에 `faster-whisper` 또는 `openai-whisper`가 설치되어 있어야 합니다.
+local Whisper를 선택하면 설정 마법사가 앱 전용 `python-venv`를 만들고, `faster-whisper`와 선택한 모델을 설치합니다. 포터블 번들은 포함된 Python runtime을 사용하므로 사용자 PC에 Python이 없어도 됩니다. OpenAI STT는 로컬 Python이 필요하지 않습니다.
 
 ## 최초 설정 워크플로우
 
@@ -269,6 +279,8 @@ Local Whisper를 쓰려면 앱이 사용하는 Python 환경에 `faster-whisper`
    - Discord bot token 저장,
    - Discord guild allowlist 선택,
    - STT provider 선택,
+   - local Whisper는 저장하고 설치를 눌러 Python 환경, 패키지, 모델 확인이 끝날 때까지 대기,
+   - OpenAI STT는 API key를 입력하고 연결 테스트 실행,
    - AI 회의록 정리용 Claude Code CLI 설정,
    - Notion 업로드가 필요하면 Notion 설정,
    - 관리형 Notion 데이터베이스 생성 또는 검증.
@@ -379,6 +391,8 @@ npm run sessions:purge -- --all --dry-run
 - `secrets/secrets.json`
 - `sessions/dirong.sqlite`
 - `sessions/`
+- `python-venv/`
+- `models/`
 - `logs/`
 
 비밀값은 로컬에 저장되며, 대시보드/API 상태 응답에서는 redacted snapshot만 노출됩니다.

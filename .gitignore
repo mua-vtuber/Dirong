@@ -17,7 +17,6 @@ AGENTS.md
 docs/
 
 references/*
-!references/.gitkeep
 
 npm-debug.log*
 

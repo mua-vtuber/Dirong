@@ -24,6 +24,7 @@
     const settingsWhisperModels = ['tiny', 'base', 'small', 'medium', 'large-v3'];
     const settingsOpenAiSttModels = ['gpt-4o-mini-transcribe', 'gpt-4o-transcribe', 'whisper-1'];
     const settingsClaudeModels = ['haiku', 'sonnet', 'opus'];
+    const AUDIO_TOKEN_REFRESH_MARGIN_MS = 60 * 1000;
     let lastDashboardState = null;
     let lastSetupSnapshot = null;
 
@@ -87,7 +88,8 @@
       setHtml('lockedCards', renderLockedCards(setupSnapshot));
       setHtml('pipeline', renderPhaseFlowCards(state));
       setHtml('metrics', renderAudioSummary(state));
-      setHtml('chunks', renderAudioRows(state));
+      setHtml('chunks', renderAudioRows(state), stableAudioRowsCacheKey);
+      syncAudioControlSources(state);
       setHtml('transcripts', renderTranscriptRows(state));
       setHtml('draftPreview', renderDraftPreview(state));
       setHtml('dbTabs', renderTabs([
@@ -1236,13 +1238,13 @@
       return '<tr><td>' + escapeHtml(item.time ?? '-') + '</td><td>' +
         i18n('dashboard.logs.filters.' + item.area) + '</td><td>' +
         escapeHtml(item.summary) + '</td><td>' + escapeHtml(item.nextAction ?? tr('dashboard.common.none')) +
-        '</td><td>' + rawDetails(item.details) + '</td></tr>';
+        '</td><td>' + rawDetails(item.details, logDetailsKey(item)) + '</td></tr>';
     }
     function renderLogJobRow(item) {
       return '<tr><td>' + escapeHtml(item.summary) + '</td><td>' +
         escapeHtml(statusLabel(item.status)) + '</td><td>' +
         escapeHtml(item.nextAction ?? tr('dashboard.common.none')) + '</td><td>' +
-        rawDetails(item.details) + '</td></tr>';
+        rawDetails(item.details, logDetailsKey(item)) + '</td></tr>';
     }
     function logEmptyState() {
       const key = 'dashboard.logs.empty.' + activeLogFilter;
@@ -1300,9 +1302,26 @@
         return value;
       }
     }
-    function rawDetails(value) {
-      return '<details><summary>' + i18n('dashboard.logs.details.toggle') +
+    function rawDetails(value, key = null) {
+      const keyAttr = key ? ' data-details-key="' + escapeHtml(key) + '"' : '';
+      return '<details' + keyAttr + '><summary>' + i18n('dashboard.logs.details.toggle') +
         '</summary><pre>' + escapeHtml(JSON.stringify(value, null, 2)) + '</pre></details>';
+    }
+    function logDetailsKey(item) {
+      const details = item.details ?? {};
+      return [
+        item.kind,
+        item.area,
+        details.id,
+        details.type,
+        details.sessionId,
+        details.chunkId,
+        details.sttJobId,
+        details.writeId,
+        details.path,
+        details.startedAtMs,
+        details.endedAtMs
+      ].filter((part) => part !== undefined && part !== null && part !== '').join(':');
     }
     function requiredKeysForRole(role) {
       if (role === 'member') {
@@ -1325,12 +1344,34 @@
       const seconds = String(totalSeconds % 60).padStart(2, '0');
       return minutes + ':' + seconds;
     }
-    function setHtml(id, html) {
-      if (sectionCache.get(id) === html) {
+    function setHtml(id, html, cacheKeyBuilder = null) {
+      const cacheKey = cacheKeyBuilder ? cacheKeyBuilder(html) : html;
+      if (sectionCache.get(id) === cacheKey) {
         return;
       }
-      sectionCache.set(id, html);
-      document.getElementById(id).innerHTML = html;
+      sectionCache.set(id, cacheKey);
+      const root = document.getElementById(id);
+      const openDetails = captureOpenDetails(root);
+      root.innerHTML = html;
+      restoreOpenDetails(root, openDetails);
+    }
+    function captureOpenDetails(root) {
+      const open = new Set();
+      root.querySelectorAll('details[open]').forEach((details, index) => {
+        open.add(detailsStateKey(details, index));
+      });
+      return open;
+    }
+    function restoreOpenDetails(root, open) {
+      if (open.size === 0) return;
+      root.querySelectorAll('details').forEach((details, index) => {
+        if (open.has(detailsStateKey(details, index))) {
+          details.open = true;
+        }
+      });
+    }
+    function detailsStateKey(details, index) {
+      return details.getAttribute('data-details-key') ?? String(index);
     }
     function metric(label, value) {
       return '<div class="metric"><div class="label">' + escapeHtml(label) +
@@ -1579,9 +1620,65 @@
       }
       const sttUrl = c.audioUrls?.stt;
       const stt = c.stt_audio_path && c.stt_byte_size > 0 && sttUrl
-        ? '<div class="label">' + i18n('dashboard.audio.playback.sttSafe') + '</div><audio controls preload="metadata" src="' + escapeHtml(sttUrl) + '"></audio>'
+        ? '<div class="label">' + i18n('dashboard.audio.playback.sttSafe') + '</div>' + audioControl(c.id, 'stt', sttUrl)
         : '';
-      return stt + '<div class="label">' + i18n('dashboard.audio.playback.raw') + '</div><audio controls preload="metadata" src="' + escapeHtml(rawUrl) + '"></audio>';
+      return stt + '<div class="label">' + i18n('dashboard.audio.playback.raw') + '</div>' + audioControl(c.id, 'raw', rawUrl);
+    }
+    function audioControl(chunkId, kind, url) {
+      return '<audio controls preload="metadata" data-audio-chunk-id="' +
+        escapeHtml(chunkId) + '" data-audio-kind="' + escapeHtml(kind) +
+        '" src="' + escapeHtml(url) + '"></audio>';
+    }
+    function stableAudioRowsCacheKey(html) {
+      return html.replace(/tok%65n=[^"'<\s]+/g, 'tok%65n=__signed_audio_token__');
+    }
+    function syncAudioControlSources(state) {
+      const root = document.getElementById('chunks');
+      if (!root) return;
+      const urls = new Map();
+      for (const chunk of state.recentChunks ?? []) {
+        if (!chunk?.id) continue;
+        if (chunk.audioUrls?.raw) {
+          urls.set(chunk.id + ':raw', chunk.audioUrls.raw);
+        }
+        if (chunk.audioUrls?.stt) {
+          urls.set(chunk.id + ':stt', chunk.audioUrls.stt);
+        }
+      }
+      root.querySelectorAll('audio[data-audio-chunk-id][data-audio-kind]').forEach((audio) => {
+        const key = audio.getAttribute('data-audio-chunk-id') + ':' +
+          audio.getAttribute('data-audio-kind');
+        const nextUrl = urls.get(key);
+        if (!nextUrl || shouldKeepAudioSource(audio, nextUrl)) {
+          return;
+        }
+        audio.setAttribute('src', nextUrl);
+      });
+    }
+    function shouldKeepAudioSource(audio, nextUrl) {
+      const currentUrl = audio.getAttribute('src') ?? '';
+      if (currentUrl === nextUrl) {
+        return true;
+      }
+      if (!audio.paused && !audio.ended) {
+        return true;
+      }
+      const currentExpiresAt = signedAudioUrlExpiresAt(currentUrl);
+      const nextExpiresAt = signedAudioUrlExpiresAt(nextUrl);
+      if (currentExpiresAt && currentExpiresAt - Date.now() > AUDIO_TOKEN_REFRESH_MARGIN_MS) {
+        return true;
+      }
+      return Boolean(currentExpiresAt && nextExpiresAt && nextExpiresAt <= currentExpiresAt);
+    }
+    function signedAudioUrlExpiresAt(value) {
+      try {
+        const url = new URL(value, window.location.origin);
+        const token = url.searchParams.get('token') ?? url.searchParams.get('tok%65n');
+        const expiresAt = Number(String(token ?? '').split('.')[0]);
+        return Number.isSafeInteger(expiresAt) ? expiresAt : null;
+      } catch (_error) {
+        return null;
+      }
     }
     function shortHash(value) {
       if (!value) return '';

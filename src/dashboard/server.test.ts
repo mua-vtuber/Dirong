@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { once } from "node:events";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import type { Server } from "node:http";
+import { connect, type Socket } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -1010,6 +1012,33 @@ test("DashboardServer getUrl reports the actual bound port", async () => {
   }
 });
 
+test("DashboardServer stop force-closes active HTTP connections", async () => {
+  const dashboard = new DashboardServer(
+    makeDashboardConfig(),
+    makeStore(),
+    makeProducer(),
+    {},
+    { stopForceCloseMs: 5 },
+  );
+  await dashboard.start();
+  const server = (dashboard as unknown as { server: Server | null }).server;
+  assert.ok(server);
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const socket = await openIncompleteHttpConnection(address.port);
+
+  try {
+    const startedAt = Date.now();
+    await dashboard.stop();
+    const elapsedMs = Date.now() - startedAt;
+
+    assert.ok(elapsedMs < 500, `dashboard stop waited too long: ${elapsedMs}ms`);
+    assert.equal((dashboard as unknown as { server: Server | null }).server, null);
+  } finally {
+    socket.destroy();
+  }
+});
+
 test("DashboardServer reports occupied dashboard ports without a raw stack", async () => {
   const first = new DashboardServer(
     makeDashboardConfig(),
@@ -1403,6 +1432,16 @@ async function startDashboardFixture(
       await dashboard.stop();
     },
   };
+}
+
+async function openIncompleteHttpConnection(port: number): Promise<Socket> {
+  const socket = connect({ host: "127.0.0.1", port });
+  socket.on("error", () => {
+    // The server may force-close this socket during shutdown.
+  });
+  await once(socket, "connect");
+  socket.write("GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n");
+  return socket;
 }
 
 async function postJson(

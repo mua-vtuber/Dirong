@@ -21,6 +21,7 @@ export type AiCleanupProviderOptions = {
   systemPrompt: string;
   userPrompt: string;
   jsonSchema: unknown;
+  signal?: AbortSignal;
   progress?: AiCleanupProgressObserver;
   progressContext?: AiCleanupProgressContext;
 };

@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import process from "node:process";
-import { createInterface } from "node:readline";
+import { createInterface, type Interface as ReadlineInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import {
   AttachmentBuilder,
@@ -234,6 +234,7 @@ const dashboard = new DashboardServer(config, store, producer, {
 const dashboardUrl = await startDashboardOrExit();
 const initialSetupStatus = setupStatus.getSnapshot();
 let shutdownPromise: Promise<void> | null = null;
+let consoleReadline: ReadlineInterface | null = null;
 
 console.log("디롱이 Recording + STT dashboard 시작:", dashboardUrl);
 console.log("설정 상태 API:", `${dashboardUrl}api/setup/status`);
@@ -512,15 +513,36 @@ function resolveCommandRegistrationGuildIds(): string[] {
 }
 
 function startConsoleCommands(): void {
+  if (consoleReadline) {
+    return;
+  }
+
   const readline = createInterface({
     input: process.stdin,
     output: process.stdout,
   });
+  consoleReadline = readline;
 
   readline.on("line", (line) => {
     const command = line.trim().toLowerCase();
     void handleConsoleCommand(command);
   });
+  readline.on("close", () => {
+    if (consoleReadline === readline) {
+      consoleReadline = null;
+    }
+  });
+}
+
+function stopConsoleCommands(): void {
+  const readline = consoleReadline;
+  if (!readline) {
+    return;
+  }
+
+  consoleReadline = null;
+  readline.removeAllListeners("line");
+  readline.close();
 }
 
 async function handleConsoleCommand(command: string): Promise<void> {
@@ -559,6 +581,7 @@ async function shutdown(reason: string): Promise<void> {
 
   shutdownPromise = (async () => {
     console.log(`종료 처리 중: ${reason}`);
+    stopConsoleCommands();
     await aloneFinalize.stop();
     await producer.shutdown();
     try {

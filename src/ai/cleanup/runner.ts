@@ -98,6 +98,7 @@ export type AiCleanupRunOptions = {
   customNotionPropertyPrompt?: (context: AiCleanupSessionContext) => string;
   memberRosterPrompt?: (context: AiCleanupSessionContext) => string;
   backup?: () => string[];
+  signal?: AbortSignal;
   progress?: AiCleanupProgressObserver;
 };
 
@@ -127,6 +128,8 @@ async function runAiCleanupForSessionCore(
   store: AiCleanupRunStore,
   options: AiCleanupRunOptions,
 ): Promise<AiCleanupRunResult> {
+  throwIfAborted(options.signal);
+
   const locale = resolveAppLocale({ locale: options.locale });
   const session = store.getSession(options.sessionId);
   if (!session) {
@@ -360,6 +363,7 @@ async function runAiCleanupForSessionCore(
         systemPrompt,
         userPrompt,
         jsonSchema: MEETING_NOTES_DRAFT_JSON_SCHEMA,
+        signal: options.signal,
         progress: options.progress,
         progressContext,
       },
@@ -650,6 +654,16 @@ async function runAiCleanupForSessionCore(
     job: store.getAiCleanupJob(claimed.id),
     draft: savedDraft,
   };
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) {
+    return;
+  }
+  throw new AiCleanupProviderError(
+    "provider_timeout",
+    "AI cleanup run was cancelled.",
+  );
 }
 
 export function buildPhase4ContextualInputHash(

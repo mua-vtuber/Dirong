@@ -92,23 +92,50 @@ export class ClaudeStreamJsonCliCleanupProvider implements AiCleanupProvider {
     _input: AiCleanupProviderInput,
     options: AiCleanupProviderOptions,
   ): Promise<AiCleanupProviderResult> {
+    if (options.signal?.aborted) {
+      throw new AiCleanupProviderError(
+        "provider_timeout",
+        "Claude stream-json request was cancelled before it started.",
+      );
+    }
+
     const startedAt = Date.now();
     const extraArgs = buildPersistentCleanupExtraArgs(options);
+    let abortListener: (() => void) | null = null;
     try {
       await this.killSession();
-      this.session = new ClaudePersistentSmokeSession({
+      const session = new ClaudePersistentSmokeSession({
         command: this.command,
         extraArgs,
         model: this.modelName,
         spawnProcess: this.spawnProcess,
         timeoutMs: options.timeoutMs,
       });
+      this.session = session;
 
-      const turn = await this.session.request(options.userPrompt, {
+      abortListener = () => {
+        session.kill();
+      };
+      options.signal?.addEventListener("abort", abortListener, { once: true });
+      if (options.signal?.aborted) {
+        throw new AiCleanupProviderError(
+          "provider_timeout",
+          "Claude stream-json request was cancelled before it started.",
+        );
+      }
+
+      const turn = await session.request(options.userPrompt, {
         timeoutMs: options.timeoutMs,
         maxOutputBytes: options.maxOutputBytes,
         progress: (progress) => emitClaudeProgress(options, progress),
       });
+
+      if (options.signal?.aborted) {
+        throw new AiCleanupProviderError(
+          "provider_timeout",
+          "Claude stream-json request was cancelled.",
+        );
+      }
 
       return {
         provider: this.providerName,
@@ -125,6 +152,9 @@ export class ClaudeStreamJsonCliCleanupProvider implements AiCleanupProvider {
         durationMs: Date.now() - startedAt,
       };
     } finally {
+      if (abortListener) {
+        options.signal?.removeEventListener("abort", abortListener);
+      }
       await this.killSession();
     }
   }

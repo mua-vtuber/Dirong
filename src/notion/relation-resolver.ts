@@ -28,6 +28,7 @@ export async function renderNotionCustomPageProperties(input: {
   client: NotionClient | null;
   draftInput: NotionDraftInput;
   rules: readonly NotionCustomPropertyRule[];
+  signal?: AbortSignal;
 }): Promise<Record<string, unknown>> {
   const properties: Record<string, unknown> = {};
   const enabledRules = input.rules.filter((rule) => rule.enabled);
@@ -43,6 +44,7 @@ export async function renderNotionCustomPageProperties(input: {
         client: input.client,
         rule,
         values,
+        signal: input.signal,
       });
       if (relation.length > 0) {
         properties[rule.propertyName] = { relation };
@@ -91,6 +93,7 @@ export async function resolveManagedMemberRelations(input: {
   client: NotionClient | null;
   draftInput: NotionDraftInput;
   target: ManagedResolvedTarget;
+  signal?: AbortSignal;
 }): Promise<{ pageIds: string[]; warnings: string[] }> {
   const warnings: string[] = [];
   if (!input.client) {
@@ -108,6 +111,7 @@ export async function resolveManagedMemberRelations(input: {
       client: input.client,
       target: input.target,
       name,
+      signal: input.signal,
     });
     if (!pageId) {
       warnings.push(
@@ -129,6 +133,7 @@ async function findManagedMemberPageByDiscordName(input: {
   client: NotionClient;
   target: ManagedResolvedTarget;
   name: string;
+  signal?: AbortSignal;
 }): Promise<string | null> {
   const filter = buildManagedMemberMatchFilter(
     input.target.memberDiscordNameProperty,
@@ -144,6 +149,7 @@ async function findManagedMemberPageByDiscordName(input: {
       filter,
       page_size: 2,
     },
+    { signal: input.signal },
   );
   const results = readResults(existing);
   return results.length === 1 ? readId(results[0]) : null;
@@ -194,6 +200,7 @@ async function renderRelationProperty(input: {
   client: NotionClient | null;
   rule: NotionCustomPropertyRule;
   values: readonly string[];
+  signal?: AbortSignal;
 }): Promise<Array<{ id: string }>> {
   const fixedPageId = readRelationTargetPageId(input.rule);
   if (fixedPageId) {
@@ -205,7 +212,7 @@ async function renderRelationProperty(input: {
   if (input.values.length === 0) {
     return [];
   }
-  const target = await resolveRelationTarget(input.client, input.rule);
+  const target = await resolveRelationTarget(input.client, input.rule, input.signal);
   if (!target) {
     return [];
   }
@@ -224,6 +231,7 @@ async function renderRelationProperty(input: {
       matchPropertyType: matchProperty.type ?? "unknown",
       value,
       autoCreate: input.rule.relationAutoCreate,
+      signal: input.signal,
     });
     if (pageId) {
       relation.push({ id: pageId });
@@ -249,15 +257,19 @@ function readRelationTargetPageId(rule: NotionCustomPropertyRule): string | null
 async function resolveRelationTarget(
   client: NotionClient,
   rule: NotionCustomPropertyRule,
+  signal: AbortSignal | undefined,
 ): Promise<RemoteResolvedTarget | null> {
   if (rule.relationTargetUrl) {
     const parsed = parseNotionTargetUrl(rule.relationTargetUrl);
     if (parsed.kind !== "invalid") {
-      return await resolveTarget(client, parsed);
+      return await resolveTarget(client, parsed, signal);
     }
   }
   if (rule.relationDataSourceId) {
-    const dataSource = await client.retrieveDataSource(rule.relationDataSourceId);
+    const dataSource = await client.retrieveDataSource(
+      rule.relationDataSourceId,
+      { signal },
+    );
     return {
       id: rule.relationDataSourceId,
       name: readTargetName(dataSource),
@@ -274,6 +286,7 @@ async function findOrCreateRelationPage(input: {
   matchPropertyType: string;
   value: string;
   autoCreate: boolean;
+  signal?: AbortSignal;
 }): Promise<string | null> {
   const filter = buildRelationMatchFilter(input);
   if (!filter) {
@@ -282,7 +295,7 @@ async function findOrCreateRelationPage(input: {
   const existing = await input.client.queryDataSource(input.targetId, {
     filter,
     page_size: 2,
-  });
+  }, { signal: input.signal });
   const results = readResults(existing);
   if (results.length === 1) {
     return readId(results[0]);
@@ -297,7 +310,7 @@ async function findOrCreateRelationPage(input: {
         title: richText(input.value),
       },
     },
-  });
+  }, { signal: input.signal });
   return readId(created);
 }
 

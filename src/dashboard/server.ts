@@ -157,6 +157,12 @@ export type DashboardRuntimeSources = {
   sttAutomation?: DashboardSttAutomationSource;
 };
 
+export const DEFAULT_DASHBOARD_STOP_FORCE_CLOSE_MS = 1000;
+
+export type DashboardServerLifecycleOptions = {
+  stopForceCloseMs?: number;
+};
+
 export class DashboardServer {
   private server: Server | null = null;
   private url: string | null = null;
@@ -168,6 +174,7 @@ export class DashboardServer {
     private readonly store: DashboardStore,
     private readonly producer: RecordingProducer,
     private readonly runtimeSources: DashboardRuntimeSources = {},
+    private readonly lifecycleOptions: DashboardServerLifecycleOptions = {},
   ) {}
 
   async start(): Promise<string> {
@@ -225,14 +232,29 @@ export class DashboardServer {
   }
 
   async stop(): Promise<void> {
-    if (!this.server) {
+    const server = this.server;
+    if (!server) {
       return;
     }
-    await new Promise<void>((resolve) => {
-      this.server?.close(() => resolve());
-    });
     this.server = null;
     this.url = null;
+
+    server.closeIdleConnections?.();
+    await new Promise<void>((resolve) => {
+      const forceCloseTimer = setTimeout(() => {
+        server.closeAllConnections?.();
+      }, Math.max(
+        0,
+        this.lifecycleOptions.stopForceCloseMs ??
+          DEFAULT_DASHBOARD_STOP_FORCE_CLOSE_MS,
+      ));
+      forceCloseTimer.unref?.();
+
+      server.close(() => {
+        clearTimeout(forceCloseTimer);
+        resolve();
+      });
+    });
   }
 
   getUrl(): string {

@@ -517,6 +517,28 @@ test("AiCleanupAutomationService stop publishes stopped snapshot", async () => {
   }
 });
 
+test("AiCleanupAutomationService stop aborts an active provider run", async () => {
+  const fixture = createSessionFixture();
+  try {
+    addCompletedRealSttChunk(fixture, 1, "종료 중인 provider 요청입니다.");
+    finalizeSession(fixture);
+    const provider = new AbortAwareAiCleanupProvider();
+    const service = await createReadyAutomationService(fixture, provider);
+
+    const running = service.runOnce();
+    await waitFor(() => provider.observedSignal !== null);
+    await service.stop();
+    await running;
+
+    const snapshot = service.getSnapshot();
+    assert.equal(provider.observedSignal?.aborted, true);
+    assert.equal(snapshot.status, "stopped");
+    assert.deepEqual(snapshot.inFlightSessionIds, []);
+  } finally {
+    fixture.close();
+  }
+});
+
 test("formatAiCleanupAutomationForStatus renders concise non-developer status", () => {
   assert.match(
     formatAiCleanupAutomationForStatus({
@@ -943,5 +965,48 @@ class MissingProvider extends CountingFakeAiCleanupProvider {
   ): Promise<AiCleanupProviderResult> {
     this.generateCalls += 1;
     throw new Error("generate should not be called");
+  }
+}
+
+class AbortAwareAiCleanupProvider extends CountingFakeAiCleanupProvider {
+  observedSignal: AbortSignal | null = null;
+
+  override async generate(
+    input: AiCleanupProviderInput,
+    options: AiCleanupProviderOptions,
+  ): Promise<AiCleanupProviderResult> {
+    this.generateCalls += 1;
+    this.lastInput = input;
+    this.lastUserPrompt = options.userPrompt;
+    this.observedSignal = options.signal ?? null;
+    return await new Promise<AiCleanupProviderResult>((_resolve, reject) => {
+      const signal = options.signal;
+      if (!signal) {
+        reject(new Error("AbortSignal was not passed to AI cleanup provider."));
+        return;
+      }
+      const onAbort = (): void => {
+        signal.removeEventListener("abort", onAbort);
+        reject(new AiCleanupProviderError("provider_timeout", "provider cancelled"));
+      };
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+}
+
+async function waitFor(
+  predicate: () => boolean,
+  timeoutMs = 1000,
+): Promise<void> {
+  const started = Date.now();
+  while (!predicate()) {
+    if (Date.now() - started > timeoutMs) {
+      throw new Error("Timed out waiting for AI automation condition.");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }

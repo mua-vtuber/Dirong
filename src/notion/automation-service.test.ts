@@ -348,6 +348,26 @@ test("NotionAutomationService clears stale run details after stop and manual rec
   }
 });
 
+test("NotionAutomationService stop aborts an active upload request", async () => {
+  const fixture = createFixture();
+  try {
+    const client = new AbortAwareNotionClient();
+    const service = createService(fixture, { client });
+
+    const running = service.runOnce();
+    await waitFor(() => client.observedSignal !== null);
+    await service.stop();
+    await running;
+
+    const snapshot = service.getSnapshot();
+    assert.equal(client.observedSignal?.aborted, true);
+    assert.equal(snapshot.status, "stopped");
+    assert.deepEqual(snapshot.inFlightDraftIds, []);
+  } finally {
+    fixture.close();
+  }
+});
+
 test("NotionAutomationService clears stale run details when settings become incomplete", async () => {
   const fixture = createFixture();
   try {
@@ -514,6 +534,34 @@ class RetryableDatabaseLookupFailureClient extends FakeNotionClient {
       retriable: true,
       userAction: "Retry later.",
       technicalDetail: "rate limited while resolving target database",
+    });
+  }
+}
+
+class AbortAwareNotionClient extends FakeNotionClient {
+  observedSignal: AbortSignal | null = null;
+
+  override async createPage(
+    body: Record<string, unknown>,
+    options?: { signal?: AbortSignal },
+  ): Promise<Record<string, unknown>> {
+    this.calls.push({ method: "createPage", body });
+    this.observedSignal = options?.signal ?? null;
+    return await new Promise<Record<string, unknown>>((_resolve, reject) => {
+      const signal = options?.signal;
+      if (!signal) {
+        reject(new Error("AbortSignal was not passed to Notion createPage."));
+        return;
+      }
+      const onAbort = (): void => {
+        signal.removeEventListener("abort", onAbort);
+        reject(new Error("Notion upload cancelled."));
+      };
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      signal.addEventListener("abort", onAbort, { once: true });
     });
   }
 }

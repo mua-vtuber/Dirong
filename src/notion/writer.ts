@@ -65,6 +65,7 @@ export type RunNotionUploadOptions = {
   projectId?: string | null;
   memberRosterStore?: NotionMemberRosterStore | null;
   customPropertyRules?: readonly NotionCustomPropertyRule[];
+  signal?: AbortSignal;
 };
 
 export async function runNotionUpload(
@@ -107,6 +108,7 @@ export async function runNotionUpload(
       registryStore: options.registryStore ?? null,
       projectId: options.projectId,
       baseResult,
+      signal: options.signal,
     });
     if (!targetResolution.ok) {
       return targetResolution.result;
@@ -167,6 +169,7 @@ export async function runNotionUpload(
             client: options.client,
             draftInput,
             target,
+            signal: options.signal,
           })
         : { pageIds: [], warnings: [] };
 
@@ -210,6 +213,7 @@ export async function runNotionUpload(
       target,
       draftInput,
       renderPlan,
+      signal: options.signal,
     });
   } catch (error) {
     if (error instanceof NotionApiErrorClass) {
@@ -225,6 +229,7 @@ async function executeWrite(input: {
   target: ResolvedTarget;
   draftInput: NotionDraftInput;
   renderPlan: ReturnType<typeof renderUploadPlan>;
+  signal?: AbortSignal;
 }): Promise<NotionUploadResult> {
   const { options, nowIso, target, draftInput, renderPlan } = input;
   const writeStore = options.writeStore;
@@ -288,6 +293,7 @@ async function executeWrite(input: {
       client: options.client,
       draftInput,
       rules: options.customPropertyRules ?? [],
+      signal: input.signal,
     });
     const page = await ensurePage({
       client: options.client,
@@ -299,6 +305,7 @@ async function executeWrite(input: {
       propertyDraftIdName: target.draftIdPropertyName,
       propertySessionIdName: target.sessionIdPropertyName,
       nowIso,
+      signal: input.signal,
     });
     await recoverRemoteBlocks({
       client: options.client,
@@ -307,6 +314,7 @@ async function executeWrite(input: {
       pageId: page.id,
       blocks: renderPlan.blocks,
       nowIso,
+      signal: input.signal,
     });
     await appendRemainingBlocks({
       client: options.client,
@@ -315,10 +323,11 @@ async function executeWrite(input: {
       pageId: page.id,
       blocks: renderPlan.blocks,
       nowIso,
+      signal: input.signal,
     });
     await options.client?.updatePage(page.id, {
       properties: { ...renderPlan.doneProperties, ...customProperties },
-    });
+    }, { signal: input.signal });
     const actionItemWarnings = target.kind === "managed"
       ? await syncManagedActionItemPages({
           client: options.client,
@@ -326,6 +335,7 @@ async function executeWrite(input: {
           draftInput,
           meetingPageId: page.id,
           memberRosterStore: options.memberRosterStore ?? null,
+          signal: input.signal,
         })
       : [];
     const warnings = [...renderPlan.warnings, ...actionItemWarnings];
@@ -376,6 +386,7 @@ async function ensurePage(input: {
   propertyDraftIdName: string;
   propertySessionIdName: string;
   nowIso: string;
+  signal?: AbortSignal;
 }): Promise<{ id: string; url: string | null }> {
   if (!input.client) {
     throw new Error("Notion client is required.");
@@ -393,7 +404,7 @@ async function ensurePage(input: {
       rich_text: { equals: input.draftInput.draft.id },
     },
     page_size: 2,
-  });
+  }, { signal: input.signal });
   const results = readResults(existing);
   if (results.length > 1) {
     throw createWriterValidationError(
@@ -419,7 +430,7 @@ async function ensurePage(input: {
       rich_text: { equals: input.draftInput.session.id },
     },
     page_size: 2,
-  });
+  }, { signal: input.signal });
   const sessionResults = readResults(existingBySession);
   if (sessionResults.length > 1) {
     throw createWriterValidationError(
@@ -442,7 +453,7 @@ async function ensurePage(input: {
   const created = await input.client.createPage({
     parent: { data_source_id: input.target.id },
     properties: input.properties,
-  });
+  }, { signal: input.signal });
   const page = readPageRef(created);
   input.writeStore.savePageCreated({
     id: input.write.id,
@@ -459,6 +470,7 @@ async function syncManagedActionItemPages(input: {
   draftInput: NotionDraftInput;
   meetingPageId: string;
   memberRosterStore: NotionMemberRosterStore | null;
+  signal?: AbortSignal;
 }): Promise<string[]> {
   const warnings: string[] = [];
   if (!input.client || !input.target.actionItemTarget) {
@@ -479,6 +491,7 @@ async function syncManagedActionItemPages(input: {
           : null,
         sourceActionId,
         memberRosterStore: input.memberRosterStore,
+        signal: input.signal,
       });
       const properties = renderNotionTaskPageProperties({
         actionItem,
@@ -493,6 +506,7 @@ async function syncManagedActionItemPages(input: {
         client: input.client,
         target: input.target,
         sourceActionId,
+        signal: input.signal,
       });
       if (existing.status === "ambiguous") {
         warnings.push(
@@ -501,7 +515,11 @@ async function syncManagedActionItemPages(input: {
         continue;
       }
       if (existing.pageId) {
-        await input.client.updatePage(existing.pageId, { properties });
+        await input.client.updatePage(
+          existing.pageId,
+          { properties },
+          { signal: input.signal },
+        );
         continue;
       }
       await input.client.createPage({
@@ -509,8 +527,11 @@ async function syncManagedActionItemPages(input: {
           data_source_id: input.target.actionItemTarget.database.dataSourceId,
         },
         properties,
-      });
+      }, { signal: input.signal });
     } catch (error) {
+      if (input.signal?.aborted) {
+        throw error;
+      }
       warnings.push(
         `${sourceActionId}: 할 일 페이지 동기화 중 오류가 발생했습니다 (${error instanceof Error ? error.message : String(error)}).`,
       );
@@ -524,6 +545,7 @@ async function findExistingActionItemPage(input: {
   client: NotionClient;
   target: ManagedResolvedTarget;
   sourceActionId: string;
+  signal?: AbortSignal;
 }): Promise<{ status: "none" | "found" | "ambiguous"; pageId: string | null }> {
   const sourceProperty =
     input.target.actionItemTarget?.properties["task.sourceActionId"];
@@ -539,6 +561,7 @@ async function findExistingActionItemPage(input: {
       },
       page_size: 2,
     },
+    { signal: input.signal },
   );
   const results = readResults(response);
   if (results.length > 1) {
@@ -556,6 +579,7 @@ async function resolveActionItemWorkerPage(input: {
   ownerName: string | null;
   sourceActionId: string;
   memberRosterStore: NotionMemberRosterStore | null;
+  signal?: AbortSignal;
 }): Promise<{ pageId: string | null; warnings: string[] }> {
   const ownerName = input.ownerName?.trim();
   if (!ownerName) {
@@ -576,6 +600,7 @@ async function resolveActionItemWorkerPage(input: {
   const response = await input.client.queryDataSource(
     input.target.memberDatabase.dataSourceId,
     { filter, page_size: 2 },
+    { signal: input.signal },
   );
   const results = readResults(response);
   if (results.length === 1) {

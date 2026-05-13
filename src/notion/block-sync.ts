@@ -17,11 +17,16 @@ export async function recoverRemoteBlocks(input: {
   pageId: string;
   blocks: RenderedNotionBlock[];
   nowIso: string;
+  signal?: AbortSignal;
 }): Promise<void> {
   if (!input.client) {
     return;
   }
-  const response = await input.client.retrieveBlockChildren(input.pageId);
+  const response = await input.client.retrieveBlockChildren(
+    input.pageId,
+    null,
+    { signal: input.signal },
+  );
   const remoteBlocks = readResults(response);
   const recovered: Array<{
     blockIndex: number;
@@ -62,6 +67,7 @@ export async function appendRemainingBlocks(input: {
   pageId: string;
   blocks: RenderedNotionBlock[];
   nowIso: string;
+  signal?: AbortSignal;
 }): Promise<void> {
   if (!input.client) {
     throw new Error("Notion client is required.");
@@ -81,7 +87,7 @@ export async function appendRemainingBlocks(input: {
     const batch = remaining.slice(index, index + 100);
     const response = await input.client.appendBlockChildren(input.pageId, {
       children: batch.map((block) => block.block),
-    });
+    }, { signal: input.signal });
     const results = readResults(response);
     if (results.length !== batch.length) {
       throw createWriterValidationError(

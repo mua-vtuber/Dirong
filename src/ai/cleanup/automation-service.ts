@@ -134,7 +134,7 @@ export class AiCleanupAutomationService {
     this.loop = new EnabledPollingLoop({
       enabled: () => this.options.enabled,
       intervalMs: options.pollIntervalMs,
-      runTick: () => this.tick(),
+      runTick: (signal) => this.tick(signal),
       onScheduledError: (error) => this.handleScheduledError(error),
     });
   }
@@ -197,7 +197,7 @@ export class AiCleanupAutomationService {
     return await this.loop.runOnce();
   }
 
-  private async tick(): Promise<AiCleanupAutomationSnapshot> {
+  private async tick(signal: AbortSignal): Promise<AiCleanupAutomationSnapshot> {
     const checkedAt = new Date().toISOString();
     const repairedExpiredSttLeases =
       this.store.releaseExpiredProcessingLeases(checkedAt);
@@ -408,6 +408,7 @@ export class AiCleanupAutomationService {
         existingJob,
         repairedExpiredJobs,
         repairedExpiredSttLeases,
+        signal,
       );
     }
 
@@ -437,6 +438,7 @@ export class AiCleanupAutomationService {
     existingJob: AiCleanupJobRow | null,
     repairedExpiredJobs: AiCleanupLeaseRepairSummary,
     repairedExpiredSttLeases: number,
+    signal: AbortSignal,
   ): Promise<AiCleanupAutomationSnapshot> {
     this.inFlightSessionIds.add(sessionId);
     this.snapshot = this.makeSnapshot({
@@ -466,6 +468,7 @@ export class AiCleanupAutomationService {
         dryRun: false,
         provider: this.options.provider,
         locale: this.resolveLocale(),
+        signal,
         progress: (progress) => this.acceptProgress(progress),
       });
       this.snapshot = snapshotFromRunResult({

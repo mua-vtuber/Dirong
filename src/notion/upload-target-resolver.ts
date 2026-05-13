@@ -113,6 +113,7 @@ export async function resolveUploadTarget(input: {
   registryStore: NotionRegistryStore | null;
   projectId?: string | null;
   baseResult: NotionUploadResult;
+  signal?: AbortSignal;
 }): Promise<
   | { ok: true; target: ResolvedTarget }
   | { ok: false; result: NotionUploadResult }
@@ -143,6 +144,7 @@ export async function resolveUploadTarget(input: {
       client: input.client,
       candidate: managedCandidate,
       baseResult: input.baseResult,
+      signal: input.signal,
     });
   }
 
@@ -174,7 +176,7 @@ export async function resolveUploadTarget(input: {
     };
   }
 
-  const target = await resolveTarget(input.client, parsedTarget);
+  const target = await resolveTarget(input.client, parsedTarget, input.signal);
   const schemaValidation = validateNotionDataSourceSchema(
     readDataSourceProperties(target.dataSource),
     input.settings.propertyNames,
@@ -216,12 +218,14 @@ async function resolveManagedUploadTarget(input: {
   client: NotionClient;
   candidate: ManagedUploadRegistryCandidate;
   baseResult: NotionUploadResult;
+  signal?: AbortSignal;
 }): Promise<
   | { ok: true; target: ManagedResolvedTarget }
   | { ok: false; result: NotionUploadResult }
 > {
   const meetingDataSource = await input.client.retrieveDataSource(
     input.candidate.meetingDatabase.dataSourceId,
+    { signal: input.signal },
   );
   const meetingValidation = validateManagedDataSourceSchemaForUpload({
     databaseRole: "meeting",
@@ -251,6 +255,7 @@ async function resolveManagedUploadTarget(input: {
 
   const memberDataSource = await input.client.retrieveDataSource(
     input.candidate.memberDatabase.dataSourceId,
+    { signal: input.signal },
   );
   const memberValidation = validateManagedDataSourceSchemaForUpload({
     databaseRole: "member",
@@ -289,6 +294,7 @@ async function resolveManagedUploadTarget(input: {
   const actionItems = await resolveManagedActionItemTarget({
     client: input.client,
     candidate: input.candidate,
+    signal: input.signal,
   });
   return {
     ok: true,
@@ -316,6 +322,7 @@ async function resolveManagedUploadTarget(input: {
 async function resolveManagedActionItemTarget(input: {
   client: NotionClient;
   candidate: ManagedUploadRegistryCandidate;
+  signal?: AbortSignal;
 }): Promise<{
   target: ManagedResolvedTarget["actionItemTarget"];
   warnings: string[];
@@ -331,6 +338,7 @@ async function resolveManagedActionItemTarget(input: {
   try {
     const taskDataSource = await input.client.retrieveDataSource(
       input.candidate.taskDatabase.dataSourceId,
+      { signal: input.signal },
     );
     const taskValidation = validateManagedDataSourceSchemaForUpload({
       databaseRole: "task",
@@ -355,6 +363,9 @@ async function resolveManagedActionItemTarget(input: {
       warnings,
     };
   } catch (error) {
+    if (input.signal?.aborted) {
+      throw error;
+    }
     return {
       target: null,
       warnings: [
@@ -423,9 +434,10 @@ function requireSemanticResolvedProperty(
 export async function resolveTarget(
   client: NotionClient,
   parsedTarget: Exclude<ReturnType<typeof parseNotionTargetUrl>, { kind: "invalid" }>,
+  signal?: AbortSignal,
 ): Promise<RemoteResolvedTarget> {
   if (parsedTarget.kind === "data_source_id") {
-    const dataSource = await client.retrieveDataSource(parsedTarget.id);
+    const dataSource = await client.retrieveDataSource(parsedTarget.id, { signal });
     return {
       id: parsedTarget.id,
       name: readTargetName(dataSource),
@@ -433,7 +445,7 @@ export async function resolveTarget(
     };
   }
 
-  const database = await client.retrieveDatabase(parsedTarget.id);
+  const database = await client.retrieveDatabase(parsedTarget.id, { signal });
   const dataSources = readDataSources(database);
   if (dataSources.length !== 1) {
     throw createWriterValidationError(
@@ -450,7 +462,7 @@ export async function resolveTarget(
       "database child data source id missing",
     );
   }
-  const dataSource = await client.retrieveDataSource(dataSourceId);
+  const dataSource = await client.retrieveDataSource(dataSourceId, { signal });
   return {
     id: dataSourceId,
     name: readTargetName(dataSource),

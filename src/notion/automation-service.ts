@@ -132,7 +132,7 @@ export class NotionAutomationService {
     });
     this.loop = new PollingLoop({
       intervalMs: options.pollIntervalMs,
-      runTick: () => this.tick(),
+      runTick: (signal) => this.tick(signal),
       onScheduledError: (error) => {
         this.snapshot = this.makeSnapshot({
           ...this.snapshot,
@@ -203,7 +203,7 @@ export class NotionAutomationService {
     return await this.loop.runOnce();
   }
 
-  private async tick(): Promise<NotionAutomationSnapshot> {
+  private async tick(signal: AbortSignal): Promise<NotionAutomationSnapshot> {
     const runtime = this.getRuntime();
     const checkedAt = new Date().toISOString();
     const projectId = this.resolveProjectId();
@@ -296,6 +296,7 @@ export class NotionAutomationService {
       target.targetId,
       repairedExpiredLeases,
       runtime,
+      signal,
     );
   }
 
@@ -304,6 +305,7 @@ export class NotionAutomationService {
     targetId: string,
     repairedExpiredLeases: number,
     runtime: NotionAutomationRuntime,
+    signal: AbortSignal,
   ): Promise<NotionAutomationSnapshot> {
     this.inFlightDraftIds.add(candidate.id);
     this.snapshot = this.makeSnapshot({
@@ -335,6 +337,7 @@ export class NotionAutomationService {
         projectId: this.resolveProjectId(),
         memberRosterStore: this.options.memberRosterStore ?? null,
         customPropertyRules: this.options.customPropertyRules?.() ?? [],
+        signal,
       });
       await applyRetentionAfterSuccessfulUpload(
         this.options.retention,

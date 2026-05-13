@@ -1,6 +1,8 @@
     const projectLocalState = {
       busyProjectId: null,
       addBusy: false,
+      addFormOpen: false,
+      newProjectName: '',
       lastResult: null
     };
     const settingsResetLocalState = {
@@ -73,7 +75,7 @@
       document.body.dataset.theme = theme;
       document.getElementById('generatedAt').textContent =
         tr('dashboard.app.generatedAt') + ': ' + (state.generatedAt ?? '-');
-      document.getElementById('viewTitle').textContent = titleForView(activeView);
+      document.getElementById('viewTitle').textContent = titleForView(activeView, state, setupSnapshot);
       document.getElementById('audioTitle').textContent = tr('dashboard.audio.title');
       document.getElementById('notesTitle').textContent = tr('dashboard.notes.title');
       document.getElementById('needsAttentionTitle').textContent = tr('dashboard.logs.needsAttention.title');
@@ -82,7 +84,9 @@
       document.getElementById('aiCleanupTitle').textContent = tr('dashboard.logs.aiCleanup.title');
 
       renderSetupWizard(setupSnapshot);
-      renderSidebar(state, setupSnapshot);
+      if (shouldRenderSidebar()) {
+        renderSidebar(state, setupSnapshot);
+      }
       renderSetupIncompleteBanner(setupSnapshot);
       setHtml('statusChips', renderStatusChips(state, setupSnapshot));
       setHtml('lockedCards', renderLockedCards(setupSnapshot));
@@ -143,12 +147,32 @@
         ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName)
       );
     }
-    function titleForView(view) {
+    function titleForView(view, state, setup) {
       if (view === 'setup') return tr('dashboard.common.openWizard');
-      if (view === 'db') return tr('dashboard.nav.databaseSettings');
-      if (view === 'logs') return tr('dashboard.nav.logs');
-      if (view === 'settings') return tr('dashboard.nav.settings');
-      return tr('dashboard.nav.dashboard');
+      const viewTitle = view === 'db'
+        ? tr('dashboard.nav.databaseSettings')
+        : view === 'logs'
+          ? tr('dashboard.nav.logs')
+          : view === 'settings'
+            ? tr('dashboard.nav.settings')
+            : tr('dashboard.nav.dashboard');
+      const activeProject =
+        state?.projects?.activeProject ??
+        setup?.projectSetup?.activeProject ??
+        null;
+      const projectName = String(activeProject?.name ?? '').trim();
+      return projectName ? projectName + ' ' + viewTitle : viewTitle;
+    }
+    function shouldRenderSidebar() {
+      const sidebar = document.querySelector('.sidebar');
+      const active = document.activeElement;
+      return !(
+        projectLocalState.addFormOpen &&
+        sidebar &&
+        active &&
+        sidebar.contains(active) &&
+        ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName)
+      );
     }
     function renderSidebar(state, setup) {
       setHtml('sidebarServers', renderProjectList(state.projects, state));
@@ -182,24 +206,30 @@
         ? 'dashboard.projects.adding'
         : 'dashboard.projects.add';
       return list +
-        '<button type="button" class="server-button project-add-button"' +
-        (addDisabled ? ' disabled' : '') + ' onclick="createProjectFromSidebar()">' +
-        '<span>' + i18n(addLabel) + '</span></button>' +
+        (projectLocalState.addFormOpen
+          ? renderProjectCreateForm(addDisabled)
+          : '<button type="button" class="server-button project-add-button"' +
+            (addDisabled ? ' disabled' : '') + ' onclick="openProjectCreateForm()">' +
+            '<span>' + i18n(addLabel) + '</span></button>') +
         renderProjectActionStatus(snapshot, state);
+    }
+    function renderProjectCreateForm(disabled) {
+      return '<form class="project-create-form" onsubmit="createProjectFromSidebar(event)">' +
+        '<label><span class="label">' + i18n('dashboard.projects.nameLabel') + '</span>' +
+        '<input id="projectCreateName" type="text" maxlength="80" autocomplete="off" value="' +
+        escapeHtml(projectLocalState.newProjectName) + '" placeholder="' +
+        i18n('dashboard.projects.namePlaceholder') + '" oninput="rememberProjectCreateName(this.value)"></label>' +
+        '<div class="project-create-actions">' +
+        '<button type="submit"' + (disabled ? ' disabled' : '') + '>' +
+        i18n(disabled ? 'dashboard.projects.adding' : 'dashboard.projects.create') + '</button>' +
+        '<button type="button"' + (disabled ? ' disabled' : '') + ' onclick="cancelProjectCreate()">' +
+        i18n('dashboard.projects.cancel') + '</button></div></form>';
     }
     function renderProjectButton(project, activeProjectId) {
       const isActive = activeProjectId === project.id;
       const isBusy = projectLocalState.busyProjectId === project.id;
       const lifecycleStatus = project.lifecycleStatus ?? 'draft';
-      const notionLabel = project.notionConnectionConfigured && project.notionParentPageConfigured
-        ? tr('dashboard.projects.notion.ready')
-        : project.notionConnectionConfigured || project.notionParentPageConfigured
-          ? tr('dashboard.projects.notion.partial')
-          : tr('dashboard.projects.notion.missing');
       const guildLabel = project.guildName ?? project.guildId ?? tr('dashboard.projects.guildMissing');
-      const commandLabel = project.commandEnabled
-        ? tr('dashboard.projects.commandEnabled')
-        : tr('dashboard.projects.commandDisabled');
       const badges = '<span class="project-badges">' +
         (isActive ? '<span class="project-status project-status-active">' +
           i18n('dashboard.projects.active') + '</span>' : '') +
@@ -207,15 +237,14 @@
         escapeHtml(projectLifecycleLabel(lifecycleStatus)) + '</span></span>';
       return '<button type="button" class="server-button project-button' +
         (isActive ? ' is-active' : '') + ' project-lifecycle-' + escapeHtml(lifecycleStatus) + '"' +
-        (isActive || projectLocalState.addBusy || (projectLocalState.busyProjectId !== null && !isBusy)
+        (projectLocalState.addBusy || (projectLocalState.busyProjectId !== null && !isBusy)
           ? ' disabled'
           : '') +
         ' aria-current="' + (isActive ? 'true' : 'false') + '"' +
         ' onclick="switchProject(' + escapeHtml(JSON.stringify(project.id)) + ')">' +
         '<span class="project-button-main"><span class="project-name">' +
         escapeHtml(project.name) + '</span><span class="project-meta">' +
-        escapeHtml(guildLabel) + ' · ' + escapeHtml(notionLabel) + ' · ' +
-        escapeHtml(commandLabel) + '</span></span>' +
+        escapeHtml(guildLabel) + '</span></span>' +
         (isBusy ? '<span class="project-status project-status-busy">' +
           i18n('dashboard.projects.switching') + '</span>' : badges) +
         '</button>';
@@ -291,6 +320,32 @@
       setupLocalState.selectedGuildId = '';
       window.localStorage.removeItem('dirong.setup.guildId');
     }
+    function openProjectCreateForm() {
+      if (projectLocalState.addBusy || projectLocalState.busyProjectId) {
+        return;
+      }
+      projectLocalState.addFormOpen = true;
+      projectLocalState.lastResult = null;
+      if (lastDashboardState) renderSidebar(lastDashboardState, lastSetupSnapshot);
+      window.setTimeout(() => document.getElementById('projectCreateName')?.focus(), 0);
+    }
+    function cancelProjectCreate() {
+      if (projectLocalState.addBusy) {
+        return;
+      }
+      projectLocalState.addFormOpen = false;
+      projectLocalState.newProjectName = '';
+      if (lastDashboardState) renderSidebar(lastDashboardState, lastSetupSnapshot);
+    }
+    function rememberProjectCreateName(value) {
+      projectLocalState.newProjectName = value;
+    }
+    function goDashboardFromProjectMenu() {
+      window.sessionStorage.setItem(SETUP_SKIP_DASHBOARD_KEY, 'true');
+      activeView = 'dashboard';
+      window.localStorage.setItem('dirong.dashboard.view', activeView);
+      updateVisibleView();
+    }
     async function switchProject(projectId) {
       if (!projectId || projectLocalState.addBusy || projectLocalState.busyProjectId) {
         return;
@@ -300,10 +355,13 @@
         lastDashboardState?.projects?.activeProject?.id ??
         null;
       if (activeProjectId === projectId) {
+        goDashboardFromProjectMenu();
+        await refresh();
         return;
       }
       projectLocalState.busyProjectId = projectId;
       projectLocalState.lastResult = null;
+      projectLocalState.addFormOpen = false;
       if (lastDashboardState) renderSidebar(lastDashboardState, lastSetupSnapshot);
       try {
         const result = await dashboardApiSwitchProject(projectId);
@@ -311,6 +369,7 @@
         if (result.ok) {
           clearProjectScopedUiCache();
           resetProjectSetupSelection();
+          goDashboardFromProjectMenu();
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -324,15 +383,20 @@
         await refresh();
       }
     }
-    async function createProjectFromSidebar() {
+    async function createProjectFromSidebar(event) {
+      event?.preventDefault?.();
       if (projectLocalState.addBusy || projectLocalState.busyProjectId) {
         return;
       }
       projectLocalState.addBusy = true;
       projectLocalState.lastResult = null;
+      const projectName = String(
+        document.getElementById('projectCreateName')?.value ?? projectLocalState.newProjectName ?? ''
+      ).trim();
       if (lastDashboardState) renderSidebar(lastDashboardState, lastSetupSnapshot);
       try {
         const result = await dashboardApiCreateProject({
+          name: projectName || undefined,
           reuseEmptyDraft: true,
           activate: true
         });
@@ -340,6 +404,8 @@
         if (result.ok) {
           clearProjectScopedUiCache();
           resetProjectSetupSelection();
+          projectLocalState.addFormOpen = false;
+          projectLocalState.newProjectName = '';
           window.sessionStorage.removeItem(SETUP_SKIP_DASHBOARD_KEY);
           activeView = 'setup';
           window.localStorage.setItem('dirong.dashboard.view', activeView);

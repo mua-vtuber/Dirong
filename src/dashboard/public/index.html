@@ -659,6 +659,23 @@
       background: var(--bg-alt);
       overflow-wrap: anywhere;
     }
+    .project-create-form {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+      padding: 8px;
+      border: 1px solid var(--sidebar-line);
+      background: var(--bg-alt);
+    }
+    .project-create-form label {
+      display: grid;
+      gap: 5px;
+    }
+    .project-create-actions {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 6px;
+    }
     .project-action-status.is-ok {
       border-color: var(--ready-line);
       background: var(--ready-bg);
@@ -1209,6 +1226,7 @@
       .project-status,
       .project-action-status,
       .project-empty,
+      .project-create-form,
       .status-chip,
       .flow-card,
       .content-band,

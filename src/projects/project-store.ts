@@ -46,6 +46,12 @@ export type UpdateProjectDiscordGuildInput = {
   nowIso?: string;
 };
 
+export type UpdateProjectNameInput = {
+  projectId: string;
+  name: string;
+  nowIso?: string;
+};
+
 export type UpdateProjectNotionInput = {
   projectId: string;
   notionTokenSecretRef?: string | null;
@@ -171,6 +177,23 @@ export class ProjectStore {
       throw new Error("Project row was not created.");
     }
     return project;
+  }
+
+  updateProjectName(input: UpdateProjectNameInput): DirongProjectRow {
+    const nowIso = input.nowIso ?? new Date().toISOString();
+    const projectId = cleanRequiredString(input.projectId, "project id");
+    const name = cleanRequiredString(input.name, "project name");
+    this.requireProject(projectId);
+    this.runner.run(
+      `UPDATE dirong_projects
+       SET name = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      name,
+      nowIso,
+      projectId,
+    );
+    return this.requireProject(projectId);
   }
 
   updateProjectDiscordGuildFields(

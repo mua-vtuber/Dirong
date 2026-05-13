@@ -110,6 +110,14 @@ test("ProjectStore creates, lists, updates, archives, and switches active projec
     assert.equal(updatedGuild.guild_id, "111111111111111111");
     assert.equal(updatedGuild.guild_name, "Alpha Guild");
 
+    const renamed = store.updateProjectName({
+      projectId: "project-alpha",
+      name: "Alpha Renamed",
+      nowIso: "2026-05-13T00:01:30.000Z",
+    });
+    assert.equal(renamed.name, "Alpha Renamed");
+    assert.equal(renamed.updated_at, "2026-05-13T00:01:30.000Z");
+
     assert.throws(
       () =>
         store.updateProjectDiscordGuildFields({
@@ -135,7 +143,7 @@ test("ProjectStore creates, lists, updates, archives, and switches active projec
 
     store.setActiveProjectId("project-alpha", nowIso);
     assert.equal(store.getActiveProjectId(), "project-alpha");
-    assert.equal(store.getActiveProject()?.name, "Alpha");
+    assert.equal(store.getActiveProject()?.name, "Alpha Renamed");
 
     const archived = store.archiveProject("project-alpha", nowIso);
     assert.equal(archived.lifecycle_status, "archived");

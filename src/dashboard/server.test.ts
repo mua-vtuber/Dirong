@@ -526,12 +526,12 @@ test("DashboardServer project APIs list active project and create reusable draft
     );
 
     const created = await postJson(fixture.baseUrl, "/api/projects", {
-      name: "Ignored when reusable",
+      name: "Renamed Draft",
     });
     const createdBody = await created.json() as {
       ok: boolean;
       reused: boolean;
-      project: { id: string; notion_token_secret_ref?: string };
+      project: { id: string; name: string; notion_token_secret_ref?: string };
       switchResult: { ok: boolean; activeProject: { id: string } };
       activeProject: { id: string };
       activeProjectId: string | null;
@@ -541,6 +541,7 @@ test("DashboardServer project APIs list active project and create reusable draft
     assert.equal(createdBody.ok, true);
     assert.equal(createdBody.reused, true);
     assert.equal(createdBody.project.id, "project-empty-draft");
+    assert.equal(createdBody.project.name, "Renamed Draft");
     assert.equal(createdBody.project.notion_token_secret_ref, undefined);
     assert.equal(createdBody.switchResult.activeProject.id, "project-empty-draft");
     assert.equal(createdBody.activeProject.id, "project-empty-draft");
@@ -1463,7 +1464,12 @@ function makeProjectsSource(options: {
           project.notion_token_secret_ref === null &&
           project.notion_parent_page_url === null)
         : null;
-      const project = reusable ?? projectRow({
+      const project = reusable
+        ? Object.assign(reusable, {
+            name: input.name ?? reusable.name,
+            updated_at: input.name ? "2026-05-13T00:00:01.000Z" : reusable.updated_at,
+          })
+        : projectRow({
         id: `project-created-${++projectCounter}`,
         name: input.name ?? "Untitled Project",
         lifecycleStatus: "draft",

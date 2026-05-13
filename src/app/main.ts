@@ -204,9 +204,16 @@ const dashboard = new DashboardServer(config, store, producer, {
       const reusable = reuseEmptyDraft
         ? findReusableDraftProject(projectStore.listProjects())
         : null;
-      const project = reusable ?? projectStore.createDraftProject({
-        name: input.name,
-      });
+      const project = reusable
+        ? input.name
+          ? projectStore.updateProjectName({
+              projectId: reusable.id,
+              name: input.name,
+            })
+          : reusable
+        : projectStore.createDraftProject({
+            name: input.name,
+          });
       const shouldActivate = input.activate ?? true;
       return {
         project,

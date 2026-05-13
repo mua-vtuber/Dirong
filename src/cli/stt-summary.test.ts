@@ -34,7 +34,7 @@ test("formatSttRunSummary preserves provider-specific detail and note lines", ()
     dbPath: "data/dirong.sqlite",
     mode: "write",
     detailLines: ["provider: openai", "model: whisper-1", "language: ko"],
-    noteLines: ["OPENAI_API_KEY는 없지만 현재 provider dry-run에는 필요하지 않습니다."],
+    noteLines: ["OpenAI API key는 현재 provider dry-run에는 필요하지 않습니다."],
     result: {
       limit: 1,
       sessionId: "session-1",
@@ -50,7 +50,7 @@ test("formatSttRunSummary preserves provider-specific detail and note lines", ()
 
   assert.match(output, /mode: write\nprovider: openai\nmodel: whisper-1\nlanguage: ko\nlimit: 1/);
   assert.match(output, /more queued jobs hint: yes/);
-  assert.match(output, /OPENAI_API_KEY/);
+  assert.match(output, /OpenAI API key/);
 });
 
 test("printSqliteBackupSummary writes backup paths", () => {

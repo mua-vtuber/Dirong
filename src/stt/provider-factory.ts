@@ -52,7 +52,7 @@ export function assertPhase3SttProviderReady(input: {
     !input.settings.openai.apiKey
   ) {
     throw new Error(
-      "OPENAI_API_KEY가 없어 OpenAI STT를 호출하지 않았습니다. local-whisper를 쓰려면 --provider local-whisper를 선택해 주세요.",
+      "OpenAI API key가 저장되지 않아 OpenAI STT를 호출하지 않았습니다. local-whisper를 쓰려면 --provider local-whisper를 선택해 주세요.",
     );
   }
 }

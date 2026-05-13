@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import process from "node:process";
 import { generateDependencyReport } from "@discordjs/voice";
 import { resolveFfmpegPath } from "./media.js";
-import { loadDotEnv, readDiscordGuildIdsFromEnv } from "./config.js";
+import type { Phase1Config } from "./config.js";
 import { redactSensitiveText } from "./errors.js";
 
 const require = createRequire(import.meta.url);
@@ -42,9 +42,17 @@ export type HealthReport = {
   dependencyReport: string;
 };
 
-export async function runHealthCheck(): Promise<HealthReport> {
-  loadDotEnv();
+export type HealthCheckOptions = {
+  config?: Pick<
+    Phase1Config,
+    "discordBotToken" | "discordClientId" | "guildIds"
+  >;
+};
 
+export async function runHealthCheck(
+  options: HealthCheckOptions = {},
+): Promise<HealthReport> {
+  const discordConfig = readDiscordConfigStatus(options.config);
   const ffmpeg = await resolveFfmpegPath();
   const opusLibrary = detectFirstPackage([
     "@discordjs/opus",
@@ -106,7 +114,7 @@ export async function runHealthCheck(): Promise<HealthReport> {
         ? "Node crypto aes-256-gcm 사용 가능"
         : "Node crypto aes-256-gcm 미감지. 대체 암호화 라이브러리가 필요할 수 있습니다.",
     },
-    ...discordConfigChecks(),
+    ...discordConfigChecks(discordConfig),
   ];
 
   return {
@@ -128,14 +136,7 @@ export async function runHealthCheck(): Promise<HealthReport> {
     opusLibrary,
     daveLibrary,
     aes256GcmAvailable,
-    discordConfig: {
-      botToken: process.env.DISCORD_BOT_TOKEN ? "present" : "missing",
-      clientId: process.env.DISCORD_CLIENT_ID ? "present" : "missing",
-      guildId: readDiscordGuildIdsFromEnv().length > 0 ? "present" : "missing",
-      voiceChannelId: process.env.DISCORD_VOICE_CHANNEL_ID
-        ? "present"
-        : "missing",
-    },
+    discordConfig,
     checks,
     dependencyReport,
   };
@@ -151,31 +152,37 @@ export function criticalHealthFailed(report: HealthReport): boolean {
   );
 }
 
-function discordConfigChecks(): HealthCheck[] {
+function discordConfigChecks(
+  discordConfig: HealthReport["discordConfig"],
+): HealthCheck[] {
   const keys = [
-    ["DISCORD_BOT_TOKEN", "Discord bot token"],
-    ["DISCORD_CLIENT_ID", "Discord client ID"],
-    ["DISCORD_GUILD_IDS or DISCORD_GUILD_ID", "Discord guild IDs"],
-    ["DISCORD_VOICE_CHANNEL_ID", "Discord voice channel ID"],
+    ["botToken", "Discord bot token"],
+    ["clientId", "Discord client ID"],
+    ["guildId", "Discord guild IDs"],
+    ["voiceChannelId", "Discord voice channel ID"],
   ] as const;
 
   return keys.map(([key, name]) => ({
     name,
-    status: isDiscordConfigKeyPresent(key) ? "ok" : "not_configured",
-    message: isDiscordConfigKeyPresent(key)
-      ? `${key} 설정됨(값은 출력하지 않음)`
-      : `${key}가 아직 설정되지 않았습니다.`,
-    action: isDiscordConfigKeyPresent(key)
+    status: discordConfig[key] === "present" ? "ok" : "not_configured",
+    message: discordConfig[key] === "present"
+      ? "설정됨(값은 출력하지 않음)"
+      : "아직 설정되지 않았습니다.",
+    action: discordConfig[key] === "present"
       ? undefined
-      : ".env.example을 .env로 복사한 뒤 값을 채워 주세요.",
+      : "대시보드 설정 마법사에서 값을 저장해 주세요.",
   }));
 }
 
-function isDiscordConfigKeyPresent(key: string): boolean {
-  if (key === "DISCORD_GUILD_IDS or DISCORD_GUILD_ID") {
-    return readDiscordGuildIdsFromEnv().length > 0;
-  }
-  return Boolean(process.env[key]);
+function readDiscordConfigStatus(
+  config: HealthCheckOptions["config"],
+): HealthReport["discordConfig"] {
+  return {
+    botToken: config?.discordBotToken ? "present" : "missing",
+    clientId: config?.discordClientId ? "present" : "missing",
+    guildId: (config?.guildIds.length ?? 0) > 0 ? "present" : "missing",
+    voiceChannelId: "missing",
+  };
 }
 
 function detectFirstPackage(packageNames: string[]): string | null {

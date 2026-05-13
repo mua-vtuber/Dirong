@@ -1,12 +1,12 @@
 import process from "node:process";
 import { printCliError } from "../cli/error-output.js";
-import { loadPhase1Config } from "../config.js";
+import { loadProductRuntimeSettings } from "../settings/product-settings.js";
 import { runStartupRepair } from "../storage/repair-scan.js";
 import { SessionStore } from "../storage/session-store.js";
 import { DirongDatabase } from "../storage/sqlite.js";
 
 try {
-  const config = loadPhase1Config({ requireDiscordConfig: false });
+  const config = loadProductRuntimeSettings().config;
   const database = new DirongDatabase(config.dbPath, config.dbBusyTimeoutMs);
   const store = new SessionStore(database, {
     storageRoot: config.dataDir,

@@ -4,8 +4,7 @@ import { ClaudeStreamJsonCliCleanupProvider } from "../ai/cleanup/claude-persist
 import { runAiCleanupForSession } from "../ai/cleanup/runner.js";
 import type { AiCleanupProvider } from "../ai/cleanup/provider.js";
 import { printCliError, resolveCliLocale } from "../cli/error-output.js";
-import { loadPhase1Config } from "../config.js";
-import { loadAiCleanupSettingsFromEnv } from "../settings/env-settings-loader.js";
+import { loadProductRuntimeSettings } from "../settings/product-settings.js";
 import {
   buildNotionCustomPropertyPrompt,
   NotionCustomPropertyRuleStore,
@@ -28,8 +27,9 @@ let store: SessionStore | null = null;
 
 try {
   const options = parsePhase4AiCleanupArgs(process.argv.slice(2));
-  const config = loadPhase1Config({ requireDiscordConfig: false });
-  const aiCleanupSettings = loadAiCleanupSettingsFromEnv(process.env);
+  const productRuntime = loadProductRuntimeSettings();
+  const config = productRuntime.config;
+  const aiCleanupSettings = productRuntime.appSettings.aiCleanup;
   const provider = createProvider(options, aiCleanupSettings);
   const database = new DirongDatabase(config.dbPath, config.dbBusyTimeoutMs, {
     readOnly: options.dryRun,

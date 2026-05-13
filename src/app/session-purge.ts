@@ -1,6 +1,6 @@
 import process from "node:process";
 import { printCliError } from "../cli/error-output.js";
-import { loadPhase1Config } from "../config.js";
+import { loadProductRuntimeSettings } from "../settings/product-settings.js";
 import { backupDatabaseSnapshot } from "../storage/sqlite-backup.js";
 import { purgeSessions } from "../storage/session-purge.js";
 import {
@@ -20,7 +20,7 @@ import { parseSessionPurgeArgs } from "./session-purge-cli.js";
 
 try {
   const options = parseSessionPurgeArgs(process.argv.slice(2));
-  const config = loadPhase1Config({ requireDiscordConfig: false });
+  const config = loadProductRuntimeSettings().config;
   const backupPaths =
     options.operation === "purge-sessions" && !options.dryRun && options.backup
       ? backupDatabaseSnapshot(config.dbPath, {

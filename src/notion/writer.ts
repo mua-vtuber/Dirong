@@ -86,7 +86,7 @@ export async function runNotionUpload(
       status: "not_configured",
       message: "Notion settings are incomplete.",
       userAction:
-        "Notion 업로드를 켜려면 NOTION_API_KEY를 설정해 주세요.",
+        "Notion 업로드를 켜려면 설정 마법사에서 Notion 연결 토큰을 저장해 주세요.",
     };
   }
 

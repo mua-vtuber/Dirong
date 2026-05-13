@@ -980,7 +980,7 @@ export class NotionDashboardService {
         result: schemaActionErrorResult({
           status: "not_configured",
           message: "Notion 설정이 완료된 뒤 schema를 정리할 수 있습니다.",
-          userAction: "NOTION_API_KEY와 NOTION_TARGET_URL을 확인해 주세요.",
+          userAction: "설정 마법사에서 Notion 연결 토큰과 업로드 대상을 확인해 주세요.",
         }),
       };
     }
@@ -1004,7 +1004,7 @@ export class NotionDashboardService {
         result: schemaActionErrorResult({
           status: "not_configured",
           message: "Notion client를 만들 수 없습니다.",
-          userAction: "NOTION_API_KEY 설정을 확인해 주세요.",
+          userAction: "설정 마법사에 저장한 Notion 연결 토큰을 확인해 주세요.",
         }),
       };
     }

@@ -5,13 +5,6 @@ const SENSITIVE_KEY_PATTERN = /token|authorization|api[_-]?key|secret|password/i
 export const DEFAULT_REGISTERED_SENSITIVE_VALUE_LIMIT = 256;
 const registeredSensitiveValues = new Set<string>();
 
-export class MissingRequiredConfigError extends Error {
-  constructor(public readonly missingKeys: string[]) {
-    super(`Missing required configuration: ${missingKeys.join(", ")}`);
-    this.name = "MissingRequiredConfigError";
-  }
-}
-
 export class DirongError extends Error {
   constructor(
     public readonly code: string,
@@ -64,19 +57,6 @@ export function summarizeSafeText(value: string, maxLength = 1000): string {
 
 export function redactSensitiveText(value: string): string {
   let redacted = value;
-  const token = process.env.DISCORD_BOT_TOKEN;
-  const openAiApiKey = process.env.OPENAI_API_KEY;
-  const notionApiKey = process.env.NOTION_API_KEY;
-
-  if (token && token.length > 0) {
-    redacted = redacted.split(token).join("[REDACTED_DISCORD_BOT_TOKEN]");
-  }
-  if (openAiApiKey && openAiApiKey.length > 0) {
-    redacted = redacted.split(openAiApiKey).join("[REDACTED_OPENAI_API_KEY]");
-  }
-  if (notionApiKey && notionApiKey.length > 0) {
-    redacted = redacted.split(notionApiKey).join("[REDACTED_NOTION_API_KEY]");
-  }
   for (const secret of registeredSensitiveValues) {
     redacted = redacted.split(secret).join("[REDACTED_SECRET]");
   }
@@ -193,16 +173,6 @@ export function toLocalizedErrorMessage(
   error: unknown,
   locale: DirongLocale,
 ): string {
-  if (error instanceof MissingRequiredConfigError) {
-    return [
-      t(locale, "error.common.missingConfig"),
-      formatLocaleText(locale, "error.common.missingKeys", {
-        keys: error.missingKeys.join(", "),
-      }),
-      t(locale, "error.common.copyEnvExample"),
-    ].join(" ");
-  }
-
   const info = safeErrorInfo(error);
   const message = info.message.toLowerCase();
   const code = String(info.code ?? "").toLowerCase();

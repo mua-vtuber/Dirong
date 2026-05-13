@@ -29,7 +29,7 @@ export class OpenAiSttProvider implements SttProvider {
     options?: SttTranscriptionOptions,
   ): Promise<SttTranscriptionResult> {
     if (!this.apiKey.trim()) {
-      throw new Error("OPENAI_API_KEY가 없어 실제 STT를 호출할 수 없습니다.");
+      throw new Error("OpenAI API key가 저장되지 않아 실제 STT를 호출할 수 없습니다.");
     }
 
     const audioStat = await stat(inputAudioPath);

@@ -17,16 +17,8 @@ import {
 
 export function isDebugMode(
   args: readonly string[] = process.argv,
-  env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  const envValue = env.DIRONG_DEBUG?.trim().toLowerCase();
-  return (
-    args.includes("--debug") ||
-    envValue === "1" ||
-    envValue === "true" ||
-    envValue === "yes" ||
-    envValue === "on"
-  );
+  return args.includes("--debug");
 }
 
 export function printCliError(

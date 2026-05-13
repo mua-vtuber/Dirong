@@ -80,5 +80,5 @@ test("assertPhase3SttProviderReady requires OpenAI key only for real OpenAI runs
   });
   assert.throws(() => {
     assertPhase3SttProviderReady({ settings: openAiNoKey, dryRun: false });
-  }, /OPENAI_API_KEY/);
+  }, /OpenAI API key/);
 });

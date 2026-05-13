@@ -1,108 +1,63 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { redactForJson, redactSensitiveText } from "../errors.js";
-import { loadNotionSettingsFromEnv } from "../settings/env-settings-loader.js";
-import { snapshotNotionRuntimeSettings } from "./settings.js";
+import { DEFAULT_NOTION_SETTINGS } from "../settings/defaults.js";
+import {
+  snapshotNotionRuntimeSettings,
+  validateNotionRuntimeSettings,
+} from "./settings.js";
 
-test("loadNotionSettingsFromEnv defaults to disabled bootstrap settings", () => {
-  const settings = loadNotionSettingsFromEnv({} as NodeJS.ProcessEnv);
-
-  assert.equal(settings.enabled, false);
-  assert.equal(settings.apiKey, null);
-  assert.equal(settings.apiVersion, "2026-03-11");
-  assert.equal(settings.baseUrl, "https://api.notion.com");
-  assert.equal(settings.requestTimeoutMs, 30000);
-  assert.equal(settings.targetUrl, null);
-  assert.equal(settings.targetType, "data_source");
-  assert.equal(settings.uploadMode, "manual");
-  assert.equal(settings.templateType, "app");
-  assert.equal(settings.includeTranscript, "never");
-  assert.equal(settings.autoPollMs, 5000);
-  assert.equal(settings.leaseMs, 600000);
-  assert.equal(settings.maxAttempts, 3);
-  assert.equal(settings.propertyNames.draftId, "Draft ID");
+test("default Notion runtime settings are disabled until product setup enables them", () => {
+  assert.equal(DEFAULT_NOTION_SETTINGS.enabled, false);
+  assert.equal(DEFAULT_NOTION_SETTINGS.apiKey, null);
+  assert.equal(DEFAULT_NOTION_SETTINGS.apiVersion, "2026-03-11");
+  assert.equal(DEFAULT_NOTION_SETTINGS.baseUrl, "https://api.notion.com");
+  assert.equal(DEFAULT_NOTION_SETTINGS.requestTimeoutMs, 30000);
+  assert.equal(DEFAULT_NOTION_SETTINGS.targetUrl, null);
+  assert.equal(DEFAULT_NOTION_SETTINGS.targetType, "data_source");
+  assert.equal(DEFAULT_NOTION_SETTINGS.uploadMode, "manual");
+  assert.equal(DEFAULT_NOTION_SETTINGS.templateType, "app");
+  assert.equal(DEFAULT_NOTION_SETTINGS.includeTranscript, "never");
+  assert.equal(DEFAULT_NOTION_SETTINGS.autoPollMs, 5000);
+  assert.equal(DEFAULT_NOTION_SETTINGS.leaseMs, 600000);
+  assert.equal(DEFAULT_NOTION_SETTINGS.maxAttempts, 3);
+  assert.equal(DEFAULT_NOTION_SETTINGS.propertyNames.draftId, "Draft ID");
 });
 
-test("loadNotionSettingsFromEnv reads enabled settings and property names", () => {
-  const settings = loadNotionSettingsFromEnv({
-    NOTION_EXPORT_ENABLED: "true",
-    NOTION_API_KEY: "ntn_test_secret",
-    NOTION_API_VERSION: "2026-03-11",
-    NOTION_BASE_URL: "http://127.0.0.1:4545",
-    NOTION_TARGET_URL: "0123456789abcdef0123456789abcdef",
-    NOTION_UPLOAD_MODE: "automatic_after_ai_cleanup",
-    NOTION_TEMPLATE_TYPE: "app",
-    NOTION_PROPERTY_TITLE: "회의록",
-    NOTION_AUTO_POLL_MS: "1000",
-    NOTION_LEASE_MS: "2000",
-    NOTION_MAX_ATTEMPTS: "4",
-    NOTION_REQUEST_TIMEOUT_MS: "1234",
-  } as NodeJS.ProcessEnv, {
-    allowTestNotionBaseUrl: true,
+test("validateNotionRuntimeSettings requires a stored token only when enabled", () => {
+  assert.deepEqual(validateNotionRuntimeSettings(DEFAULT_NOTION_SETTINGS), {
+    ok: true,
   });
 
-  assert.equal(settings.enabled, true);
-  assert.equal(settings.apiKey, "ntn_test_secret");
-  assert.equal(settings.baseUrl, "http://127.0.0.1:4545");
-  assert.equal(settings.uploadMode, "automatic_after_ai_cleanup");
-  assert.equal(settings.propertyNames.title, "회의록");
-  assert.equal(settings.autoPollMs, 1000);
-  assert.equal(settings.leaseMs, 2000);
-  assert.equal(settings.maxAttempts, 4);
-  assert.equal(settings.requestTimeoutMs, 1234);
-});
-
-test("loadNotionSettingsFromEnv accepts missing token and target when disabled", () => {
-  const settings = loadNotionSettingsFromEnv({
-    NOTION_EXPORT_ENABLED: "false",
-  } as NodeJS.ProcessEnv);
-
-  assert.equal(settings.enabled, false);
-  assert.equal(settings.apiKey, null);
-  assert.equal(settings.targetUrl, null);
-});
-
-test("loadNotionSettingsFromEnv requires token when enabled", () => {
-  assert.throws(
-    () =>
-      loadNotionSettingsFromEnv({
-        NOTION_EXPORT_ENABLED: "true",
-      } as NodeJS.ProcessEnv),
-    /NOTION_API_KEY/,
+  assert.deepEqual(
+    validateNotionRuntimeSettings({
+      ...DEFAULT_NOTION_SETTINGS,
+      enabled: true,
+    }),
+    {
+      ok: false,
+      missingKeys: ["notion.token"],
+      userAction:
+        "Notion 업로드를 켜려면 설정 마법사에서 Notion 연결 토큰을 저장해 주세요.",
+    },
   );
 
-  const settings = loadNotionSettingsFromEnv({
-    NOTION_EXPORT_ENABLED: "true",
-    NOTION_API_KEY: "ntn_test_secret",
-  } as NodeJS.ProcessEnv);
-
-  assert.equal(settings.enabled, true);
-  assert.equal(settings.targetUrl, null);
-});
-
-test("loadNotionSettingsFromEnv rejects unsupported MVP switches", () => {
-  assert.throws(
-    () =>
-      loadNotionSettingsFromEnv({
-        NOTION_TARGET_TYPE: "page",
-      } as NodeJS.ProcessEnv),
-    /NOTION_TARGET_TYPE/,
-  );
-  assert.throws(
-    () =>
-      loadNotionSettingsFromEnv({
-        NOTION_INCLUDE_TRANSCRIPT: "full",
-      } as NodeJS.ProcessEnv),
-    /NOTION_INCLUDE_TRANSCRIPT/,
+  assert.deepEqual(
+    validateNotionRuntimeSettings({
+      ...DEFAULT_NOTION_SETTINGS,
+      enabled: true,
+      apiKey: "ntn_test_secret",
+    }),
+    { ok: true },
   );
 });
 
 test("Notion settings snapshots and generic JSON redaction hide tokens", () => {
-  const settings = loadNotionSettingsFromEnv({
-    NOTION_EXPORT_ENABLED: "true",
-    NOTION_API_KEY: "ntn_test_secret",
-    NOTION_TARGET_URL: "0123456789abcdef0123456789abcdef",
-  } as NodeJS.ProcessEnv);
+  const settings = {
+    ...DEFAULT_NOTION_SETTINGS,
+    enabled: true,
+    apiKey: "ntn_test_secret",
+  };
 
   assert.equal(snapshotNotionRuntimeSettings(settings).apiKey, "[REDACTED]");
   assert.equal(

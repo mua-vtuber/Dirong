@@ -4,8 +4,7 @@ import {
   formatSttRunSummary,
   printSqliteBackupSummary,
 } from "../cli/stt-summary.js";
-import { loadPhase1Config } from "../config.js";
-import { loadAppSettingsFromEnv } from "../settings/env-settings-loader.js";
+import { loadProductRuntimeSettings } from "../settings/product-settings.js";
 import {
   assertPhase3SttProviderReady,
   createPhase3SttProvider,
@@ -18,8 +17,9 @@ import { parsePhase3SttArgs } from "./phase3-stt-cli.js";
 
 try {
   const options = parsePhase3SttArgs(process.argv.slice(2));
-  const phase1Config = loadPhase1Config({ requireDiscordConfig: false });
-  const appSettings = loadAppSettingsFromEnv();
+  const productRuntime = loadProductRuntimeSettings();
+  const phase1Config = productRuntime.config;
+  const appSettings = productRuntime.appSettings;
   const { provider, settings: sttSettings } = createPhase3SttProvider(
     appSettings.stt,
     {
@@ -76,7 +76,7 @@ try {
     ],
     noteLines:
       options.dryRun && sttSettings.provider !== "openai"
-        ? ["OPENAI_API_KEY는 없지만 현재 provider dry-run에는 필요하지 않습니다."]
+        ? ["OpenAI API key는 현재 provider dry-run에는 필요하지 않습니다."]
         : [],
     result,
   }));

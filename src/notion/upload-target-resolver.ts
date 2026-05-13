@@ -149,7 +149,7 @@ export async function resolveUploadTarget(input: {
         status: "not_configured",
         message: "Notion target is not configured.",
         userAction:
-          "managed Notion DB를 생성하거나 전환기 fallback용 NOTION_TARGET_URL을 설정해 주세요.",
+          "설정 화면에서 managed Notion DB를 생성하거나 업로드 대상을 다시 연결해 주세요.",
       },
     };
   }

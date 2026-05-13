@@ -1,6 +1,5 @@
 import process from "node:process";
 import { printCliError } from "../cli/error-output.js";
-import { loadPhase1Config } from "../config.js";
 import { createNotionClient } from "../notion/client.js";
 import { NotionDraftInputReadModel } from "../notion/draft-input-read-model.js";
 import { NotionMemberRosterStore } from "../notion/member-roster-store.js";
@@ -9,7 +8,7 @@ import { NotionCustomPropertyRuleStore } from "../notion/property-rules.js";
 import { runNotionUpload } from "../notion/writer.js";
 import type { NotionDraftSelector } from "../notion/writer.js";
 import { NotionWriteStore } from "../notion/write-store.js";
-import { loadNotionSettingsFromEnv } from "../settings/env-settings-loader.js";
+import { loadProductRuntimeSettings } from "../settings/product-settings.js";
 import { SqlRunner } from "../storage/sql-runner.js";
 import { DirongDatabase } from "../storage/sqlite.js";
 import { parsePhase5NotionUploadArgs } from "./phase5-notion-upload-cli.js";
@@ -18,8 +17,9 @@ let database: DirongDatabase | null = null;
 
 try {
   const options = parsePhase5NotionUploadArgs(process.argv.slice(2));
-  const config = loadPhase1Config({ requireDiscordConfig: false });
-  const settings = loadNotionSettingsFromEnv(process.env);
+  const productRuntime = loadProductRuntimeSettings();
+  const config = productRuntime.config;
+  const settings = productRuntime.appSettings.notion;
   database = new DirongDatabase(config.dbPath, config.dbBusyTimeoutMs, {
     readOnly: options.dryRun,
   });

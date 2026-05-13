@@ -124,7 +124,7 @@ export class RecordingProducer {
       throw new Error("Stage 채널은 현재 Dirong 녹음 앱에서 아직 지원하지 않습니다.");
     }
 
-    const health = await runHealthCheck();
+    const health = await runHealthCheck({ config: this.config });
     const sessionId = makeSessionId(new Date());
     const sessionDir = await createUniqueSessionDir(this.config.dataDir, sessionId);
     const chunksDir = path.join(sessionDir, "chunks");

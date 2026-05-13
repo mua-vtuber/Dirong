@@ -10,6 +10,7 @@ import {
   type CliArgSpec,
 } from "../cli/arg-parser.js";
 import { printCliError } from "../cli/error-output.js";
+import { loadProductRuntimeSettings } from "../settings/product-settings.js";
 
 type ClaudePersistentSmokeCliOptions = {
   prompt: string;
@@ -22,9 +23,10 @@ type ClaudePersistentSmokeCliOptions = {
 
 try {
   const options = parseClaudePersistentSmokeArgs(process.argv.slice(2));
+  const aiCleanupSettings = loadProductRuntimeSettings().appSettings.aiCleanup;
   const session = new ClaudePersistentSmokeSession({
-    command: options.command ?? undefined,
-    model: options.model ?? undefined,
+    command: options.command ?? aiCleanupSettings.claudeCommand,
+    model: options.model ?? aiCleanupSettings.claudeModel,
     timeoutMs: options.timeoutMs ?? undefined,
   });
 

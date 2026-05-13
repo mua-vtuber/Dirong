@@ -2,7 +2,6 @@ import { existsSync } from "node:fs";
 import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
 import { printCliError } from "../cli/error-output.js";
-import { loadPhase1Config } from "../config.js";
 import { redactSensitiveText, summarizeSafeError } from "../errors.js";
 import { runHealthCheck, type HealthCheck } from "../health.js";
 import { createNotionClient } from "../notion/client.js";
@@ -19,9 +18,10 @@ import { NotionRegistryStore } from "../notion/registry-store.js";
 import { SqlRunner } from "../storage/sql-runner.js";
 import { DirongDatabase } from "../storage/sqlite.js";
 import {
-  loadNotionSettingsFromEnv,
-  loadSttSettingsFromEnv,
-} from "../settings/env-settings-loader.js";
+  loadProductRuntimeSettings,
+} from "../settings/product-settings.js";
+import type { SttSettings } from "../settings/app-settings.js";
+import type { NotionRuntimeSettings } from "../notion/settings.js";
 import {
   assertPhase3SttProviderReady,
   createPhase3SttProvider,
@@ -69,17 +69,22 @@ type NotionManagedSchemaCheckRecord = {
 
 try {
   const options = parseDoctorOptions(process.argv.slice(2));
-  const config = loadPhase1Config({ requireDiscordConfig: false });
-  const health = await runHealthCheck();
+  const productRuntime = loadProductRuntimeSettings();
+  const config = productRuntime.config;
+  const health = await runHealthCheck({ config });
   const appHealthChecks = adaptHealthChecksForRecordingSttDoctor(health.checks);
-  const sttChecks = await runSttReadinessChecks();
+  const sttChecks = await runSttReadinessChecks(productRuntime.appSettings.stt);
   const dbSummary = readDbSummary(config.dbPath, config.dbBusyTimeoutMs);
   const notionRegistry = readNotionRegistryDiagnostics(
     config.dbPath,
     config.dbBusyTimeoutMs,
   );
   const notionRemoteChecks = options.notionRemote
-    ? await runNotionRemoteChecks(config.dbPath, config.dbBusyTimeoutMs)
+    ? await runNotionRemoteChecks(
+        config.dbPath,
+        config.dbBusyTimeoutMs,
+        productRuntime.appSettings.notion,
+      )
     : [];
 
   console.log("디롱이 Recording + STT doctor 결과");
@@ -148,8 +153,9 @@ function adaptHealthChecksForRecordingSttDoctor(
   });
 }
 
-async function runSttReadinessChecks(): Promise<HealthCheck[]> {
-  const sttSettings = loadSttSettingsFromEnv(process.env);
+async function runSttReadinessChecks(
+  sttSettings: SttSettings,
+): Promise<HealthCheck[]> {
   const { provider, settings } = createPhase3SttProvider(sttSettings);
 
   if (settings.provider === "openai") {
@@ -163,11 +169,11 @@ async function runSttReadinessChecks(): Promise<HealthCheck[]> {
         name: "OpenAI API key",
         status: settings.openai.apiKey ? "ok" : "fail",
         message: settings.openai.apiKey
-          ? "OPENAI_API_KEY 설정됨(값은 출력하지 않음)"
-          : "OPENAI_API_KEY가 설정되지 않았습니다. OpenAI API 호출은 하지 않았습니다.",
+          ? "OpenAI API key 저장됨(값은 출력하지 않음)"
+          : "OpenAI API key가 저장되지 않았습니다. OpenAI API 호출은 하지 않았습니다.",
         action: settings.openai.apiKey
           ? undefined
-          : ".env에 OPENAI_API_KEY를 설정하거나 local-whisper provider를 사용해 주세요.",
+          : "설정 마법사에서 OpenAI API key를 저장하거나 local-whisper provider를 사용해 주세요.",
       },
     ];
   }
@@ -209,6 +215,7 @@ async function runSttReadinessChecks(): Promise<HealthCheck[]> {
 async function runNotionRemoteChecks(
   dbPath: string,
   busyTimeoutMs: number,
+  notionSettings: NotionRuntimeSettings,
 ): Promise<HealthCheck[]> {
   const diagnostics = readNotionRegistryDiagnostics(dbPath, busyTimeoutMs);
   if (!diagnostics.exists) {
@@ -230,28 +237,12 @@ async function runNotionRemoteChecks(
     ];
   }
 
-  let notionSettings: ReturnType<typeof loadNotionSettingsFromEnv>;
-  try {
-    notionSettings = loadNotionSettingsFromEnv(process.env, {
-      allowTestNotionBaseUrl: true,
-    });
-  } catch (error) {
-    return [
-      {
-        name: "Notion runtime settings",
-        status: "fail",
-        message: summarizeSafeError(error),
-        action: "NOTION_API_KEY, NOTION_API_VERSION, NOTION_BASE_URL 설정을 확인해 주세요.",
-      },
-    ];
-  }
-
   if (!notionSettings.apiKey) {
     return [
       {
         name: "Notion API key",
         status: "fail",
-        message: "NOTION_API_KEY가 설정되지 않아 remote check를 실행하지 않았습니다.",
+        message: "Notion 연결 토큰이 저장되지 않아 remote check를 실행하지 않았습니다.",
       },
     ];
   }

@@ -14,23 +14,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if not exist ".env" (
-  echo [SETUP] .env file was not found.
-  echo Copy .env.example to .env, then fill Discord token and IDs.
-  echo.
-  echo Required values:
-  echo - DISCORD_BOT_TOKEN
-  echo - DISCORD_CLIENT_ID
-  echo - DISCORD_GUILD_IDS ^(or legacy DISCORD_GUILD_ID^)
-  echo.
-  echo Dirong does not require DISCORD_VOICE_CHANNEL_ID for normal recording.
-  echo Use /dirong start while you are in a Discord voice channel.
-  echo.
-  pause
-  exit /b 1
-)
-
-echo [1/4] Running npm install...
+echo [1/3] Running npm install...
 call npm install
 if errorlevel 1 (
   echo [ERROR] npm install failed.
@@ -39,7 +23,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo [2/4] Running TypeScript build...
+echo [2/3] Running TypeScript build...
 call npm run build
 if errorlevel 1 (
   echo [ERROR] npm run build failed.
@@ -48,18 +32,9 @@ if errorlevel 1 (
 )
 
 echo.
-echo [3/4] Running Dirong doctor...
-echo local-whisper model checks can take a little while.
-call npm run doctor
-if errorlevel 1 (
-  echo [ERROR] Dirong doctor failed.
-  pause
-  exit /b 1
-)
-
-echo.
-echo [4/4] Starting Dirong Recording + STT app...
-echo In Discord, join a voice channel and use: /dirong start
+echo [3/3] Starting Dirong Recording + STT app...
+echo Open the dashboard setup wizard to save Discord, STT, AI, and Notion settings.
+echo In Discord, join a voice channel and use: /dirong start after setup is ready.
 echo Dashboard default: http://127.0.0.1:3095/
 echo In this console, you can type: status, stop, exit
 echo.

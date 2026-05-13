@@ -29,10 +29,7 @@ test("product defaults snapshot matches the current effective defaults", () => {
     partRepairAgeMs: 300000,
     enableDave: true,
     decryptionFailureTolerance: 24,
-    envDebugVoice: true,
     productDebugVoice: false,
-    envAutoRegisterCommands: true,
-    envAloneFinalizeEnabled: false,
     productAloneFinalizeEnabled: true,
     aloneFinalizeGraceMs: 90000,
   });

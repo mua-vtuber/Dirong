@@ -447,7 +447,7 @@ export const ko = {
       },
       notConfigured: {
         message: "Notion 자동 업로드 설정이 아직 완성되지 않았습니다.",
-        action: "NOTION_API_KEY와 NOTION_TARGET_URL을 설정한 뒤 다시 시작해 주세요.",
+        action: "설정 마법사에서 Notion 연결 토큰과 managed DB 설정을 완료해 주세요.",
       },
       idle: {
         message: "Notion 자동 업로드 대기 중: 업로드할 valid draft 없음",
@@ -1621,18 +1621,18 @@ export const ko = {
   },
   error: {
     common: {
-      missingConfig: ".env 설정이 아직 부족합니다.",
+      missingConfig: "제품 설정이 아직 부족합니다.",
       missingKeys: "빠진 항목: {keys}",
-      copyEnvExample: ".env.example을 .env로 복사한 뒤 Discord 토큰과 ID를 채워 주세요.",
+      copyEnvExample: "대시보드 설정 마법사에서 Discord 토큰과 ID를 저장해 주세요.",
       generic: "처리 중 문제가 생겼습니다: {message}",
-      debugHint: "상세 정보가 필요하면 --debug 옵션 또는 DIRONG_DEBUG=true로 다시 실행해 주세요.",
+      debugHint: "상세 정보가 필요하면 --debug 옵션으로 다시 실행해 주세요.",
     },
     discord: {
-      token: "Discord 봇 토큰으로 로그인하지 못했습니다. .env의 DISCORD_BOT_TOKEN이 올바른지, 봇 토큰을 새로 발급한 뒤 그대로 붙여넣었는지 확인해 주세요.",
+      token: "Discord 봇 토큰으로 로그인하지 못했습니다. 설정 마법사에 저장한 봇 토큰이 올바른지 확인하고, 필요하면 새 토큰을 발급한 뒤 다시 저장해 주세요.",
       permissions: "Discord 권한이 부족합니다. 봇이 해당 서버와 음성 채널에 초대되어 있고, View Channel / Connect 권한과 applications.commands 권한이 있는지 확인해 주세요.",
-      unknownGuild: "Discord 서버를 찾지 못했습니다. .env의 DISCORD_GUILD_IDS 또는 DISCORD_GUILD_ID가 서버 ID인지 확인하고, 디롱이 봇이 그 서버에 초대되어 있는지 확인해 주세요.",
-      unknownChannel: "Discord 채널을 찾지 못했습니다. .env의 DISCORD_VOICE_CHANNEL_ID가 테스트 서버 안의 음성 채널 ID인지 확인해 주세요.",
-      voiceChannel: "설정한 DISCORD_VOICE_CHANNEL_ID가 음성 채널이 아닌 것 같습니다. Discord 개발자 모드에서 테스트 음성 채널 ID를 다시 복사해 주세요.",
+      unknownGuild: "Discord 서버를 찾지 못했습니다. 설정 마법사에 저장한 서버 ID와 봇 초대 상태를 확인해 주세요.",
+      unknownChannel: "Discord 채널을 찾지 못했습니다. /dirong start를 실행한 사용자가 들어간 음성 채널과 봇 권한을 확인해 주세요.",
+      voiceChannel: "선택된 채널이 음성 채널이 아닌 것 같습니다. Discord에서 음성 채널에 들어간 뒤 다시 실행해 주세요.",
       ffmpeg: "FFmpeg 실행에 실패했습니다. npm install이 끝났는지 확인하고, 계속 실패하면 npm run doctor 결과를 확인해 주세요.",
       timeout: "Discord 음성 연결이 제한 시간 안에 준비되지 않았습니다. 봇 권한, 채널 ID, 네트워크 상태, Discord 음성 서버 상태를 확인해 주세요.",
     },
@@ -2121,7 +2121,7 @@ export const en = {
       },
       notConfigured: {
         message: "Notion automatic upload settings are incomplete.",
-        action: "Set NOTION_API_KEY and NOTION_TARGET_URL, then restart.",
+        action: "Complete the Notion token and managed DB setup in the setup wizard.",
       },
       idle: {
         message: "Notion auto-upload is waiting: no valid draft to upload",
@@ -3297,18 +3297,18 @@ export const en = {
   },
   error: {
     common: {
-      missingConfig: ".env configuration is incomplete.",
+      missingConfig: "Product setup is incomplete.",
       missingKeys: "Missing keys: {keys}",
-      copyEnvExample: "Copy .env.example to .env, then fill in the Discord token and IDs.",
+      copyEnvExample: "Save the Discord token and IDs in the dashboard setup wizard.",
       generic: "Something went wrong while processing the request: {message}",
-      debugHint: "For details, run the command again with --debug or DIRONG_DEBUG=true.",
+      debugHint: "For details, run the command again with --debug.",
     },
     discord: {
-      token: "Dirong could not log in with the Discord bot token. Check DISCORD_BOT_TOKEN in .env, or issue a new bot token and paste it exactly.",
+      token: "Dirong could not log in with the Discord bot token. Check the token saved in the setup wizard, or issue a new bot token and save it again.",
       permissions: "Discord permissions are missing. Check that the bot is invited to the server and voice channel and has View Channel / Connect plus applications.commands permissions.",
-      unknownGuild: "Discord server was not found. Check that DISCORD_GUILD_IDS or DISCORD_GUILD_ID contains a server ID and that the Dirong bot has been invited there.",
-      unknownChannel: "Discord channel was not found. Check that DISCORD_VOICE_CHANNEL_ID is a voice channel ID inside the test server.",
-      voiceChannel: "DISCORD_VOICE_CHANNEL_ID does not look like a voice channel. Copy the test voice channel ID again with Discord developer mode enabled.",
+      unknownGuild: "Discord server was not found. Check the server ID saved in the setup wizard and confirm that the Dirong bot has been invited there.",
+      unknownChannel: "Discord channel was not found. Check the voice channel used by the member who ran /dirong start and the bot permissions.",
+      voiceChannel: "The selected channel does not look like a voice channel. Join a Discord voice channel, then try again.",
       ffmpeg: "FFmpeg failed to run. Check that npm install has finished, then run npm run doctor if it keeps failing.",
       timeout: "Discord voice connection was not ready before the timeout. Check bot permissions, the channel ID, network state, and Discord voice server status.",
     },

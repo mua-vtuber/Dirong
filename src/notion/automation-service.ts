@@ -453,7 +453,7 @@ async function resolveAutomationTargetId(
       status: "not_configured",
       message: "Notion target URL is missing.",
       userAction:
-        "managed Notion DB를 생성하거나 전환기 fallback용 NOTION_TARGET_URL을 설정해 주세요.",
+        "설정 화면에서 managed Notion DB를 생성하거나 업로드 대상을 다시 연결해 주세요.",
       technicalDetail: null,
     };
   }
@@ -478,7 +478,7 @@ async function resolveAutomationTargetId(
       ok: false,
       status: "not_configured",
       message: "Notion client is not available.",
-      userAction: "NOTION_API_KEY 설정을 확인해 주세요.",
+      userAction: "설정 마법사에 저장한 Notion 연결 토큰을 확인해 주세요.",
       technicalDetail: null,
     };
   }
@@ -549,7 +549,7 @@ function blockedSnapshot(
       status: "disabled",
       checkedAt,
       message: "Notion export is disabled.",
-      userAction: "자동 업로드를 쓰려면 NOTION_EXPORT_ENABLED=true로 켜 주세요.",
+      userAction: "자동 업로드를 쓰려면 Notion 설정에서 업로드를 켜 주세요.",
       technicalDetail: null,
     }, locale);
   }
@@ -563,7 +563,7 @@ function blockedSnapshot(
       checkedAt,
       message: "Notion upload is in manual mode.",
       userAction:
-        "자동 업로드를 쓰려면 NOTION_UPLOAD_MODE=automatic_after_ai_cleanup으로 설정해 주세요.",
+        "자동 업로드를 쓰려면 Notion 설정에서 자동 업로드 모드를 선택해 주세요.",
       technicalDetail: null,
     }, locale);
   }
@@ -577,7 +577,7 @@ function blockedSnapshot(
       checkedAt,
       message: "Notion automatic upload settings are incomplete.",
       userAction:
-        "NOTION_API_KEY와 NOTION_TARGET_URL을 설정한 뒤 다시 시작해 주세요.",
+        "설정 마법사에서 Notion 연결 토큰과 managed DB 설정을 완료해 주세요.",
       technicalDetail: null,
     }, locale);
   }
@@ -633,13 +633,13 @@ function initialUserAction(
   registryStore: NotionRegistryStore | null,
 ): string | null {
   if (!runtime.settings.enabled) {
-    return "자동 업로드를 쓰려면 NOTION_EXPORT_ENABLED=true로 켜 주세요.";
+    return "자동 업로드를 쓰려면 Notion 설정에서 업로드를 켜 주세요.";
   }
   if (runtime.settings.uploadMode !== "automatic_after_ai_cleanup") {
-    return "자동 업로드를 쓰려면 NOTION_UPLOAD_MODE=automatic_after_ai_cleanup으로 설정해 주세요.";
+    return "자동 업로드를 쓰려면 Notion 설정에서 자동 업로드 모드를 선택해 주세요.";
   }
   if (!isConfigured(runtime, registryStore)) {
-    return "NOTION_API_KEY와 NOTION_TARGET_URL을 설정한 뒤 다시 시작해 주세요.";
+    return "설정 마법사에서 Notion 연결 토큰과 managed DB 설정을 완료해 주세요.";
   }
   return null;
 }

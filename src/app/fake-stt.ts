@@ -11,7 +11,7 @@ import {
   formatSttRunSummary,
   printSqliteBackupSummary,
 } from "../cli/stt-summary.js";
-import { loadPhase1Config } from "../config.js";
+import { loadProductRuntimeSettings } from "../settings/product-settings.js";
 import { runFakeSttBatch } from "../stt/fake-runner.js";
 import { SessionStore } from "../storage/session-store.js";
 import { DirongDatabase } from "../storage/sqlite.js";
@@ -28,7 +28,7 @@ type CliOptions = {
 
 try {
   const options = parseArgs(process.argv.slice(2));
-  const config = loadPhase1Config({ requireDiscordConfig: false });
+  const config = loadProductRuntimeSettings().config;
 
   if (!options.dryRun && options.backup) {
     const backupPaths = backupDatabaseSnapshot(config.dbPath, {

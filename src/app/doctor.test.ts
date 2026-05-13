@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -11,12 +11,18 @@ import { NotionRegistryStore } from "../notion/registry-store.js";
 import { KOREAN_NOTION_SCHEMA_PRESET } from "../notion/schema-presets.js";
 import { DirongDatabase } from "../storage/sqlite.js";
 import { SqlRunner } from "../storage/sql-runner.js";
+import {
+  getDirongUserDataPaths,
+  resolveDirongUserDataPath,
+} from "../settings/dirong-user-data.js";
+import { LocalSettingsStore } from "../settings/local-settings-store.js";
+import { DEFAULT_SECRET_REFS, LocalSecretStore } from "../settings/local-secret-store.js";
 
 test("doctor tolerates legacy transcript_segments without speech_status", () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-doctor-legacy-"));
   try {
-    const dbPath = path.join(dir, "dirong.sqlite");
-    createLegacyDbWithoutSpeechStatus(dbPath);
+    const fixture = createDoctorFixture(dir);
+    createLegacyDbWithoutSpeechStatus(fixture.paths.databasePath);
     const doctorPath = path.join(
       path.dirname(fileURLToPath(import.meta.url)),
       "doctor.js",
@@ -25,12 +31,7 @@ test("doctor tolerates legacy transcript_segments without speech_status", () => 
     const result = spawnSync(process.execPath, ["--no-warnings", doctorPath], {
       cwd: process.cwd(),
       encoding: "utf8",
-      env: {
-        ...process.env,
-        PHASE1_DB_PATH: dbPath,
-        PHASE3_STT_PROVIDER: "openai",
-        OPENAI_API_KEY: "doctor-test-key",
-      },
+      env: fixture.env,
     });
 
     assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -44,27 +45,19 @@ test("doctor tolerates legacy transcript_segments without speech_status", () => 
 test("doctor prints local Notion managed registry summary without remote API", () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-doctor-notion-local-"));
   try {
-    const dbPath = path.join(dir, "dirong.sqlite");
-    createManagedNotionRegistryDb(dbPath);
+    const rawToken = "ntn_doctor_default_should_not_be_printed";
+    const fixture = createDoctorFixture(dir, { notionToken: rawToken });
+    createManagedNotionRegistryDb(fixture.paths.databasePath);
     const doctorPath = path.join(
       path.dirname(fileURLToPath(import.meta.url)),
       "doctor.js",
     );
-    const rawToken = "ntn_doctor_default_should_not_be_printed";
 
     const result = spawnSync(process.execPath, ["--no-warnings", doctorPath], {
       cwd: process.cwd(),
       encoding: "utf8",
       timeout: 5_000,
-      env: {
-        ...process.env,
-        PHASE1_DB_PATH: dbPath,
-        PHASE3_STT_PROVIDER: "openai",
-        OPENAI_API_KEY: "doctor-test-key",
-        NOTION_API_KEY: rawToken,
-        NOTION_BASE_URL: "http://127.0.0.1:9",
-        NOTION_REQUEST_TIMEOUT_MS: "50",
-      },
+      env: fixture.env,
     });
 
     assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -77,16 +70,19 @@ test("doctor prints local Notion managed registry summary without remote API", (
   }
 });
 
-test("doctor --notion-remote does not leak raw token when remote check fails", () => {
+test("doctor --notion-remote reports missing product token without env fallback", () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-doctor-notion-remote-"));
   try {
-    const dbPath = path.join(dir, "dirong.sqlite");
-    createManagedNotionRegistryDb(dbPath);
+    const fixture = createDoctorFixture(dir, {
+      envOverrides: {
+        NOTION_API_KEY: "env-notion-token-must-not-be-used",
+      },
+    });
+    createManagedNotionRegistryDb(fixture.paths.databasePath);
     const doctorPath = path.join(
       path.dirname(fileURLToPath(import.meta.url)),
       "doctor.js",
     );
-    const rawToken = "ntn_doctor_remote_should_not_be_printed";
 
     const result = spawnSync(
       process.execPath,
@@ -95,28 +91,74 @@ test("doctor --notion-remote does not leak raw token when remote check fails", (
         cwd: process.cwd(),
         encoding: "utf8",
         timeout: 10_000,
-        env: {
-          ...process.env,
-          PHASE1_DB_PATH: dbPath,
-          PHASE3_STT_PROVIDER: "openai",
-          OPENAI_API_KEY: "doctor-test-key",
-          NOTION_API_KEY: rawToken,
-          NOTION_BASE_URL: "http://127.0.0.1:9",
-          NOTION_REQUEST_TIMEOUT_MS: "50",
-        },
+        env: fixture.env,
       },
     );
 
     assert.notEqual(result.status, 0, result.stderr || result.stdout);
     assert.match(result.stdout, /\[Notion remote managed schema\]/);
-    assert.match(result.stdout, /status=failed|Notion remote check/);
-    assert.doesNotMatch(result.stderr + result.stdout, new RegExp(rawToken));
+    assert.match(result.stdout, /Notion 연결 토큰이 저장되지 않아 remote check/);
+    assert.doesNotMatch(result.stderr + result.stdout, /env-notion-token-must-not-be-used/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
+function createDoctorFixture(
+  dir: string,
+  options: {
+    notionToken?: string;
+    envOverrides?: Record<string, string>;
+  } = {},
+): {
+  env: NodeJS.ProcessEnv;
+  paths: ReturnType<typeof getDirongUserDataPaths>;
+} {
+  const env = {
+    ...process.env,
+    LOCALAPPDATA: dir,
+    APPDATA: dir,
+    XDG_DATA_HOME: dir,
+    ...options.envOverrides,
+  };
+  const root = resolveDirongUserDataPath({
+    env,
+    platform: process.platform,
+  });
+  const paths = getDirongUserDataPaths(root);
+  const settingsStore = new LocalSettingsStore(paths.settingsFile);
+  const secretStore = new LocalSecretStore(paths.secretsFile);
+
+  settingsStore.write({
+    schemaVersion: 1,
+    app: { locale: "ko" },
+    discord: {},
+    stt: {
+      provider: "openai",
+      openAiApiKeySecretRef: DEFAULT_SECRET_REFS.openAiApiKey,
+    },
+    ai: {},
+    notion: options.notionToken
+      ? {
+          tokenSecretRef: DEFAULT_SECRET_REFS.notionToken,
+          parentPageUrl:
+            "https://www.notion.so/workspace/Dirong-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        }
+      : {},
+    recording: { aloneFinalizeEnabled: true, aloneFinalizeGraceMs: 90000 },
+    retention: { deleteAudioAfterNotionUpload: true, textDraftRetentionDays: 30 },
+  });
+  secretStore.set(DEFAULT_SECRET_REFS.openAiApiKey, "doctor-test-openai-key");
+  if (options.notionToken) {
+    secretStore.set(DEFAULT_SECRET_REFS.notionToken, options.notionToken);
+  }
+  mkdirSync(paths.sessionsDir, { recursive: true });
+
+  return { env, paths };
+}
+
 function createLegacyDbWithoutSpeechStatus(dbPath: string): void {
+  mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
   try {
     db.exec(`
@@ -146,6 +188,7 @@ CREATE TABLE repair_items (
 }
 
 function createManagedNotionRegistryDb(dbPath: string): void {
+  mkdirSync(path.dirname(dbPath), { recursive: true });
   const database = new DirongDatabase(dbPath, 1_000);
   try {
     const store = new NotionRegistryStore(new SqlRunner(database));

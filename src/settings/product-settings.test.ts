@@ -49,6 +49,96 @@ test("loadProductRuntimeSettings ignores process env fallback for product Discor
   }
 });
 
+test("loadProductRuntimeSettings resolves product settings and secrets instead of process env", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-product-"));
+  const envKeys = [
+    "DISCORD_BOT_TOKEN",
+    "DISCORD_CLIENT_ID",
+    "DISCORD_GUILD_IDS",
+    "PHASE3_STT_PROVIDER",
+    "OPENAI_API_KEY",
+    "PHASE3_STT_MODEL",
+    "PHASE4_CLAUDE_COMMAND",
+    "PHASE4_CLAUDE_MODEL",
+    "NOTION_API_KEY",
+    "NOTION_UPLOAD_MODE",
+  ];
+  const previous = new Map(envKeys.map((key) => [key, process.env[key]]));
+
+  try {
+    process.env.DISCORD_BOT_TOKEN = "env-discord-token-must-not-be-used";
+    process.env.DISCORD_CLIENT_ID = "env-client-must-not-be-used";
+    process.env.DISCORD_GUILD_IDS = "env-guild-must-not-be-used";
+    process.env.PHASE3_STT_PROVIDER = "local-whisper";
+    process.env.OPENAI_API_KEY = "env-openai-key-must-not-be-used";
+    process.env.PHASE3_STT_MODEL = "env-stt-model-must-not-be-used";
+    process.env.PHASE4_CLAUDE_COMMAND = "env-claude-must-not-be-used";
+    process.env.PHASE4_CLAUDE_MODEL = "env-model-must-not-be-used";
+    process.env.NOTION_API_KEY = "env-notion-token-must-not-be-used";
+    process.env.NOTION_UPLOAD_MODE = "manual";
+
+    const paths = getDirongUserDataPaths(dir);
+    const settingsStore = new LocalSettingsStore(paths.settingsFile);
+    const secretStore = new LocalSecretStore(paths.secretsFile);
+    settingsStore.write({
+      schemaVersion: 1,
+      app: { locale: "ko" },
+      discord: {
+        applicationId: "product-client",
+        botTokenSecretRef: DEFAULT_SECRET_REFS.discordBotToken,
+        guildIds: ["product-guild"],
+      },
+      stt: {
+        provider: "openai",
+        openAiApiKeySecretRef: DEFAULT_SECRET_REFS.openAiApiKey,
+        openAiModel: "product-stt-model",
+      },
+      ai: {
+        provider: "claude",
+        mode: "cli",
+        claudeCommand: "product-claude",
+        model: "product-ai-model",
+      },
+      notion: {
+        tokenSecretRef: DEFAULT_SECRET_REFS.notionToken,
+        parentPageUrl:
+          "https://www.notion.so/workspace/Dirong-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        uploadMode: "automatic_after_ai_cleanup",
+      },
+      recording: { aloneFinalizeEnabled: true, aloneFinalizeGraceMs: 90000 },
+      retention: { deleteAudioAfterNotionUpload: true, textDraftRetentionDays: 30 },
+    });
+    secretStore.set(DEFAULT_SECRET_REFS.discordBotToken, "product-discord-token");
+    secretStore.set(DEFAULT_SECRET_REFS.openAiApiKey, "product-openai-key");
+    secretStore.set(DEFAULT_SECRET_REFS.notionToken, "product-notion-token");
+
+    const runtime = loadProductRuntimeSettings({ userDataDir: dir });
+
+    assert.equal(runtime.config.discordBotToken, "product-discord-token");
+    assert.equal(runtime.config.discordClientId, "product-client");
+    assert.deepEqual(runtime.config.guildIds, ["product-guild"]);
+    assert.equal(runtime.appSettings.stt.provider, "openai");
+    if (runtime.appSettings.stt.provider !== "openai") {
+      throw new Error("expected openai settings");
+    }
+    assert.equal(runtime.appSettings.stt.openai.apiKey, "product-openai-key");
+    assert.equal(runtime.appSettings.stt.openai.model, "product-stt-model");
+    assert.equal(runtime.appSettings.aiCleanup.claudeCommand, "product-claude");
+    assert.equal(runtime.appSettings.aiCleanup.claudeModel, "product-ai-model");
+    assert.equal(runtime.appSettings.notion.enabled, true);
+    assert.equal(runtime.appSettings.notion.apiKey, "product-notion-token");
+    assert.equal(runtime.appSettings.notion.uploadMode, "automatic_after_ai_cleanup");
+
+    const serialized = JSON.stringify(runtime);
+    assert.doesNotMatch(serialized, /must-not-be-used/);
+  } finally {
+    for (const [key, value] of previous) {
+      restoreEnv(key, value);
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("buildProductSetupStatus reports ready Discord without exposing token values", () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-product-"));
   try {

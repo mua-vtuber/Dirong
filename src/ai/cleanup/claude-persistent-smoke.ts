@@ -52,7 +52,6 @@ export type ClaudePersistentSmokeSessionOptions = {
   extraArgs?: string[];
   model?: string | null;
   timeoutMs?: number;
-  env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   spawnProcess?: ClaudePersistentSmokeSpawn;
   now?: () => number;
@@ -734,12 +733,10 @@ export class ClaudePersistentSmokeSession {
 export function resolveClaudePersistentSmokeOptions(
   options: ClaudePersistentSmokeSessionOptions = {},
 ): ClaudePersistentSmokeResolvedOptions {
-  const env = options.env ?? process.env;
-  const requestedCommand =
-    options.command?.trim() || env.PHASE4_CLAUDE_COMMAND?.trim() || "claude";
+  const requestedCommand = options.command?.trim() || "claude";
   const model =
     options.model === undefined
-      ? env.PHASE4_CLAUDE_MODEL?.trim() || null
+      ? null
       : options.model?.trim() || null;
   const timeoutMs =
     options.timeoutMs ?? DEFAULT_CLAUDE_PERSISTENT_SMOKE_TIMEOUT_MS;

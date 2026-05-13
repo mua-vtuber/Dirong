@@ -449,7 +449,35 @@ test("DashboardServer setup wizard routes read state and post actions through th
       "setup.discord.applicationId.save.done.message",
     );
     assert.equal(savedBody.httpStatus, undefined);
-    assert.deepEqual(calls, [{ applicationId: "123456789012345678" }]);
+
+    const installState = await fetch(
+      `${fixture.baseUrl}/api/setup/stt/local-whisper/install`,
+    );
+    const installStateBody = await installState.json() as {
+      ok: boolean;
+      install: { status: string };
+    };
+    assert.equal(installState.status, 200);
+    assert.equal(installStateBody.ok, true);
+    assert.equal(installStateBody.install.status, "running");
+
+    const installStarted = await postJson(
+      fixture.baseUrl,
+      "/api/setup/stt/local-whisper/install",
+      { model: "small" },
+    );
+    const installStartedBody = await installStarted.json() as {
+      ok: boolean;
+      install: { status: string; model: string };
+    };
+    assert.equal(installStarted.status, 202);
+    assert.equal(installStartedBody.ok, true);
+    assert.equal(installStartedBody.install.status, "running");
+    assert.equal(installStartedBody.install.model, "small");
+    assert.deepEqual(calls, [
+      { applicationId: "123456789012345678" },
+      { model: "small" },
+    ]);
   } finally {
     await fixture.close();
   }
@@ -2035,6 +2063,33 @@ function makeSetupWizardSource(calls: unknown[]): DashboardSetupWizardSource {
 
   return {
     getState: () => state,
+    getLocalWhisperInstallSnapshot: () => ({
+      status: "running",
+      stage: "checking_python",
+      model: "small",
+      message: "Checking bundled Python.",
+      detail: null,
+      lastLog: null,
+      startedAt: "2026-05-10T00:00:00.000Z",
+      updatedAt: "2026-05-10T00:00:00.000Z",
+      completedAt: null,
+    }),
+    startLocalWhisperInstall: (body) => ({
+      ...action(body),
+      status: "ready",
+      httpStatus: 202,
+      install: {
+        status: "running",
+        stage: "checking_python",
+        model: "small",
+        message: "Checking bundled Python.",
+        detail: null,
+        lastLog: null,
+        startedAt: "2026-05-10T00:00:00.000Z",
+        updatedAt: "2026-05-10T00:00:00.000Z",
+        completedAt: null,
+      },
+    }),
     saveDiscordApplicationId: action,
     saveDiscordBotToken: action,
     testDiscordConnection: async () => action({}),

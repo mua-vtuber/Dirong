@@ -66,6 +66,27 @@ export async function handleSetupGuildsGet(
   sendWizardResult(response, await sources.setupWizard.listDiscordGuilds());
 }
 
+export function handleSetupLocalWhisperInstallGet(
+  response: ServerResponse,
+  sources: DashboardRuntimeSources,
+): void {
+  const locale = getDashboardResponseLocale(sources);
+  const setupWizard = sources.setupWizard;
+  if (!setupWizard) {
+    sendJson(response, withMessageKeys(locale, {
+      ok: false,
+      status: "not_configured",
+      messageKey: "error.dashboard.setupWizardSourceMissing.message",
+      userActionKey: "error.dashboard.setupWizardSourceMissing.action",
+    }), 500);
+    return;
+  }
+  sendJson(response, {
+    ok: true,
+    install: setupWizard.getLocalWhisperInstallSnapshot(),
+  });
+}
+
 export function handleLanguageGet(
   response: ServerResponse,
   sources: DashboardRuntimeSources,
@@ -281,6 +302,10 @@ export async function handleSetupWizardPost(
     }
     if (pathname === "/api/setup/stt") {
       sendWizardResult(response, setupWizard.saveSttSettings(body));
+      return;
+    }
+    if (pathname === "/api/setup/stt/local-whisper/install") {
+      sendWizardResult(response, setupWizard.startLocalWhisperInstall(body));
       return;
     }
     if (pathname === "/api/setup/ai/claude") {

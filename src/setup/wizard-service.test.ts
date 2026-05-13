@@ -33,6 +33,10 @@ import {
   type ClaudeSetupTester,
   type DiscordSetupGateway,
 } from "./wizard-service.js";
+import type {
+  LocalWhisperInstaller,
+  LocalWhisperInstallSnapshot,
+} from "./local-whisper-install-service.js";
 
 const appId = "123456789012345678";
 const guildId = "111111111111111111";
@@ -235,6 +239,51 @@ test("SetupWizardService applies server STT defaults when optional setup fields 
       openAiApiKeySecretRef: undefined,
       openAiModel: undefined,
     });
+  } finally {
+    fixture.close();
+  }
+});
+
+test("SetupWizardService starts local Whisper install with selected model", () => {
+  const starts: unknown[] = [];
+  const snapshot: LocalWhisperInstallSnapshot = {
+    status: "running",
+    stage: "checking_python",
+    model: "medium",
+    message: "Checking bundled Python.",
+    detail: null,
+    lastLog: null,
+    startedAt: "2026-05-10T00:00:00.000Z",
+    updatedAt: "2026-05-10T00:00:00.000Z",
+    completedAt: null,
+  };
+  const installer: LocalWhisperInstaller = {
+    getSnapshot: () => ({ ...snapshot }),
+    start: (input) => {
+      starts.push(input);
+      return { ...snapshot, model: input.model };
+    },
+  };
+  const fixture = createFixture({ localWhisperInstaller: installer });
+  try {
+    const result = fixture.service.startLocalWhisperInstall({
+      model: "medium",
+      device: "cpu",
+      computeType: "int8",
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.httpStatus, 202);
+    assert.equal(result.install.status, "running");
+    assert.equal(result.install.model, "medium");
+    assert.deepEqual(starts, [
+      { model: "medium", device: "cpu", computeType: "int8" },
+    ]);
+
+    const invalid = fixture.service.startLocalWhisperInstall({ model: "tiny" });
+    assert.equal(invalid.ok, false);
+    assert.equal(invalid.httpStatus, 400);
+    assert.equal(starts.length, 1);
   } finally {
     fixture.close();
   }
@@ -520,6 +569,7 @@ test("SetupWizardService blocks managed DB creation when registry is partial", a
 function createFixture(options: {
   discordGateway?: DiscordSetupGateway;
   claudeTester?: ClaudeSetupTester;
+  localWhisperInstaller?: LocalWhisperInstaller;
   notionClientFactory?: (apiKey: string) => NotionClient;
   managedSchemaCreator?: ConstructorParameters<typeof SetupWizardService>[0]["managedSchemaCreator"];
   withProjectStore?: boolean;
@@ -550,6 +600,7 @@ function createFixture(options: {
       projectStore,
       discordGateway: options.discordGateway ?? fakeDiscordGateway(),
       claudeTester: options.claudeTester ?? fakeClaudeTester(),
+      localWhisperInstaller: options.localWhisperInstaller,
       notionClientFactory: options.notionClientFactory,
       managedSchemaCreator: options.managedSchemaCreator,
       now: () => new Date("2026-05-10T00:00:00.000Z"),

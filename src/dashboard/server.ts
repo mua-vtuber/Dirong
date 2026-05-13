@@ -30,7 +30,12 @@ import type {
   SettingsResetRequest,
   SettingsResetResult,
 } from "../settings/reset-service.js";
-import type { SetupWizardActionResult, SetupWizardStateSnapshot } from "../setup/wizard-service.js";
+import type {
+  SetupWizardActionResult,
+  SetupWizardInstallActionResult,
+  SetupWizardStateSnapshot,
+} from "../setup/wizard-service.js";
+import type { LocalWhisperInstallSnapshot } from "../setup/local-whisper-install-service.js";
 import type { SttAutomationSnapshot } from "../stt/automation-service.js";
 import { routeDashboardRequest } from "./router.js";
 import { createDashboardToken } from "./security.js";
@@ -100,6 +105,8 @@ export type DashboardSetupWizardSource = {
   listDiscordGuilds(): Promise<SetupWizardActionResult>;
   saveDiscordGuildAllowlist(body: unknown): Promise<SetupWizardActionResult>;
   saveSttSettings(body: unknown): SetupWizardActionResult;
+  getLocalWhisperInstallSnapshot(): LocalWhisperInstallSnapshot;
+  startLocalWhisperInstall(body: unknown): SetupWizardInstallActionResult;
   saveClaudeSettings(body: unknown): SetupWizardActionResult;
   saveRecordingSettings?(body: unknown): SetupWizardActionResult;
   testClaudeConnection(): Promise<SetupWizardActionResult>;

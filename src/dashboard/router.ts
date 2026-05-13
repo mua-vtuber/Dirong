@@ -27,6 +27,7 @@ import {
   handleLanguageGet,
   handleLanguageSave,
   handleSetupGuildsGet,
+  handleSetupLocalWhisperInstallGet,
   handleSetupStatusGet,
   handleSetupWizardPost,
   handleThemeGet,
@@ -269,6 +270,11 @@ export async function routeDashboardRequest(
 
   if (url.pathname === "/api/setup/discord/guilds") {
     await handleSetupGuildsGet(response, context.runtimeSources);
+    return;
+  }
+
+  if (url.pathname === "/api/setup/stt/local-whisper/install") {
+    handleSetupLocalWhisperInstallGet(response, context.runtimeSources);
     return;
   }
 

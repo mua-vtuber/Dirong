@@ -71,6 +71,12 @@ import {
   type ClaudeToolProfile,
   type LocalWhisperToolProfile,
 } from "../settings/tool-profiles.js";
+import {
+  isLocalWhisperInstallModel,
+  LocalWhisperInstallService,
+  type LocalWhisperInstallSnapshot,
+  type LocalWhisperInstaller,
+} from "./local-whisper-install-service.js";
 
 export type SetupWizardStepId =
   | "language"
@@ -113,6 +119,10 @@ export type SetupWizardActionResult = {
   httpStatus: number;
   setup: SetupWizardStateSnapshot;
   [key: string]: unknown;
+};
+
+export type SetupWizardInstallActionResult = SetupWizardActionResult & {
+  install: LocalWhisperInstallSnapshot;
 };
 
 export type SetupDiscordGuild = {
@@ -164,6 +174,7 @@ export type SetupWizardServiceOptions = {
   projectStore?: ProjectStore;
   discordGateway?: DiscordSetupGateway;
   claudeTester?: ClaudeSetupTester;
+  localWhisperInstaller?: LocalWhisperInstaller;
   notionClientFactory?: (apiKey: string) => NotionClient;
   managedSchemaCreator?: typeof createManagedNotionSchema;
   now?: () => Date;
@@ -186,6 +197,7 @@ export function createProductSetupWizardService(input: {
 export class SetupWizardService {
   private readonly discordGateway: DiscordSetupGateway;
   private readonly claudeTester: ClaudeSetupTester;
+  private readonly localWhisperInstaller: LocalWhisperInstaller;
   private readonly notionClientFactory: (apiKey: string) => NotionClient;
   private readonly managedSchemaCreator: typeof createManagedNotionSchema;
   private readonly now: () => Date;
@@ -193,6 +205,9 @@ export class SetupWizardService {
   constructor(private readonly options: SetupWizardServiceOptions) {
     this.discordGateway = options.discordGateway ?? new DiscordJsSetupGateway();
     this.claudeTester = options.claudeTester ?? new DefaultClaudeSetupTester();
+    this.localWhisperInstaller =
+      options.localWhisperInstaller ??
+      new LocalWhisperInstallService({ paths: options.paths });
     this.notionClientFactory = options.notionClientFactory ?? createDefaultNotionClient;
     this.managedSchemaCreator =
       options.managedSchemaCreator ?? createManagedNotionSchema;
@@ -516,6 +531,43 @@ export class SetupWizardService {
       runtimeEffectScope: "stt",
       stt: settingsUpdate.stt,
     });
+  }
+
+  getLocalWhisperInstallSnapshot(): LocalWhisperInstallSnapshot {
+    return this.localWhisperInstaller.getSnapshot();
+  }
+
+  startLocalWhisperInstall(body: unknown): SetupWizardInstallActionResult {
+    const modelInput = readCleanString(body, ["model"]);
+    const model = modelInput ?? DEFAULT_STT_SETTINGS.localWhisper.model;
+    if (!isLocalWhisperInstallModel(model)) {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.stt.settings.error.invalidModel.message",
+        userActionKey: "setup.stt.settings.error.invalidModel.action",
+        install: this.localWhisperInstaller.getSnapshot(),
+      }) as SetupWizardInstallActionResult;
+    }
+
+    const install = this.localWhisperInstaller.start({
+      model,
+      device:
+        readCleanString(body, ["device"]) ??
+        DEFAULT_STT_SETTINGS.localWhisper.device,
+      computeType:
+        readCleanString(body, ["computeType"]) ??
+        DEFAULT_STT_SETTINGS.localWhisper.computeType,
+    });
+    return this.result({
+      ok: true,
+      status: "ready",
+      httpStatus: install.status === "running" ? 202 : 200,
+      messageKey: "setup.stt.settings.save.done.message",
+      userActionKey: null,
+      install,
+    }) as SetupWizardInstallActionResult;
   }
 
   saveClaudeSettings(body: unknown): SetupWizardActionResult {

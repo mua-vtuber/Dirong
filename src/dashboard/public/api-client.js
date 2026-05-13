@@ -127,6 +127,9 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
     function setSettingsTab(tab) {
       activeSettingsTab = tab;
       window.localStorage.setItem('dirong.dashboard.settingsTab', tab);
+      if (typeof settingsEditorState !== 'undefined') {
+        settingsEditorState.forceRender = true;
+      }
       refresh();
     }
     function setLogFilter(filter) {

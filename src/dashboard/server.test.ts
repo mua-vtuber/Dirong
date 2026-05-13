@@ -15,6 +15,8 @@ import { LocalSecretStore } from "../settings/local-secret-store.js";
 import { getDirongUserDataPaths } from "../settings/dirong-user-data.js";
 import {
   DEFAULT_DASHBOARD_SETTINGS,
+  DEFAULT_NOTION_SETTINGS,
+  DEFAULT_RECORDING_SETTINGS,
   DEFAULT_RETENTION_SETTINGS,
   DEFAULT_SETUP_AI_SETTINGS,
   DEFAULT_STT_SETTINGS,
@@ -709,6 +711,46 @@ test("DashboardServer setup STT route lets the wizard apply server defaults", as
       },
       openAiApiKeySecretRef: undefined,
       openAiModel: undefined,
+    });
+  } finally {
+    await fixture.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("DashboardServer setup recording route saves alone finalize wait time", async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-dashboard-recording-"));
+  const paths = getDirongUserDataPaths(dir);
+  const settingsStore = new LocalSettingsStore(paths.settingsFile);
+  const secretStore = new LocalSecretStore(paths.secretsFile);
+  const fixture = await startDashboardFixture({
+    setupWizard: new SetupWizardService({
+      paths,
+      settingsStore,
+      secretStore,
+    }),
+  });
+  try {
+    const response = await postJson(
+      fixture.baseUrl,
+      "/api/setup/recording/alone-finalize",
+      {
+        enabled: true,
+        graceSeconds: 120,
+      },
+    );
+    const body = await response.json() as {
+      ok: boolean;
+      runtimeEffect?: { scope: string; kind: string };
+    };
+
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.runtimeEffect?.scope, "recording");
+    assert.equal(body.runtimeEffect?.kind, "restart_required");
+    assert.deepEqual(settingsStore.read().recording, {
+      aloneFinalizeEnabled: true,
+      aloneFinalizeGraceMs: 120000,
     });
   } finally {
     await fixture.close();
@@ -1816,6 +1858,30 @@ function makeSetupStatusSource(): DashboardSetupStatusSource {
           locale: DEFAULT_DASHBOARD_SETTINGS.locale,
           theme: DEFAULT_DASHBOARD_SETTINGS.theme,
           themes: DEFAULT_DASHBOARD_SETTINGS.themes,
+        },
+      },
+      editableSettings: {
+        stt: {
+          provider: DEFAULT_STT_SETTINGS.provider,
+          language: DEFAULT_STT_SETTINGS.language,
+          timeoutMs: DEFAULT_STT_SETTINGS.timeoutMs,
+          openAiModel: DEFAULT_STT_SETTINGS.openai.model,
+          localWhisper: {
+            profile: DEFAULT_STT_SETTINGS.localWhisper.profile,
+            model: DEFAULT_STT_SETTINGS.localWhisper.model,
+            device: DEFAULT_STT_SETTINGS.localWhisper.device,
+            computeType: DEFAULT_STT_SETTINGS.localWhisper.computeType,
+          },
+        },
+        ai: DEFAULT_SETUP_AI_SETTINGS,
+        notion: {
+          parentPageUrl: null,
+          uploadMode: DEFAULT_NOTION_SETTINGS.uploadMode,
+        },
+        recording: {
+          aloneFinalizeEnabled:
+            DEFAULT_RECORDING_SETTINGS.productAloneFinalizeEnabled,
+          aloneFinalizeGraceMs: DEFAULT_RECORDING_SETTINGS.aloneFinalizeGraceMs,
         },
       },
       status: "not_configured",

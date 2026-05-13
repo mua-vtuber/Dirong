@@ -635,6 +635,19 @@ export const ko = {
           message: "녹음 시작에 필요한 기본 설정이 준비되어 있습니다.",
         },
       },
+      aloneFinalize: {
+        save: {
+          done: {
+            message: "자동 종료 대기시간을 저장했습니다.",
+          },
+        },
+        error: {
+          invalidGrace: {
+            message: "자동 종료 대기시간 값이 올바르지 않습니다.",
+            action: "5초 이상 3600초 이하로 입력해 주세요.",
+          },
+        },
+      },
     },
     stt: {
       status: {
@@ -839,6 +852,12 @@ export const ko = {
         restartRequired: {
           message: "저장은 완료됐지만 현재 Discord 봇 로그인에는 자동 반영되지 않습니다.",
           action: "진행 중인 녹음 세션을 깨지 않도록 앱을 다시 시작할 때 적용됩니다.",
+        },
+      },
+      recording: {
+        restartRequired: {
+          message: "저장은 완료됐지만 현재 자동 종료 타이머에는 자동 반영되지 않습니다.",
+          action: "진행 중인 녹음 세션을 보존하려면 앱을 다시 시작해 적용해 주세요.",
         },
       },
       stt: {
@@ -1569,6 +1588,40 @@ export const ko = {
         madeWith: "Claude Code로 제작",
       },
       secretsHidden: "Token/key 원문은 저장 후 화면에 표시하지 않습니다.",
+      editor: {
+        current: "현재값",
+        provider: "Provider",
+        mode: "사용 방식",
+        model: "모델",
+        save: "저장",
+        verify: "검사",
+        saving: "저장 중...",
+        testing: "검사 중...",
+        optionalSecret: "비워 두면 저장된 key를 유지합니다.",
+        stt: {
+          title: "STT provider와 모델",
+          localWhisperModel: "Whisper 모델",
+          openAiModel: "OpenAI STT 모델",
+          openAiApiKey: "OpenAI API key",
+        },
+        ai: {
+          title: "AI provider와 모델",
+          providerClaude: "Claude",
+          modeCli: "Claude CLI",
+          modeApi: "Claude API",
+          apiKey: "Claude API key",
+        },
+        notion: {
+          title: "Notion 페이지 URL",
+          parentPageUrl: "관리 페이지 URL",
+          parentPagePlaceholder: "https://www.notion.so/...",
+        },
+        aloneFinalize: {
+          enabled: "자동 종료 사용",
+          graceSeconds: "대기시간(초)",
+          help: "5초부터 3600초까지 저장할 수 있습니다.",
+        },
+      },
       resetDanger: "삭제와 초기화는 실제 파일 확인 뒤 별도 구현합니다.",
       reset: {
         title: "설정 초기화",
@@ -2411,6 +2464,19 @@ export const en = {
           message: "Basic settings required to start recording are ready.",
         },
       },
+      aloneFinalize: {
+        save: {
+          done: {
+            message: "Auto-stop wait time was saved.",
+          },
+        },
+        error: {
+          invalidGrace: {
+            message: "Auto-stop wait time is invalid.",
+            action: "Enter a value from 5 to 3600 seconds.",
+          },
+        },
+      },
     },
     stt: {
       status: {
@@ -2617,6 +2683,12 @@ export const en = {
         restartRequired: {
           message: "The value is saved, but the current Discord bot login will not reload automatically.",
           action: "Restart the app to apply it without disrupting an active recording session.",
+        },
+      },
+      recording: {
+        restartRequired: {
+          message: "The value is saved, but the current auto-stop timer will not reload automatically.",
+          action: "Restart the app to apply it while preserving the active recording session.",
         },
       },
       stt: {
@@ -3347,6 +3419,40 @@ export const en = {
         madeWith: "Built with Claude Code",
       },
       secretsHidden: "Token and key values are never shown after saving.",
+      editor: {
+        current: "Current value",
+        provider: "Provider",
+        mode: "Mode",
+        model: "Model",
+        save: "Save",
+        verify: "Verify",
+        saving: "Saving...",
+        testing: "Verifying...",
+        optionalSecret: "Leave blank to keep the saved key.",
+        stt: {
+          title: "STT provider and model",
+          localWhisperModel: "Whisper model",
+          openAiModel: "OpenAI STT model",
+          openAiApiKey: "OpenAI API key",
+        },
+        ai: {
+          title: "AI provider and model",
+          providerClaude: "Claude",
+          modeCli: "Claude CLI",
+          modeApi: "Claude API",
+          apiKey: "Claude API key",
+        },
+        notion: {
+          title: "Notion page URL",
+          parentPageUrl: "Management page URL",
+          parentPagePlaceholder: "https://www.notion.so/...",
+        },
+        aloneFinalize: {
+          enabled: "Use auto-stop",
+          graceSeconds: "Wait time (seconds)",
+          help: "You can save a value from 5 to 3600 seconds.",
+        },
+      },
       resetDanger: "Delete and reset actions will be implemented with file verification.",
       reset: {
         title: "Reset Settings",

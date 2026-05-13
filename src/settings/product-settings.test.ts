@@ -129,6 +129,16 @@ test("loadProductRuntimeSettings resolves product settings and secrets instead o
     assert.equal(runtime.appSettings.notion.enabled, true);
     assert.equal(runtime.appSettings.notion.apiKey, "product-notion-token");
     assert.equal(runtime.appSettings.notion.uploadMode, "automatic_after_ai_cleanup");
+    const setup = runtime.setupStatus.getSnapshot();
+    assert.equal(setup.editableSettings.stt.provider, "openai");
+    assert.equal(setup.editableSettings.stt.openAiModel, "product-stt-model");
+    assert.equal(setup.editableSettings.ai.mode, "cli");
+    assert.equal(setup.editableSettings.ai.model, "product-ai-model");
+    assert.equal(
+      setup.editableSettings.notion.parentPageUrl,
+      "https://www.notion.so/workspace/Dirong-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    );
+    assert.equal(setup.editableSettings.recording.aloneFinalizeGraceMs, 90000);
 
     const serialized = JSON.stringify(runtime);
     assert.doesNotMatch(serialized, /must-not-be-used/);

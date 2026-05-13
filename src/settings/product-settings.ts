@@ -17,7 +17,11 @@ import {
   type ManagedNotionRegistryStatus,
 } from "../notion/managed-registry.js";
 import type { NotionRegistryStore } from "../notion/registry-store.js";
-import type { AppSettings, SttSettings } from "./app-settings.js";
+import type {
+  AppSettings,
+  SttProviderName,
+  SttSettings,
+} from "./app-settings.js";
 import {
   getDirongUserDataPaths,
   resolveDirongUserDataPath,
@@ -25,6 +29,7 @@ import {
 } from "./dirong-user-data.js";
 import {
   type AiLocalSettings,
+  type AiProviderMode,
   DEFAULT_DIRONG_DASHBOARD_THEME,
   DEFAULT_DIRONG_LOCALE,
   type DirongDashboardTheme,
@@ -70,6 +75,7 @@ export type SettingsRuntimeEffectKind =
 export type SettingsRuntimeEffectScope =
   | "dashboard"
   | "discord"
+  | "recording"
   | "stt"
   | "ai"
   | "notion";
@@ -100,6 +106,7 @@ export type ProductSetupStatusSnapshot = {
   notionSchemaLocale: DirongLocale;
   dashboardTheme: DirongDashboardTheme;
   defaults: ProductSetupDefaultsSnapshot;
+  editableSettings: ProductEditableSettingsSnapshot;
   status: "not_configured" | "ready" | "blocked";
   userDataDir: string;
   settingsPath: string;
@@ -138,6 +145,34 @@ export type ProductSetupStatusSnapshot = {
     };
   };
   projectSetup?: ProductProjectSetupSnapshot;
+};
+
+export type ProductEditableSettingsSnapshot = {
+  stt: {
+    provider: SttProviderName;
+    language: string;
+    timeoutMs: number;
+    openAiModel: string;
+    localWhisper: {
+      profile: typeof DEFAULT_LOCAL_WHISPER_TOOL_PROFILE;
+      model: string;
+      device: string;
+      computeType: string;
+    };
+  };
+  ai: {
+    provider: typeof DEFAULT_SETUP_AI_SETTINGS.provider;
+    mode: AiProviderMode;
+    model: string;
+  };
+  notion: {
+    parentPageUrl: string | null;
+    uploadMode: NotionRuntimeSettings["uploadMode"];
+  };
+  recording: {
+    aloneFinalizeEnabled: boolean;
+    aloneFinalizeGraceMs: number;
+  };
 };
 
 export type ProductProjectSummarySnapshot = {
@@ -426,9 +461,10 @@ export function buildProductSetupStatus(input: {
     generatedAt: new Date().toISOString(),
     locale,
     notionSchemaLocale: locale,
-    dashboardTheme,
-    defaults: buildProductSetupDefaults(),
-    status: featureStatuses.every((status) => status === "ready")
+  dashboardTheme,
+  defaults: buildProductSetupDefaults(),
+  editableSettings: buildProductEditableSettings(settings),
+  status: featureStatuses.every((status) => status === "ready")
       ? "ready"
       : featureStatuses.includes("not_configured")
         ? "not_configured"
@@ -520,6 +556,11 @@ const SETTINGS_RUNTIME_EFFECTS = {
     kind: "restart_required",
     messageKey: "setup.runtimeEffect.discord.restartRequired.message",
     userActionKey: "setup.runtimeEffect.discord.restartRequired.action",
+  },
+  recording: {
+    kind: "restart_required",
+    messageKey: "setup.runtimeEffect.recording.restartRequired.message",
+    userActionKey: "setup.runtimeEffect.recording.restartRequired.action",
   },
   stt: {
     kind: "restart_required",
@@ -1048,6 +1089,51 @@ function buildProductSetupDefaults(): ProductSetupDefaultsSnapshot {
       locale: DEFAULT_DASHBOARD_SETTINGS.locale,
       theme: DEFAULT_DASHBOARD_SETTINGS.theme,
       themes: [...DEFAULT_DASHBOARD_SETTINGS.themes],
+    },
+  };
+}
+
+function buildProductEditableSettings(
+  settings: DirongLocalSettings,
+): ProductEditableSettingsSnapshot {
+  return {
+    stt: {
+      provider: settings.stt.provider ?? DEFAULT_STT_SETTINGS.provider,
+      language: settings.stt.language ?? DEFAULT_STT_SETTINGS.language,
+      timeoutMs: settings.stt.timeoutMs ?? DEFAULT_STT_SETTINGS.timeoutMs,
+      openAiModel:
+        settings.stt.openAiModel ?? DEFAULT_STT_SETTINGS.openai.model,
+      localWhisper: {
+        profile:
+          settings.stt.localWhisper?.profile ??
+          DEFAULT_STT_SETTINGS.localWhisper.profile,
+        model:
+          settings.stt.localWhisper?.model ??
+          DEFAULT_STT_SETTINGS.localWhisper.model,
+        device:
+          settings.stt.localWhisper?.device ??
+          DEFAULT_STT_SETTINGS.localWhisper.device,
+        computeType:
+          settings.stt.localWhisper?.computeType ??
+          DEFAULT_STT_SETTINGS.localWhisper.computeType,
+      },
+    },
+    ai: {
+      provider: DEFAULT_SETUP_AI_SETTINGS.provider,
+      mode: settings.ai.mode ?? DEFAULT_SETUP_AI_SETTINGS.mode,
+      model: settings.ai.model ?? DEFAULT_SETUP_AI_SETTINGS.model,
+    },
+    notion: {
+      parentPageUrl: settings.notion.parentPageUrl ?? null,
+      uploadMode: settings.notion.uploadMode ?? DEFAULT_NOTION_SETTINGS.uploadMode,
+    },
+    recording: {
+      aloneFinalizeEnabled:
+        settings.recording.aloneFinalizeEnabled ??
+        DEFAULT_RECORDING_SETTINGS.productAloneFinalizeEnabled,
+      aloneFinalizeGraceMs:
+        settings.recording.aloneFinalizeGraceMs ??
+        DEFAULT_RECORDING_SETTINGS.aloneFinalizeGraceMs,
     },
   };
 }

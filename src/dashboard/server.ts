@@ -101,6 +101,7 @@ export type DashboardSetupWizardSource = {
   saveDiscordGuildAllowlist(body: unknown): Promise<SetupWizardActionResult>;
   saveSttSettings(body: unknown): SetupWizardActionResult;
   saveClaudeSettings(body: unknown): SetupWizardActionResult;
+  saveRecordingSettings?(body: unknown): SetupWizardActionResult;
   testClaudeConnection(): Promise<SetupWizardActionResult>;
   saveNotionToken(body: unknown): SetupWizardActionResult;
   saveNotionParentPageUrl(body: unknown): SetupWizardActionResult;

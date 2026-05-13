@@ -43,6 +43,7 @@ import {
   DEFAULT_AI_CLEANUP_SETTINGS,
   DEFAULT_MEETING_NOTES_LANGUAGE,
   DEFAULT_NOTION_SETTINGS,
+  DEFAULT_RECORDING_SETTINGS,
   DEFAULT_SETUP_AI_SETTINGS,
   DEFAULT_STT_SETTINGS,
   SUPPORTED_CLAUDE_SETUP_MODELS,
@@ -614,6 +615,55 @@ export class SetupWizardService {
         mode,
         model: savedModel,
         secret: this.options.secretStore.snapshot(DEFAULT_SECRET_REFS.claudeApiKey),
+      },
+    });
+  }
+
+  saveRecordingSettings(body: unknown): SetupWizardActionResult {
+    const current = this.options.settingsStore.read();
+    const enabled =
+      readBoolean(body, "aloneFinalizeEnabled") ??
+      readBoolean(body, "enabled") ??
+      current.recording.aloneFinalizeEnabled ??
+      DEFAULT_RECORDING_SETTINGS.productAloneFinalizeEnabled;
+    const graceSeconds =
+      readPositiveInteger(body, "aloneFinalizeGraceSeconds") ??
+      readPositiveInteger(body, "graceSeconds");
+    const graceMs =
+      readPositiveInteger(body, "aloneFinalizeGraceMs") ??
+      readPositiveInteger(body, "graceMs") ??
+      (graceSeconds === null ? null : graceSeconds * 1000) ??
+      current.recording.aloneFinalizeGraceMs ??
+      DEFAULT_RECORDING_SETTINGS.aloneFinalizeGraceMs;
+
+    if (graceMs < 5000 || graceMs > 3600000) {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.recording.aloneFinalize.error.invalidGrace.message",
+        userActionKey: "setup.recording.aloneFinalize.error.invalidGrace.action",
+      });
+    }
+
+    this.options.settingsStore.update((settings) => ({
+      ...settings,
+      recording: {
+        ...settings.recording,
+        aloneFinalizeEnabled: enabled,
+        aloneFinalizeGraceMs: graceMs,
+      },
+    }));
+
+    return this.result({
+      ok: true,
+      status: "done",
+      messageKey: "setup.recording.aloneFinalize.save.done.message",
+      userActionKey: null,
+      runtimeEffectScope: "recording",
+      recording: {
+        aloneFinalizeEnabled: enabled,
+        aloneFinalizeGraceMs: graceMs,
       },
     });
   }
@@ -1549,6 +1599,14 @@ function readPositiveInteger(body: unknown, key: string): number | null {
   }
   const integer = Math.trunc(value);
   return integer > 0 ? integer : null;
+}
+
+function readBoolean(body: unknown, key: string): boolean | null {
+  if (!isRecord(body)) {
+    return null;
+  }
+  const value = body[key];
+  return typeof value === "boolean" ? value : null;
 }
 
 function isDiscordSnowflake(value: string): boolean {

@@ -163,6 +163,38 @@ test("SetupWizardService saves STT and Claude settings and uses the fake Claude 
   }
 });
 
+test("SetupWizardService saves alone finalize wait time settings", () => {
+  const fixture = createFixture();
+  try {
+    const result = fixture.service.saveRecordingSettings({
+      enabled: false,
+      graceSeconds: 45,
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.runtimeEffect?.scope, "recording");
+    assert.deepEqual(fixture.settings.read().recording, {
+      aloneFinalizeEnabled: false,
+      aloneFinalizeGraceMs: 45000,
+    });
+
+    const invalid = fixture.service.saveRecordingSettings({
+      graceSeconds: 2,
+    });
+    assert.equal(invalid.ok, false);
+    assert.equal(
+      invalid.messageKey,
+      "setup.recording.aloneFinalize.error.invalidGrace.message",
+    );
+    assert.equal(
+      fixture.settings.read().recording.aloneFinalizeGraceMs,
+      45000,
+    );
+  } finally {
+    fixture.close();
+  }
+});
+
 test("SetupWizardService rejects versioned Claude model names from setup", () => {
   const fixture = createFixture();
   try {

@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
 import { summarizeSafeError } from "../errors.js";
 import { sha256File } from "../media.js";
-import type { SessionStore } from "../storage/session-store.js";
 import type { SttProvider } from "./provider.js";
+import type { SttBatchStore } from "./storage-port.js";
 
 export type SttRunOptions = {
   workerId: string;
@@ -44,7 +44,7 @@ export type SttRunResult = {
 };
 
 export async function runSttBatch(
-  store: SessionStore,
+  store: SttBatchStore,
   options: SttRunOptions,
 ): Promise<SttRunResult> {
   const result: SttRunResult = {

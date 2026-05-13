@@ -4,7 +4,7 @@ import {
 } from "@discordjs/voice";
 import { extractDaveEvidence } from "../dave.js";
 import { safeErrorInfo } from "../errors.js";
-import type { SessionStore } from "../storage/session-store.js";
+import type { VoiceConnectionControllerStore } from "./storage-port.js";
 
 export type VoiceConnectionControllerSession = {
   sessionId: string;
@@ -24,7 +24,7 @@ export class VoiceConnectionController {
     onSpeakingEnd: (userId: string) => void;
   } | null = null;
 
-  constructor(private readonly store: SessionStore) {}
+  constructor(private readonly store: VoiceConnectionControllerStore) {}
 
   attach(
     session: VoiceConnectionControllerSession,

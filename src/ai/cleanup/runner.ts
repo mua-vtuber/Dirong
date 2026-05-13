@@ -8,8 +8,7 @@ import type {
   AiCleanupFailureKind,
   AiCleanupJobRow,
   MeetingNotesDraftRow,
-  SessionStore,
-} from "../../storage/session-store.js";
+} from "../../storage/rows.js";
 import {
   DraftParseError,
   DraftValidationError,
@@ -57,6 +56,7 @@ import {
   sha256Text,
   stableStringify,
 } from "./timeline-input.js";
+import type { AiCleanupRunStore } from "./storage-port.js";
 
 export type AiCleanupRunResult = {
   workerId: string;
@@ -102,7 +102,7 @@ export type AiCleanupRunOptions = {
 };
 
 export async function runAiCleanupForSession(
-  store: SessionStore,
+  store: AiCleanupRunStore,
   options: AiCleanupRunOptions,
 ): Promise<AiCleanupRunResult> {
   let resetReason: AiCleanupProviderResetReason = "request_success";
@@ -119,7 +119,7 @@ export async function runAiCleanupForSession(
 }
 
 async function runAiCleanupForSessionCore(
-  store: SessionStore,
+  store: AiCleanupRunStore,
   options: AiCleanupRunOptions,
 ): Promise<AiCleanupRunResult> {
   const locale = resolveAppLocale({ locale: options.locale });

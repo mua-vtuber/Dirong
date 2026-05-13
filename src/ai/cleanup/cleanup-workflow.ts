@@ -2,7 +2,7 @@ import { summarizeSafeText } from "../../errors.js";
 import type {
   AiCleanupFailureKind,
   AiCleanupJobRow,
-} from "../../storage/session-store.js";
+} from "../../storage/rows.js";
 import {
   DraftParseError,
   DraftValidationError,

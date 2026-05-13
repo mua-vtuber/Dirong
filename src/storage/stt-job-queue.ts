@@ -2,8 +2,7 @@ import { planJobFailureRetry } from "./job-retry-policy.js";
 import type {
   ChunkRow,
   SttJobRow,
-  TranscriptSegmentRow,
-} from "./session-store.js";
+} from "./rows.js";
 import type { SqlRunner } from "./sql-runner.js";
 
 export type SttJobQueueOptions = {
@@ -251,10 +250,4 @@ export class SttJobQueue {
     return this.sql.get<SttJobRow>("SELECT * FROM stt_jobs WHERE id = ?", jobId);
   }
 
-  getTranscriptSegment(sttJobId: string): TranscriptSegmentRow | null {
-    return this.sql.get<TranscriptSegmentRow>(
-      "SELECT * FROM transcript_segments WHERE stt_job_id = ?",
-      sttJobId,
-    );
-  }
 }

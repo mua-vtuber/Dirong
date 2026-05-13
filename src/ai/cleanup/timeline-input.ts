@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import type { SessionStore } from "../../storage/session-store.js";
 import {
   buildPhase4TranscriptTimeline,
   renderPhase4TranscriptTimelineMarkdown,
   type Phase4TranscriptTimeline,
 } from "../../transcript/timeline.js";
+import type { AiCleanupTimelineStore } from "./storage-port.js";
 
 export type Phase4TimelineInput = {
   timeline: Phase4TranscriptTimeline;
@@ -14,7 +14,7 @@ export type Phase4TimelineInput = {
 };
 
 export function buildPhase4TimelineInput(
-  store: SessionStore,
+  store: AiCleanupTimelineStore,
   input: {
     sessionId: string;
     includeFakeStt?: boolean;

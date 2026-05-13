@@ -1,4 +1,4 @@
-import type { RecordingRuntimeState, SessionRow } from "./session-store.js";
+import type { RecordingRuntimeState, SessionRow } from "./rows.js";
 import { SqlRunner } from "./sql-runner.js";
 import { t, type LocaleKey } from "../i18n/catalog.js";
 import { resolveAppLocale } from "../i18n/app-locale.js";

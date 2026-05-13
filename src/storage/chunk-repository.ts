@@ -1,6 +1,6 @@
 import path from "node:path";
 import { redactForJson } from "../errors.js";
-import type { ChunkRow } from "./session-store.js";
+import type { ChunkRow } from "./rows.js";
 import type { SqlRunner } from "./sql-runner.js";
 
 export type ChunkRepositoryOptions = {

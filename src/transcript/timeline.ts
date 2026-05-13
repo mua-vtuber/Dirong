@@ -1,8 +1,7 @@
 import type {
-  SessionStore,
   SpeechStatus,
   TranscriptSegmentRow,
-} from "../storage/session-store.js";
+} from "../storage/rows.js";
 import { formatTranscriptTime } from "./time-format.js";
 
 export type Phase4TranscriptTimelineEntry = {
@@ -29,8 +28,16 @@ export type Phase4TranscriptTimeline = {
   entries: Phase4TranscriptTimelineEntry[];
 };
 
+export type TranscriptTimelineStore = {
+  listTranscriptTimelineSegments(input: {
+    sessionId: string;
+    includeNoSpeech?: boolean;
+    includeFakeStt?: boolean;
+  }): TranscriptSegmentRow[];
+};
+
 export function buildPhase4TranscriptTimeline(
-  store: SessionStore,
+  store: TranscriptTimelineStore,
   input: {
     sessionId: string;
     includeNoSpeech?: boolean;

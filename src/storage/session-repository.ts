@@ -1,4 +1,4 @@
-import type { SessionRow, SessionStatus } from "./session-store.js";
+import type { SessionRow, SessionStatus } from "./rows.js";
 import type { SqlRunner } from "./sql-runner.js";
 
 export type SessionRepositoryOptions = {

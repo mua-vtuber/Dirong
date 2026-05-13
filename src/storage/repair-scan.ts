@@ -2,7 +2,8 @@ import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import type { Phase1Config } from "../config.js";
 import { resolveFfmpegPath, sha256File, transcodeToSttSafe } from "../media.js";
-import type { ChunkRow, RepairScanSummary, SessionStore } from "./session-store.js";
+import type { ChunkRow, RepairScanSummary } from "./rows.js";
+import type { SessionStore } from "./session-store.js";
 
 export async function runStartupRepair(
   store: SessionStore,

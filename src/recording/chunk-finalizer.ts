@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { rename, stat } from "node:fs/promises";
 import { safeErrorInfo } from "../errors.js";
 import { sha256File, transcodeToSttSafe, validatePlayable } from "../media.js";
-import type { SessionStore } from "../storage/session-store.js";
+import type { ChunkFinalizerStore } from "./storage-port.js";
 
 export type ChunkFinalizerOptions = {
   sttMaxAttempts: number;
@@ -28,7 +28,7 @@ export type FinalizableChunk = {
 
 export class ChunkFinalizer {
   constructor(
-    private readonly store: SessionStore,
+    private readonly store: ChunkFinalizerStore,
     private readonly options: ChunkFinalizerOptions,
   ) {}
 

@@ -25,10 +25,10 @@ import type {
 } from "../settings/local-settings-store.js";
 import type { ProductSetupStatusSnapshot } from "../settings/product-settings.js";
 import type { SetupWizardActionResult, SetupWizardStateSnapshot } from "../setup/wizard-service.js";
-import type { SessionStore } from "../storage/session-store.js";
 import type { SttAutomationSnapshot } from "../stt/automation-service.js";
 import { routeDashboardRequest } from "./router.js";
 import { createDashboardToken } from "./security.js";
+import type { DashboardStore } from "./storage-port.js";
 
 export {
   appendAiReadinessToDashboardState,
@@ -121,7 +121,7 @@ export class DashboardServer {
 
   constructor(
     private readonly config: Phase1Config,
-    private readonly store: SessionStore,
+    private readonly store: DashboardStore,
     private readonly producer: RecordingProducer,
     private readonly runtimeSources: DashboardRuntimeSources = {},
   ) {}

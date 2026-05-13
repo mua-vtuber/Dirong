@@ -3,7 +3,7 @@ import type {
   AiCleanupFailureKind,
   AiCleanupJobRow,
   AiCleanupLeaseRepairSummary,
-} from "./session-store.js";
+} from "./rows.js";
 import type { SqlRunner } from "./sql-runner.js";
 
 export type AiCleanupJobQueueOptions = {

@@ -5,7 +5,7 @@ import type {
   RecordingRuntimeState,
   SessionRow,
   TranscriptSegmentRow,
-} from "./session-store.js";
+} from "./rows.js";
 import type { DirongDatabase, SqlValue } from "./sqlite.js";
 
 export type DashboardReadModelQueries = {

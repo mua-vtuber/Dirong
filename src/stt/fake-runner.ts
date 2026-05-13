@@ -1,6 +1,6 @@
-import type { SessionStore } from "../storage/session-store.js";
 import { FakeSttProvider } from "./provider.js";
 import { runSttBatch, type SttRunResult } from "./runner.js";
+import type { SttBatchStore } from "./storage-port.js";
 
 export type FakeSttRunOptions = {
   workerId: string;
@@ -13,7 +13,7 @@ export type FakeSttRunOptions = {
 export type FakeSttRunResult = SttRunResult;
 
 export async function runFakeSttBatch(
-  store: SessionStore,
+  store: SttBatchStore,
   options: FakeSttRunOptions,
 ): Promise<FakeSttRunResult> {
   return await runSttBatch(store, {

@@ -2,7 +2,7 @@ import type {
   AiCleanupSttTerminalSnapshot,
   SessionRow,
   TranscriptSegmentRow,
-} from "./session-store.js";
+} from "./rows.js";
 import { SqlRunner } from "./sql-runner.js";
 
 export type AiCleanupTerminalReadModelInput = {

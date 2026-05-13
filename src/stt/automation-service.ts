@@ -12,9 +12,9 @@ import {
 import { t, type LocaleKey } from "../i18n/catalog.js";
 import { EnabledPollingLoop } from "../runtime/polling-loop.js";
 import type { DirongLocale } from "../settings/local-settings-store.js";
-import type { SessionStore } from "../storage/session-store.js";
 import type { SttProvider } from "./provider.js";
 import { runSttBatch, type SttRunResult } from "./runner.js";
+import type { SttBatchStore } from "./storage-port.js";
 
 export type SttAutomationStatus =
   | "disabled"
@@ -57,7 +57,7 @@ export class SttAutomationService {
   private snapshot: SttAutomationSnapshot;
 
   constructor(
-    private readonly store: SessionStore,
+    private readonly store: SttBatchStore,
     private readonly options: SttAutomationServiceOptions,
   ) {
     this.snapshot = this.makeSnapshot({

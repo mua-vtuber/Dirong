@@ -5,7 +5,7 @@ import type {
   VoiceBasedChannel,
 } from "discord.js";
 import { safeErrorInfo } from "../errors.js";
-import type { SessionStore } from "../storage/session-store.js";
+import type { SpeakerChunkStore } from "./storage-port.js";
 
 export const DEFAULT_SPEAKER_SNAPSHOT_CACHE_LIMIT = 512;
 
@@ -24,7 +24,7 @@ export type SpeakerChunkSession = {
 export class SpeakerChunkManager {
   constructor(
     private readonly client: Client,
-    private readonly store: SessionStore,
+    private readonly store: SpeakerChunkStore,
   ) {}
 
   async resolveSpeakerSnapshot(

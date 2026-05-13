@@ -7,9 +7,9 @@ import {
 import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { SessionStore } from "../storage/session-store.js";
 import { sendText } from "./http.js";
 import type { DashboardAudioKind } from "./security.js";
+import type { DashboardStore } from "./storage-port.js";
 
 export const DASHBOARD_INDEX_HTML = readFileSync(
   new URL("./public/index.html", import.meta.url),
@@ -56,7 +56,7 @@ export function serveAudio(
   input: {
     request: IncomingMessage;
     response: ServerResponse;
-    store: SessionStore;
+    store: DashboardStore;
     chunkId: string;
     kind: DashboardAudioKind;
   },

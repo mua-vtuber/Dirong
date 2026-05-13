@@ -22,8 +22,8 @@ import {
 import type {
   RecordingRuntimeState,
   SessionStatus,
-  SessionStore,
-} from "../storage/session-store.js";
+} from "../storage/rows.js";
+import type { AloneFinalizeStore } from "./storage-port.js";
 
 export type AloneFinalizeStatus =
   | "disabled"
@@ -84,7 +84,7 @@ export type AloneFinalizeProducer = {
 export type AloneFinalizeServiceOptions = {
   enabled: boolean;
   graceMs: number;
-  store: SessionStore;
+  store: AloneFinalizeStore;
   producer: AloneFinalizeProducer;
   countNonBotMembers(
     voiceChannelId: string,

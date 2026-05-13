@@ -1,6 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { RecordingProducer } from "../recording/recording-producer.js";
-import type { SessionStore } from "../storage/session-store.js";
 import {
   buildDashboardHtml,
   requireJsonMutationRequest,
@@ -40,6 +39,7 @@ import {
   serveProjectAsset,
 } from "./static-assets.js";
 import type { DashboardRuntimeSources } from "./server.js";
+import type { DashboardStore } from "./storage-port.js";
 
 export type DashboardRouteContext = {
   request: IncomingMessage;
@@ -47,7 +47,7 @@ export type DashboardRouteContext = {
   getUrl(): string;
   dashboardToken: string;
   audioTokenSecret: string;
-  store: SessionStore;
+  store: DashboardStore;
   producer: RecordingProducer;
   runtimeSources: DashboardRuntimeSources;
 };

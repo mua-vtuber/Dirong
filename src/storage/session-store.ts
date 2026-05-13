@@ -6,6 +6,7 @@ import { AiCleanupJobQueue } from "./ai-cleanup-job-queue.js";
 import { buildAiCleanupSttTerminalSnapshot } from "./ai-cleanup-terminal-read-model.js";
 import { ChunkRepository } from "./chunk-repository.js";
 import { buildDashboardReadModel } from "./dashboard-read-model.js";
+import { MeetingNotesDraftRepository } from "./meeting-notes-draft-repository.js";
 import {
   createStoragePathResolver,
   type StoragePathResolver,
@@ -16,231 +17,40 @@ import { SqlRunner } from "./sql-runner.js";
 import { DirongDatabase, type SqlValue } from "./sqlite.js";
 import { SttJobQueue } from "./stt-job-queue.js";
 import { buildStatusTextReadModel } from "./status-text-read-model.js";
+import { TranscriptRepository } from "./transcript-repository.js";
 import type { DirongLocale } from "../settings/local-settings-store.js";
+import type {
+  AiCleanupFailureKind,
+  AiCleanupJobRow,
+  AiCleanupLeaseRepairSummary,
+  AiCleanupSttTerminalSnapshot,
+  ChunkRow,
+  MeetingNotesDraftRow,
+  RecordingRuntimeState,
+  SessionRow,
+  SessionStatus,
+  SpeechStatus,
+  SttJobRow,
+  TranscriptSegmentRow,
+} from "./rows.js";
 
-export type SessionStatus =
-  | "created"
-  | "active"
-  | "reconnecting"
-  | "stopping"
-  | "finalized"
-  | "failed"
-  | "needs_repair";
-
-export type ChunkStatus =
-  | "writing"
-  | "finalized"
-  | "queued"
-  | "transcode_failed"
-  | "failed";
-
-export type RepairScanSummary = {
-  oldPartFiles: number;
-  staleWritingChunksRepaired: number;
-  staleWritingChunksFailed: number;
-  missingSttJobsCreated: number;
-  missingAudioJobsFailed: number;
-  expiredLeasesReleased: number;
-  orphanAudioFiles: number;
-};
-
-export type RecordingRuntimeState = {
-  isRecording: boolean;
-  sessionId: string | null;
-  guildId?: string | null;
-  voiceChannelId: string | null;
-  voiceChannelName: string | null;
-  openChunks: number;
-};
-
-export type SessionRow = {
-  id: string;
-  guild_id: string;
-  guild_name: string | null;
-  text_channel_id: string | null;
-  voice_channel_id: string;
-  voice_channel_name: string | null;
-  started_by_user_id: string;
-  started_by_display_name: string | null;
-  stopped_by_user_id: string | null;
-  stopped_by_display_name: string | null;
-  status: SessionStatus;
-  started_at: string;
-  stopped_at: string | null;
-  finalized_at: string | null;
-  data_dir: string;
-  last_error: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-export type ChunkRow = {
-  id: string;
-  session_id: string;
-  chunk_index: number;
-  user_id: string;
-  display_name_snapshot: string;
-  status: ChunkStatus;
-  started_at_ms: number;
-  ended_at_ms: number | null;
-  duration_ms: number | null;
-  raw_audio_path: string;
-  raw_audio_format: string;
-  raw_byte_size: number | null;
-  raw_sha256: string | null;
-  stt_audio_path: string | null;
-  stt_audio_format: string | null;
-  stt_byte_size: number | null;
-  stt_sha256: string | null;
-  transcode_status: string;
-  transcode_error: string | null;
-  close_reason: string | null;
-  pipeline_error_json: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-export type SttJobRow = {
-  id: string;
-  session_id: string;
-  chunk_id: string;
-  user_id: string;
-  display_name_snapshot: string;
-  input_audio_path: string;
-  status: string;
-  attempts: number;
-  max_attempts: number;
-  locked_by: string | null;
-  locked_until: string | null;
-  next_attempt_at: string;
-  input_audio_sha256: string | null;
-  result_text_sha256: string | null;
-  last_error: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-export type SpeechStatus = "speech" | "no_speech";
-
-export type TranscriptSegmentRow = {
-  id: string;
-  session_id: string;
-  chunk_id: string;
-  stt_job_id: string;
-  user_id: string;
-  display_name_snapshot: string;
-  start_ms: number;
-  end_ms: number;
-  text: string;
-  speech_status: SpeechStatus;
-  source: string;
-  provider: string;
-  model: string;
-  input_audio_sha256: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-export type AiCleanupJobStatus =
-  | "queued"
-  | "processing"
-  | "done"
-  | "failed"
-  | "blocked";
-
-export type AiCleanupFailureKind =
-  | "provider_not_found"
-  | "provider_auth_required"
-  | "provider_timeout"
-  | "provider_nonzero_exit"
-  | "missing_timeline"
-  | "empty_timeline"
-  | "input_too_long"
-  | "unsafe_input"
-  | "empty_output"
-  | "malformed_json"
-  | "schema_invalid"
-  | "file_io"
-  | "unknown";
-
-export type AiCleanupJobRow = {
-  id: string;
-  session_id: string;
-  status: AiCleanupJobStatus;
-  attempts: number;
-  max_attempts: number;
-  locked_by: string | null;
-  locked_until: string | null;
-  next_attempt_at: string;
-  provider: string;
-  model: string;
-  command: string | null;
-  prompt_version: string;
-  input_contract_version: string;
-  input_hash: string;
-  input_entry_count: number;
-  input_timeline_json_path: string | null;
-  input_timeline_markdown_path: string | null;
-  prompt_path: string | null;
-  raw_output_path: string | null;
-  stderr_path: string | null;
-  parsed_json_path: string | null;
-  markdown_path: string | null;
-  output_hash: string | null;
-  failure_kind: AiCleanupFailureKind | null;
-  last_error: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-export type MeetingNotesDraftRow = {
-  id: string;
-  session_id: string;
-  ai_cleanup_job_id: string;
-  schema_version: string;
-  language: string;
-  title: string;
-  summary_text: string;
-  draft_json: string;
-  markdown: string;
-  json_path: string;
-  markdown_path: string;
-  raw_output_path: string;
-  provider: string;
-  model: string;
-  prompt_version: string;
-  input_hash: string;
-  output_hash: string;
-  validation_status: string;
-  created_at: string;
-  updated_at: string;
-};
-
-export type AiCleanupSttTerminalSnapshot = {
-  sessionId: string;
-  sessionStatus: "finalized";
-  openChunkCount: number;
-  sttQueuedCount: number;
-  sttProcessingCount: number;
-  sttDoneCount: number;
-  sttFailedCount: number;
-  sttFailedMissingFileCount: number;
-  sttOtherNonTerminalCount: number;
-  chunksMissingSttJobCount: number;
-  chunksWithTranscodeFailedCount: number;
-  chunksMissingSttAudioCount: number;
-  realTranscriptEntryCount: number;
-  isTerminal: boolean;
-  canGenerateDraft: boolean;
-  shouldRecordEmptyTimelineBlock: boolean;
-  canInvokeRunner: boolean;
-  warnings: string[];
-};
-
-export type AiCleanupLeaseRepairSummary = {
-  requeued: number;
-  failed: number;
-};
+export type {
+  AiCleanupFailureKind,
+  AiCleanupJobRow,
+  AiCleanupJobStatus,
+  AiCleanupLeaseRepairSummary,
+  AiCleanupSttTerminalSnapshot,
+  ChunkRow,
+  ChunkStatus,
+  MeetingNotesDraftRow,
+  RecordingRuntimeState,
+  RepairScanSummary,
+  SessionRow,
+  SessionStatus,
+  SpeechStatus,
+  SttJobRow,
+  TranscriptSegmentRow,
+} from "./rows.js";
 
 export type SessionStoreOptions = {
   storageRoot?: string | null;
@@ -252,9 +62,11 @@ export class SessionStore {
   private readonly sql: SqlRunner;
   private readonly aiCleanupJobs: AiCleanupJobQueue;
   private readonly chunks: ChunkRepository;
+  private readonly meetingNotesDrafts: MeetingNotesDraftRepository;
   private readonly repairs: RepairRepository;
   private readonly sessions: SessionRepository;
   private readonly sttJobs: SttJobQueue;
+  private readonly transcripts: TranscriptRepository;
 
   constructor(
     private readonly database: DirongDatabase,
@@ -270,12 +82,17 @@ export class SessionStore {
     };
     this.aiCleanupJobs = new AiCleanupJobQueue(this.sql, repositoryOptions);
     this.chunks = new ChunkRepository(this.sql, repositoryOptions);
+    this.meetingNotesDrafts = new MeetingNotesDraftRepository(
+      this.sql,
+      repositoryOptions,
+    );
     this.repairs = new RepairRepository(this.sql, repositoryOptions);
     this.sessions = new SessionRepository(this.sql, {
       now: isoNow,
       toStoredPath: (filePath) => this.toStoredPath(filePath),
     });
     this.sttJobs = new SttJobQueue(this.sql, repositoryOptions);
+    this.transcripts = new TranscriptRepository(this.sql);
     if (options.normalizeStoredPaths && this.paths.storageRoot) {
       this.normalizeStoredPaths();
     }
@@ -575,38 +392,23 @@ export class SessionStore {
     const endMs = chunk.ended_at_ms ?? chunk.started_at_ms;
 
     this.sql.transaction(() => {
-      this.run(
-        `INSERT INTO transcript_segments (
-          id, session_id, chunk_id, stt_job_id, user_id,
-          display_name_snapshot, start_ms, end_ms, text, speech_status,
-          source, provider, model, input_audio_sha256,
-          created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(stt_job_id) DO UPDATE SET
-          text = excluded.text,
-          speech_status = excluded.speech_status,
-          source = excluded.source,
-          provider = excluded.provider,
-          model = excluded.model,
-          input_audio_sha256 = excluded.input_audio_sha256,
-          updated_at = excluded.updated_at`,
-        segmentId,
-        input.job.session_id,
-        input.job.chunk_id,
-        input.job.id,
-        input.job.user_id,
-        input.job.display_name_snapshot,
+      this.transcripts.upsertSegmentForSttJob({
+        id: segmentId,
+        sessionId: input.job.session_id,
+        chunkId: input.job.chunk_id,
+        sttJobId: input.job.id,
+        userId: input.job.user_id,
+        displayNameSnapshot: input.job.display_name_snapshot,
         startMs,
         endMs,
-        input.text,
+        text: input.text,
         speechStatus,
-        input.source,
-        input.provider,
-        input.model,
-        input.inputAudioSha256 ?? input.job.input_audio_sha256,
+        source: input.source,
+        provider: input.provider,
+        model: input.model,
+        inputAudioSha256: input.inputAudioSha256 ?? input.job.input_audio_sha256,
         now,
-        now,
-      );
+      });
 
       this.sttJobs.markDone({
         job: input.job,
@@ -616,7 +418,7 @@ export class SessionStore {
       });
     });
 
-    const segment = this.sttJobs.getTranscriptSegment(input.job.id);
+    const segment = this.transcripts.getBySttJobId(input.job.id);
     if (!segment) {
       throw new Error(`transcript segment 저장에 실패했습니다: ${input.job.id}`);
     }
@@ -647,23 +449,7 @@ export class SessionStore {
   }
 
   listRecentTranscriptSegments(sessionId: string | null, limit = 30): TranscriptSegmentRow[] {
-    return sessionId === null
-      ? this.all<TranscriptSegmentRow>(
-          `SELECT *
-           FROM transcript_segments
-           ORDER BY created_at DESC
-           LIMIT ?`,
-          limit,
-        )
-      : this.all<TranscriptSegmentRow>(
-          `SELECT *
-           FROM transcript_segments
-           WHERE session_id = ?
-           ORDER BY start_ms DESC
-           LIMIT ?`,
-          sessionId,
-          limit,
-        );
+    return this.transcripts.listRecent(sessionId, limit);
   }
 
   listTranscriptTimelineSegments(input: {
@@ -671,26 +457,7 @@ export class SessionStore {
     includeNoSpeech?: boolean;
     includeFakeStt?: boolean;
   }): TranscriptSegmentRow[] {
-    const conditions = ["session_id = ?"];
-    const params: SqlValue[] = [input.sessionId];
-
-    if (!input.includeNoSpeech) {
-      conditions.push("speech_status = 'speech'");
-      conditions.push("length(trim(text)) > 0");
-    }
-
-    if (!input.includeFakeStt) {
-      conditions.push("source <> 'fake'");
-      conditions.push("provider <> 'dirong-fake-stt'");
-    }
-
-    return this.all<TranscriptSegmentRow>(
-      `SELECT *
-       FROM transcript_segments
-       WHERE ${conditions.join(" AND ")}
-       ORDER BY start_ms ASC, end_ms ASC, created_at ASC`,
-      ...params,
-    );
+    return this.transcripts.listTimeline(input);
   }
 
   getAiCleanupSttTerminalSnapshot(
@@ -798,33 +565,26 @@ export class SessionStore {
 
     const now = isoNow();
     this.sql.transaction(() => {
-      this.run(
-        `INSERT INTO meeting_notes_drafts (
-          id, session_id, ai_cleanup_job_id, schema_version, language,
-          title, summary_text, draft_json, markdown, json_path,
-          markdown_path, raw_output_path, provider, model, prompt_version,
-          input_hash, output_hash, validation_status, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'valid', ?, ?)`,
-        input.draftId,
-        job.session_id,
-        input.jobId,
-        input.schemaVersion,
-        input.language,
-        input.title,
-        input.summaryText,
-        input.draftJson,
-        input.markdown,
-        this.toStoredPath(input.jsonPath),
-        this.toStoredPath(input.markdownPath),
-        this.toStoredPath(input.rawOutputPath),
-        input.provider,
-        input.model,
-        input.promptVersion,
-        input.inputHash,
-        input.outputHash,
+      this.meetingNotesDrafts.insertValid({
+        id: input.draftId,
+        sessionId: job.session_id,
+        aiCleanupJobId: input.jobId,
+        schemaVersion: input.schemaVersion,
+        language: input.language,
+        title: input.title,
+        summaryText: input.summaryText,
+        draftJson: input.draftJson,
+        markdown: input.markdown,
+        jsonPath: input.jsonPath,
+        markdownPath: input.markdownPath,
+        rawOutputPath: input.rawOutputPath,
+        provider: input.provider,
+        model: input.model,
+        promptVersion: input.promptVersion,
+        inputHash: input.inputHash,
+        outputHash: input.outputHash,
         now,
-        now,
-      );
+      });
       this.aiCleanupJobs.markDone({
         jobId: input.jobId,
         jsonPath: input.jsonPath,
@@ -836,10 +596,7 @@ export class SessionStore {
     });
 
     const draft = this.mapMeetingNotesDraftRow(
-      this.get<MeetingNotesDraftRow>(
-        "SELECT * FROM meeting_notes_drafts WHERE ai_cleanup_job_id = ?",
-        input.jobId,
-      ),
+      this.meetingNotesDrafts.getByJobId(input.jobId),
     );
     if (!draft) {
       throw new Error("meeting notes draft 저장에 실패했습니다.");
@@ -868,23 +625,13 @@ export class SessionStore {
 
   getLatestMeetingNotesDraft(sessionId: string): MeetingNotesDraftRow | null {
     return this.mapMeetingNotesDraftRow(
-      this.get<MeetingNotesDraftRow>(
-        `SELECT *
-         FROM meeting_notes_drafts
-         WHERE session_id = ?
-         ORDER BY created_at DESC
-         LIMIT 1`,
-        sessionId,
-      ),
+      this.meetingNotesDrafts.getLatestBySession(sessionId),
     );
   }
 
   getMeetingNotesDraftByJobId(jobId: string): MeetingNotesDraftRow | null {
     return this.mapMeetingNotesDraftRow(
-      this.get<MeetingNotesDraftRow>(
-        "SELECT * FROM meeting_notes_drafts WHERE ai_cleanup_job_id = ?",
-        jobId,
-      ),
+      this.meetingNotesDrafts.getByJobId(jobId),
     );
   }
 
@@ -895,43 +642,7 @@ export class SessionStore {
     limit: number;
     sources?: string[];
   }): string[] {
-    const sources = input.sources?.filter((source) => source.trim().length > 0) ?? [];
-    if (sources.length === 0) {
-      return this.all<{ text: string }>(
-        `SELECT text
-         FROM transcript_segments
-         WHERE session_id = ?
-           AND user_id = ?
-           AND start_ms < ?
-           AND speech_status = 'speech'
-           AND length(trim(text)) > 0
-         ORDER BY start_ms DESC
-         LIMIT ?`,
-        input.sessionId,
-        input.userId,
-        input.beforeStartMs,
-        input.limit,
-      ).map((row) => row.text).reverse();
-    }
-
-    const placeholders = sources.map(() => "?").join(", ");
-    return this.all<{ text: string }>(
-      `SELECT text
-       FROM transcript_segments
-       WHERE session_id = ?
-         AND user_id = ?
-         AND start_ms < ?
-         AND speech_status = 'speech'
-         AND length(trim(text)) > 0
-         AND source IN (${placeholders})
-       ORDER BY start_ms DESC
-       LIMIT ?`,
-      input.sessionId,
-      input.userId,
-      input.beforeStartMs,
-      ...sources,
-      input.limit,
-    ).map((row) => row.text).reverse();
+    return this.transcripts.listRecentTextForSpeaker(input);
   }
 
   hasChunkAudioPath(filePath: string): boolean {

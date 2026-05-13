@@ -23,14 +23,14 @@ import { criticalHealthFailed, runHealthCheck } from "../health.js";
 import type {
   RecordingRuntimeState,
   SessionStatus,
-  SessionStore,
-} from "../storage/session-store.js";
+} from "../storage/rows.js";
 import { ChunkFinalizer } from "./chunk-finalizer.js";
 import {
   SpeakerChunkManager,
   type SpeakerSnapshot,
 } from "./speaker-chunk-manager.js";
 import { VoiceConnectionController } from "./voice-connection-controller.js";
+import type { RecordingProducerStore } from "./storage-port.js";
 
 export {
   DEFAULT_SPEAKER_SNAPSHOT_CACHE_LIMIT,
@@ -85,7 +85,7 @@ export class RecordingProducer {
   constructor(
     private readonly client: Client,
     private readonly config: Phase1Config,
-    private readonly store: SessionStore,
+    private readonly store: RecordingProducerStore,
   ) {
     this.chunkFinalizer = new ChunkFinalizer(store, {
       sttMaxAttempts: config.sttMaxAttempts,

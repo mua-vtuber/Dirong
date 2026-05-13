@@ -14,8 +14,7 @@ import type {
   AiCleanupJobRow,
   AiCleanupLeaseRepairSummary,
   AiCleanupSttTerminalSnapshot,
-  SessionStore,
-} from "../../storage/session-store.js";
+} from "../../storage/rows.js";
 import { EnabledPollingLoop } from "../../runtime/polling-loop.js";
 import { buildPhase4TimelineInput } from "./timeline-input.js";
 import type { AiCleanupProvider } from "./provider.js";
@@ -32,6 +31,7 @@ import {
   cloneAiCleanupProgressSnapshot,
   type AiCleanupProgressSnapshot,
 } from "./progress.js";
+import type { AiCleanupAutomationStore } from "./storage-port.js";
 
 export type AiCleanupAutomationStatus =
   | "disabled"
@@ -106,7 +106,7 @@ export class AiCleanupAutomationService {
   private snapshot: AiCleanupAutomationSnapshot;
 
   constructor(
-    private readonly store: SessionStore,
+    private readonly store: AiCleanupAutomationStore,
     private readonly options: AiCleanupAutomationServiceOptions,
   ) {
     this.snapshot = this.makeSnapshot({

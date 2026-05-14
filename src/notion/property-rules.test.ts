@@ -10,7 +10,6 @@ import { DEFAULT_NOTION_PROPERTY_NAMES } from "./settings.js";
 import {
   buildNotionCustomPropertyPrompt,
   NotionCustomPropertyRuleStore,
-  withDefaultNotionMemberRelationRule,
 } from "./property-rules.js";
 
 test("NotionCustomPropertyRuleStore syncs user properties and keeps required properties internal", () => {
@@ -232,7 +231,7 @@ test("NotionCustomPropertyRuleStore enables participant-sourced relation rules w
       databaseRole: "meeting",
       rules: [
         {
-          propertyName: "Members",
+          propertyName: "Attendees",
           propertyType: "relation",
           valueSource: "participants",
           enabled: true,
@@ -248,7 +247,7 @@ test("NotionCustomPropertyRuleStore enables participant-sourced relation rules w
 
     assert.deepEqual(result, { saved: 1, deleted: 0, ignored: 0, warnings: [] });
     const [rule] = store.listEnabledRules("meeting");
-    assert.equal(rule?.propertyName, "Members");
+    assert.equal(rule?.propertyName, "Attendees");
     assert.equal(rule?.valueSource, "participants");
     assert.equal(
       buildNotionCustomPropertyPrompt(store.listEnabledRules("meeting")),
@@ -259,17 +258,7 @@ test("NotionCustomPropertyRuleStore enables participant-sourced relation rules w
   }
 });
 
-test("default Members relation rule is present and protected", () => {
-  const [rule] = withDefaultNotionMemberRelationRule([]);
-
-  assert.equal(rule?.propertyName, "Members");
-  assert.equal(rule?.propertyType, "relation");
-  assert.equal(rule?.valueSource, "participants");
-  assert.equal(rule?.protected, true);
-  assert.equal(rule?.enabled, false);
-});
-
-test("NotionCustomPropertyRuleStore protects Members relation from delete and rename", () => {
+test("NotionCustomPropertyRuleStore treats Members as a normal custom rule", () => {
   const fixture = createFixture();
   try {
     const store = new NotionCustomPropertyRuleStore(fixture.runner);
@@ -305,18 +294,18 @@ test("NotionCustomPropertyRuleStore protects Members relation from delete and re
       requiredPropertyNames: Object.values(DEFAULT_NOTION_PROPERTY_NAMES),
       nowIso: "2026-05-08T00:01:00.000Z",
     });
-    assert.match(renamed.warnings.join("\n"), /이름은 바꿀 수 없습니다/);
-    assert.equal(store.listRules("meeting")[0]?.propertyName, "Members");
-    assert.equal(store.listRules("meeting")[0]?.propertyType, "relation");
-    assert.equal(store.listRules("meeting")[0]?.valueSource, "participants");
+    assert.deepEqual(renamed, { saved: 1, deleted: 0, ignored: 0, warnings: [] });
+    assert.equal(store.listRules("meeting")[0]?.propertyName, "People");
+    assert.equal(store.listRules("meeting")[0]?.propertyType, "rich_text");
+    assert.equal(store.listRules("meeting")[0]?.valueSource, "ai");
 
     const deleted = store.saveRules({
       databaseRole: "meeting",
       rules: [
         {
-          originalPropertyName: "Members",
-          propertyName: "Members",
-          propertyType: "relation",
+          originalPropertyName: "People",
+          propertyName: "People",
+          propertyType: "rich_text",
           enabled: true,
           promptDescription: "",
           deleted: true,
@@ -326,16 +315,14 @@ test("NotionCustomPropertyRuleStore protects Members relation from delete and re
       nowIso: "2026-05-08T00:02:00.000Z",
     });
 
-    assert.equal(deleted.deleted, 0);
-    assert.equal(deleted.ignored, 1);
-    assert.match(deleted.warnings.join("\n"), /삭제할 수 없습니다/);
-    assert.equal(store.listRules("meeting").length, 1);
+    assert.deepEqual(deleted, { saved: 0, deleted: 1, ignored: 0, warnings: [] });
+    assert.equal(store.listRules("meeting").length, 0);
   } finally {
     fixture.close();
   }
 });
 
-test("NotionCustomPropertyRuleStore syncs Members relation as participant source", () => {
+test("NotionCustomPropertyRuleStore syncs Members as a regular AI-sourced property", () => {
   const fixture = createFixture();
   try {
     const store = new NotionCustomPropertyRuleStore(fixture.runner);
@@ -355,8 +342,8 @@ test("NotionCustomPropertyRuleStore syncs Members relation as participant source
 
     const [rule] = store.listRules("meeting");
     assert.equal(rule?.propertyName, "Members");
-    assert.equal(rule?.valueSource, "participants");
-    assert.equal(rule?.protected, true);
+    assert.equal(rule?.valueSource, "ai");
+    assert.equal(rule?.protected, false);
     assert.equal(rule?.relationDataSourceId, "member-data-source");
   } finally {
     fixture.close();

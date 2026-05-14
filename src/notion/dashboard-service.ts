@@ -22,7 +22,6 @@ import {
   SUPPORTED_NOTION_CUSTOM_PROPERTY_TYPES,
   type NotionCustomPropertyRule,
   type NotionCustomPropertyRuleInput,
-  withDefaultNotionMemberRelationRule,
 } from "./property-rules.js";
 import {
   buildNotionSchemaDiff,
@@ -912,10 +911,7 @@ export class NotionDashboardService {
     role: NotionDatabaseRole,
     projectId: string | undefined,
   ): NotionCustomPropertiesRoleSnapshot {
-    const storedRules = this.propertyRuleStore.listRules(role, projectId);
-    const rules = role === "meeting"
-      ? withDefaultNotionMemberRelationRule(storedRules)
-      : storedRules;
+    const rules = this.propertyRuleStore.listRules(role, projectId);
     const enabledCount = rules.filter(
       (rule) => rule.enabled && ruleHasOutput(rule),
     ).length;
@@ -933,15 +929,10 @@ export class NotionDashboardService {
       enabledCount,
       promptPreview,
       message:
-        storedRules.length === 0
-          ? role === "meeting"
-            ? "기본 Members relation 규칙이 준비되어 있습니다. 대상 DB URL을 입력해 주세요."
-            : "이 DB의 사용자 속성 규칙은 아직 없습니다."
+        rules.length === 0
+          ? "이 DB의 사용자 속성 규칙은 아직 없습니다."
           : `사용자 속성 ${rules.length}개 중 ${enabledCount}개가 켜져 있습니다.`,
-      userAction:
-        role === "meeting" && storedRules.length === 0
-          ? "Members DB를 만들고 대상 DB/data source URL을 입력한 뒤 저장해 주세요."
-          : null,
+      userAction: null,
     };
   }
 

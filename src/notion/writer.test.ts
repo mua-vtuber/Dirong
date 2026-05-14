@@ -757,7 +757,7 @@ test("runNotionUpload maps participant source relation from session speakers", a
       ["Dirong Bot", 1],
     ],
     notionProperties: {
-      Members: { values: ["Ignored AI value"] },
+      Attendees: { values: ["Ignored AI value"] },
     },
   });
   try {
@@ -777,7 +777,7 @@ test("runNotionUpload maps participant source relation from session speakers", a
       writeStore: fixture.writeStore,
       customPropertyRules: [
         {
-          propertyName: "Members",
+          propertyName: "Attendees",
           propertyId: null,
           propertyType: "relation",
           valueSource: "participants",

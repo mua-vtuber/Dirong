@@ -56,6 +56,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     id: "011_project_foundation_hardening",
     apply: migrateProjectFoundationHardening,
   },
+  {
+    id: "012_remove_default_members_custom_rule",
+    apply: migrateRemoveDefaultMembersCustomRule,
+  },
 ];
 
 export function listPendingSchemaMigrationIds(db: DatabaseSync): string[] {
@@ -379,6 +383,27 @@ function migrateProjectFoundationHardening(db: DatabaseSync): void {
 
   createSessionsProjectIndexIfPossible(db);
   hardenNotionWritesProjectScope(db);
+}
+
+function migrateRemoveDefaultMembersCustomRule(db: DatabaseSync): void {
+  if (!tableExists(db, "notion_custom_property_rules")) {
+    return;
+  }
+  const columns = readColumnNames(db, "notion_custom_property_rules");
+  if (
+    !columns.has("database_role") ||
+    !columns.has("property_name") ||
+    !columns.has("value_source")
+  ) {
+    return;
+  }
+
+  db.prepare(
+    `DELETE FROM notion_custom_property_rules
+     WHERE database_role = 'meeting'
+       AND lower(trim(property_name)) = 'members'
+       AND value_source = 'participants';`,
+  ).run();
 }
 
 type DefaultProjectBackfill = {

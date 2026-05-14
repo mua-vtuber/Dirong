@@ -1521,7 +1521,7 @@ export const ko = {
         },
         enabledCount: "{count}개 사용 중",
         promptPreview: "AI 프롬프트 미리보기",
-        protectedDelete: "기본 Members 규칙은 삭제할 수 없습니다.",
+        protectedDelete: "잠긴 규칙은 삭제할 수 없습니다.",
         actions: {
           refresh: "Notion 상태 다시 확인",
           add: "필드 추가",
@@ -3409,7 +3409,7 @@ export const en = {
         },
         enabledCount: "{count} enabled",
         promptPreview: "AI prompt preview",
-        protectedDelete: "The default Members rule cannot be removed.",
+        protectedDelete: "The locked rule cannot be removed.",
         actions: {
           refresh: "Check Notion status again",
           add: "Add field",

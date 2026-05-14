@@ -25,6 +25,7 @@ const EXPECTED_MIGRATION_IDS = [
   "009_notion_member_roster_cache",
   "010_project_foundation",
   "011_project_foundation_hardening",
+  "012_remove_default_members_custom_rule",
 ];
 
 test("DirongDatabase upgrades legacy transcript_segments speech_status", () => {
@@ -264,6 +265,46 @@ test("DirongDatabase migrates custom property rules into meeting role", () => {
           property_type: "rich_text",
         },
       ]);
+      assert.deepEqual(readMigrationIds(database.db), EXPECTED_MIGRATION_IDS);
+    } finally {
+      database.close();
+    }
+  } finally {
+    fixture.close();
+  }
+});
+
+test("DirongDatabase removes legacy meeting Members participant rule", () => {
+  const fixture = createPreMembersRuleRemovalFixture();
+  try {
+    const database = new DirongDatabase(fixture.dbPath, 1000);
+    try {
+      assert.deepEqual(
+        plainRows(database.db
+          .prepare(
+            `SELECT database_role, property_name, value_source
+             FROM notion_custom_property_rules
+             ORDER BY database_role, property_name`,
+          )
+          .all()),
+        [
+          {
+            database_role: "meeting",
+            property_name: "Attendees",
+            value_source: "participants",
+          },
+          {
+            database_role: "meeting",
+            property_name: "Discussion",
+            value_source: "ai",
+          },
+          {
+            database_role: "member",
+            property_name: "Members",
+            value_source: "ai",
+          },
+        ],
+      );
       assert.deepEqual(readMigrationIds(database.db), EXPECTED_MIGRATION_IDS);
     } finally {
       database.close();
@@ -712,6 +753,59 @@ INSERT INTO notion_custom_property_rules (
   '회의 논의 요약', 1000, 'Name', 0,
   '2026-05-10T00:00:00.000Z', '2026-05-10T00:00:00.000Z'
 );
+`);
+  } finally {
+    db.close();
+  }
+  return fixture;
+}
+
+function createPreMembersRuleRemovalFixture(): {
+  dir: string;
+  dbPath: string;
+  close: () => void;
+} {
+  const fixture = createEmptyFixture();
+  const baseline = new DirongDatabase(fixture.dbPath, 1000);
+  baseline.close();
+
+  const db = new DatabaseSync(fixture.dbPath);
+  try {
+    db.exec(`
+DELETE FROM dirong_migrations
+WHERE id = '012_remove_default_members_custom_rule';
+
+INSERT INTO notion_custom_property_rules (
+  project_id, database_role, property_name, property_id, property_type,
+  value_source, enabled, prompt_description, max_length, relation_target_url,
+  relation_data_source_id, relation_target_page_url, relation_target_page_id,
+  relation_match_property_name, relation_auto_create, last_seen_at,
+  created_at, updated_at
+) VALUES
+  (
+    'default', 'meeting', 'Members', 'members-id', 'relation',
+    'participants', 1, '', 1000, 'https://www.notion.so/members',
+    'members-data-source', NULL, NULL, 'Name', 1, NULL,
+    '2026-05-14T00:00:00.000Z', '2026-05-14T00:00:00.000Z'
+  ),
+  (
+    'default', 'meeting', 'Attendees', 'attendees-id', 'relation',
+    'participants', 1, '', 1000, 'https://www.notion.so/attendees',
+    'attendees-data-source', NULL, NULL, 'Name', 1, NULL,
+    '2026-05-14T00:00:00.000Z', '2026-05-14T00:00:00.000Z'
+  ),
+  (
+    'default', 'meeting', 'Discussion', 'discussion-id', 'rich_text',
+    'ai', 1, '회의 논의 요약', 1000, NULL,
+    NULL, NULL, NULL, 'Name', 0, NULL,
+    '2026-05-14T00:00:00.000Z', '2026-05-14T00:00:00.000Z'
+  ),
+  (
+    'default', 'member', 'Members', 'member-members-id', 'rich_text',
+    'ai', 1, '작업자 메모', 1000, NULL,
+    NULL, NULL, NULL, 'Name', 0, NULL,
+    '2026-05-14T00:00:00.000Z', '2026-05-14T00:00:00.000Z'
+  );
 `);
   } finally {
     db.close();

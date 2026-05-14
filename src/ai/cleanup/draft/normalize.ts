@@ -9,6 +9,7 @@ import type {
 } from "./types.js";
 import {
   getReferencedTimelineEntries,
+  timelineReferenceKey,
   toTimelineReference,
 } from "./reference-index.js";
 
@@ -106,11 +107,14 @@ function normalizeActionItems(
     }
 
     let item: Record<string, unknown> = entry;
-    const referencedEntries = context
-      ? getReferencedTimelineEntries(entry.references, context.timeline)
-      : [];
+    const references = normalizeActionItemReferences(entry, context);
+    if (references.changed) {
+      item = { ...item, references: references.value };
+      changed = true;
+    }
+    const referencedEntries = references.entries;
 
-    const owner = normalizeOwnerShape(entry.owner);
+    const owner = normalizeOwnerShape(entry.owner, referencedEntries);
     if (owner.changed) {
       item = { ...item, owner: owner.value };
       changed = true;
@@ -128,8 +132,81 @@ function normalizeActionItems(
   return changed ? { changed: true, value: normalizedItems } : { changed: false };
 }
 
+function normalizeActionItemReferences(
+  entry: Record<string, unknown>,
+  context?: {
+    timeline: Phase4TranscriptTimeline;
+  },
+):
+  | {
+      changed: true;
+      value: TimelineReference[];
+      entries: Phase4TranscriptTimelineEntry[];
+    }
+  | {
+      changed: false;
+      entries: Phase4TranscriptTimelineEntry[];
+    } {
+  if (!context) {
+    return { changed: false, entries: [] };
+  }
+
+  const existingReferences = Array.isArray(entry.references) ? entry.references : [];
+  if (existingReferences.length > 0) {
+    return {
+      changed: false,
+      entries: getReferencedTimelineEntries(existingReferences, context.timeline),
+    };
+  }
+
+  const evidenceReferences = [
+    ...collectEvidenceReferences(entry.owner),
+    ...collectEvidenceReferences(entry.dueDate),
+  ];
+  if (evidenceReferences.length === 0) {
+    return { changed: false, entries: [] };
+  }
+
+  const entries = uniqueTimelineEntries(
+    getReferencedTimelineEntries(evidenceReferences, context.timeline),
+  );
+  if (entries.length === 0) {
+    return { changed: false, entries: [] };
+  }
+
+  return {
+    changed: true,
+    value: entries.map(toTimelineReference),
+    entries,
+  };
+}
+
+function collectEvidenceReferences(value: unknown): unknown[] {
+  if (!isRecord(value) || !Array.isArray(value.evidence)) {
+    return [];
+  }
+  return value.evidence;
+}
+
+function uniqueTimelineEntries(
+  entries: Phase4TranscriptTimelineEntry[],
+): Phase4TranscriptTimelineEntry[] {
+  const seen = new Set<string>();
+  const unique: Phase4TranscriptTimelineEntry[] = [];
+  for (const entry of entries) {
+    const key = timelineReferenceKey(entry.chunkId, entry.sttJobId);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    unique.push(entry);
+  }
+  return unique;
+}
+
 function normalizeOwnerShape(
   value: unknown,
+  referencedEntries: Phase4TranscriptTimelineEntry[],
 ): { changed: true; value: EvidenceBoundPerson } | { changed: false } {
   if (isUnspecifiedMarker(value)) {
     return { changed: true, value: makeUnspecifiedOwner() };
@@ -148,6 +225,34 @@ function normalizeOwnerShape(
     )
   ) {
     return { changed: true, value: makeUnspecifiedOwner() };
+  }
+
+  if (value.status === "specified") {
+    const name = typeof value.name === "string" ? value.name.trim() : "";
+    if (!name || referencedEntries.length === 0) {
+      return { changed: false };
+    }
+
+    const userId = typeof value.userId === "string" ? value.userId : null;
+    const supported = referencedEntries.some(
+      (entry) =>
+        entry.displayNameSnapshot === name ||
+        entry.text.includes(name) ||
+        (typeof userId === "string" && entry.userId === userId),
+    );
+    if (!supported) {
+      return { changed: false };
+    }
+
+    return {
+      changed: true,
+      value: {
+        status: "explicit",
+        name,
+        userId,
+        evidence: getEvidenceOrFallback(value.evidence, referencedEntries),
+      },
+    };
   }
 
   return { changed: false };
@@ -182,16 +287,18 @@ function normalizeDueDateShape(
     return { changed: true, value: makeUnspecifiedDueDate() };
   }
 
-  if (value.status === undefined || value.status === "explicit") {
+  if (
+    value.status === undefined ||
+    value.status === "explicit" ||
+    value.status === "specified"
+  ) {
     return {
       changed: true,
       value: {
         status: "explicit",
         rawText,
         isoDate: typeof value.isoDate === "string" ? value.isoDate : null,
-        evidence: Array.isArray(value.evidence)
-          ? value.evidence as TimelineReference[]
-          : referencedEntries.map(toTimelineReference),
+        evidence: getEvidenceOrFallback(value.evidence, referencedEntries),
       },
     };
   }
@@ -227,6 +334,16 @@ function makeUnspecifiedDueDate(): EvidenceBoundDate {
     isoDate: null,
     evidence: [],
   };
+}
+
+function getEvidenceOrFallback(
+  value: unknown,
+  fallbackEntries: Phase4TranscriptTimelineEntry[],
+): TimelineReference[] {
+  if (Array.isArray(value) && value.length > 0) {
+    return value as TimelineReference[];
+  }
+  return fallbackEntries.map(toTimelineReference);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

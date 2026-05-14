@@ -323,6 +323,98 @@ test("validateMeetingNotesDraftV1 fills explicit dueDate evidence when rawText i
   });
 });
 
+test("validateMeetingNotesDraftV1 normalizes Claude specified action item statuses", () => {
+  const { draft, timeline, reference } = createValidDraftFixture();
+  const normalized = validateMeetingNotesDraftV1(
+    {
+      ...draft,
+      actionItems: [
+        {
+          id: "action_1",
+          task: "회의록 정리",
+          owner: {
+            status: "specified",
+            name: "Taniar",
+            userId: null,
+            evidence: [reference],
+          },
+          dueDate: {
+            status: "specified",
+            rawText: "금요일",
+            isoDate: null,
+            evidence: [reference],
+          },
+          references: [reference],
+        },
+      ],
+    },
+    {
+      sessionId: draft.sessionId,
+      inputHash: draft.sourceTimeline.inputHash,
+      timeline,
+    },
+  );
+
+  assert.deepEqual(normalized.actionItems[0]?.owner, {
+    status: "explicit",
+    name: "Taniar",
+    userId: null,
+    evidence: [reference],
+  });
+  assert.deepEqual(normalized.actionItems[0]?.dueDate, {
+    status: "explicit",
+    rawText: "금요일",
+    isoDate: null,
+    evidence: [reference],
+  });
+});
+
+test("validateMeetingNotesDraftV1 derives action item references from grounded evidence", () => {
+  const { draft, timeline, reference } = createValidDraftFixture();
+  const normalized = validateMeetingNotesDraftV1(
+    {
+      ...draft,
+      actionItems: [
+        {
+          id: "action_1",
+          task: "회의록 정리",
+          owner: {
+            status: "specified",
+            name: "Taniar",
+            userId: null,
+            evidence: [reference],
+          },
+          dueDate: {
+            status: "specified",
+            rawText: "금요일",
+            isoDate: null,
+            evidence: [],
+          },
+        },
+      ],
+    },
+    {
+      sessionId: draft.sessionId,
+      inputHash: draft.sourceTimeline.inputHash,
+      timeline,
+    },
+  );
+
+  assert.deepEqual(normalized.actionItems[0]?.references, [reference]);
+  assert.deepEqual(normalized.actionItems[0]?.owner, {
+    status: "explicit",
+    name: "Taniar",
+    userId: null,
+    evidence: [reference],
+  });
+  assert.deepEqual(normalized.actionItems[0]?.dueDate, {
+    status: "explicit",
+    rawText: "금요일",
+    isoDate: null,
+    evidence: [reference],
+  });
+});
+
 function createValidDraftFixture(): {
   timeline: Phase4TranscriptTimeline;
   reference: TimelineReference;

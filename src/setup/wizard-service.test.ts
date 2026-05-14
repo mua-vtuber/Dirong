@@ -496,6 +496,7 @@ test("SetupWizardService stores project-scoped Discord and Notion setup values",
       "notion.project.project-active.token",
     );
     assert.equal(project?.notion_parent_page_url, parentPageUrl);
+    assert.equal(project?.notion_upload_mode, "automatic_after_ai_cleanup");
     assert.equal(
       fixture.secrets.get("notion.project.project-active.token"),
       "notion-secret-raw-value",
@@ -505,6 +506,42 @@ test("SetupWizardService stores project-scoped Discord and Notion setup values",
       fixture.settings.read().notion.tokenSecretRef,
       "notion.project.project-active.token",
     );
+    assert.equal(
+      fixture.settings.read().notion.uploadMode,
+      "automatic_after_ai_cleanup",
+    );
+  } finally {
+    fixture.close();
+  }
+});
+
+test("SetupWizardService saves project name and marks the active project ready", () => {
+  const fixture = createFixture({ withProjectStore: true });
+  try {
+    if (!fixture.projectStore) {
+      throw new Error("expected project store");
+    }
+    fixture.projectStore.createDraftProject({
+      id: "project-active",
+      nowIso: "2026-05-10T00:00:00.000Z",
+    });
+    fixture.projectStore.setActiveProjectId("project-active");
+
+    const before = fixture.service.getState();
+    assert.equal(before.wizard.steps.at(-1)?.id, "projectName");
+    assert.equal(before.wizard.steps.at(-1)?.status, "locked");
+
+    const result = fixture.service.saveProjectName({
+      name: "디롱이 운영 회의",
+    });
+    const project = fixture.projectStore.getProject("project-active");
+
+    assert.equal(result.ok, true);
+    assert.equal(result.messageKey, "setup.project.name.save.done.message");
+    assert.equal(result.userActionKey, "setup.project.name.save.done.action");
+    assert.equal(project?.name, "디롱이 운영 회의");
+    assert.equal(project?.lifecycle_status, "ready");
+    assert.equal(result.setup.wizard.steps.at(-1)?.status, "ready");
   } finally {
     fixture.close();
   }

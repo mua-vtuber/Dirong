@@ -128,6 +128,15 @@ export async function applyManagedSchemaRepair(input: {
       selectedPlan.body,
     );
   }
+  for (const operation of selectedOperations) {
+    if (isMeetingActionItemsCreateOperation(context.role, operation)) {
+      await createMeetingActionItemsViaTaskRelation({
+        client: input.client,
+        managedDatabases: context.managedDatabases,
+        preset: context.preset ?? KOREAN_NOTION_SCHEMA_PRESET,
+      });
+    }
+  }
 
   const afterDataSource = await input.client.retrieveDataSource(
     context.managedDatabase.dataSourceId,
@@ -142,6 +151,10 @@ export async function applyManagedSchemaRepair(input: {
     managedDatabases: input.registryStore.listManagedDatabases(input.projectId),
     preset: input.preset,
   });
+  const unresolvedSelectedIssues = unresolvedIssuesForOperations({
+    diff: afterDiff,
+    operations: selectedOperations,
+  });
   const updatedMappings = upsertResolvedMappings({
     registryStore: input.registryStore,
     role: input.role,
@@ -151,6 +164,22 @@ export async function applyManagedSchemaRepair(input: {
     nowIso: input.nowIso ?? new Date().toISOString(),
     preset: input.preset ?? KOREAN_NOTION_SCHEMA_PRESET,
   });
+  if (unresolvedSelectedIssues.length > 0) {
+    return {
+      ok: false,
+      status: "failed",
+      message: `managed schema 복구 후에도 ${unresolvedSelectedIssues.length}개 항목이 남아 있습니다.`,
+      userAction:
+        `${unresolvedSelectedIssues
+          .map((issue) => issue.propertyName)
+          .join(", ")} 항목이 Notion 응답에서 확인되지 않았습니다. ` +
+        "DB 설정 화면에서 상태를 다시 확인해 주세요.",
+      plan: selectedPlan,
+      appliedOperationIds: selectedOperations.map((operation) => operation.id),
+      registryUpdated: updatedMappings,
+      diff: afterDiff,
+    };
+  }
 
   return {
     ok: true,
@@ -249,8 +278,10 @@ export function buildManagedSchemaRepairPlan(input: {
         propertyId: null,
         propertyType: property.type,
         description: `${issue.semanticKey} Notion property 생성`,
-        patchKey: issue.propertyName || property.name,
-        patch,
+        patchKey: isMeetingActionItemsProperty(input.role, property)
+          ? null
+          : issue.propertyName || property.name,
+        patch: isMeetingActionItemsProperty(input.role, property) ? null : patch,
       });
       operatedKeys.add(issue.semanticKey);
       continue;
@@ -458,6 +489,137 @@ function upsertResolvedMappings(input: {
   return updated;
 }
 
+async function createMeetingActionItemsViaTaskRelation(input: {
+  client: NotionClient;
+  managedDatabases: readonly NotionManagedDatabase[];
+  preset: NotionSchemaPreset;
+}): Promise<void> {
+  const meeting = requiredManagedDatabase(input.managedDatabases, "meeting");
+  const task = requiredManagedDatabase(input.managedDatabases, "task");
+  const taskMeeting = requiredPresetProperty(
+    input.preset,
+    "task",
+    "task.meeting",
+  );
+  const meetingActionItems = requiredPresetProperty(
+    input.preset,
+    "meeting",
+    "meeting.actionItems",
+  );
+
+  await input.client.updateDataSource(task.dataSourceId, {
+    properties: {
+      [taskMeeting.name]: {
+        type: "relation",
+        relation: {
+          data_source_id: meeting.dataSourceId,
+          type: "dual_property",
+          dual_property: {
+            synced_property_name: meetingActionItems.name,
+          },
+        },
+      },
+    },
+  });
+
+  const meetingDataSource = await input.client.retrieveDataSource(
+    meeting.dataSourceId,
+  );
+  const relation = findRelationToDataSource(
+    readDataSourceProperties(meetingDataSource),
+    task.dataSourceId,
+  );
+  if (!relation || relation.name === meetingActionItems.name) {
+    return;
+  }
+
+  await input.client.updateDataSource(meeting.dataSourceId, {
+    properties: {
+      [relation.id ?? relation.name]: {
+        name: meetingActionItems.name,
+      },
+    },
+  });
+}
+
+function isMeetingActionItemsCreateOperation(
+  role: NotionDatabaseRole,
+  operation: ManagedSchemaRepairOperation,
+): boolean {
+  return role === "meeting" &&
+    operation.kind === "create_property" &&
+    operation.semanticKey === "meeting.actionItems";
+}
+
+function isMeetingActionItemsProperty(
+  role: NotionDatabaseRole,
+  property: NotionSchemaPresetProperty,
+): boolean {
+  return role === "meeting" && property.key === "meeting.actionItems";
+}
+
+function requiredManagedDatabase(
+  managedDatabases: readonly NotionManagedDatabase[],
+  role: NotionDatabaseRole,
+): NotionManagedDatabase {
+  const database = managedDatabases.find((item) => item.role === role);
+  if (!database) {
+    throw new Error(`${role} managed Notion DB registry가 없습니다.`);
+  }
+  return database;
+}
+
+function requiredPresetProperty(
+  preset: NotionSchemaPreset,
+  role: NotionDatabaseRole,
+  semanticKey: NotionPropertySemanticKey,
+): NotionSchemaPresetProperty {
+  const property = presetProperty(role, semanticKey, preset);
+  if (!property) {
+    throw new Error(`${semanticKey} preset property를 찾지 못했습니다.`);
+  }
+  return property;
+}
+
+function findRelationToDataSource(
+  properties: Record<string, unknown>,
+  targetDataSourceId: string,
+): { id: string | null; name: string } | null {
+  for (const [fallbackName, value] of Object.entries(properties)) {
+    if (!isRecord(value) || !isRecord(value.relation)) {
+      continue;
+    }
+    if (value.relation.data_source_id !== targetDataSourceId) {
+      continue;
+    }
+    return {
+      id: readOptionalString(value, "id"),
+      name: readOptionalString(value, "name") ?? fallbackName,
+    };
+  }
+  return null;
+}
+
+function unresolvedIssuesForOperations(input: {
+  diff: ManagedSchemaDiff;
+  operations: readonly ManagedSchemaRepairOperation[];
+}): ManagedSchemaIssue[] {
+  const operatedKeys = new Set(
+    input.operations.map((operation) => operation.semanticKey),
+  );
+  const resolvedKeys = new Set(
+    input.diff.resolvedProperties.map((property) => property.semanticKey),
+  );
+  return input.diff.issues.filter(
+    (issue) =>
+      issue.semanticKey !== null &&
+      operatedKeys.has(issue.semanticKey) &&
+      issue.severity !== "warning" &&
+      issue.code !== "mapping_missing" &&
+      !(issue.code === "remote_missing" && resolvedKeys.has(issue.semanticKey)),
+  );
+}
+
 function schemaForProperty(input: {
   property: NotionSchemaPresetProperty;
   mappingsByKey: ReadonlyMap<NotionPropertySemanticKey, NotionPropertyMapping>;
@@ -465,16 +627,17 @@ function schemaForProperty(input: {
 }): JsonObject | null {
   const { property } = input;
   if (property.type === "rich_text") {
-    return { rich_text: {} };
+    return { type: "rich_text", rich_text: {} };
   }
   if (property.type === "date") {
-    return { date: {} };
+    return { type: "date", date: {} };
   }
   if (property.type === "people") {
-    return { people: {} };
+    return { type: "people", people: {} };
   }
   if (property.type === "select") {
     return {
+      type: "select",
       select: {
         options: (property.options ?? []).map(managedSelectOptionSchema),
       },
@@ -482,6 +645,7 @@ function schemaForProperty(input: {
   }
   if (property.type === "multi_select") {
     return {
+      type: "multi_select",
       multi_select: {
         options: (property.options ?? []).map(managedSelectOptionSchema),
       },
@@ -489,8 +653,15 @@ function schemaForProperty(input: {
   }
   if (property.type === "relation") {
     const targetRole = property.relation?.targetDatabase;
-    const target = input.managedDatabases.find((database) => database.role === targetRole);
-    return target ? { relation: { data_source_id: target.dataSourceId } } : null;
+    const target = input.managedDatabases.find(
+      (database) => database.role === targetRole,
+    );
+    return target
+      ? {
+          type: "relation",
+          relation: { data_source_id: target.dataSourceId },
+        }
+      : null;
   }
   if (property.type === "rollup") {
     if (!property.rollup) {
@@ -502,6 +673,7 @@ function schemaForProperty(input: {
       return null;
     }
     return {
+      type: "rollup",
       rollup: {
         function: "show_original",
         ...(relation.propertyId ? { relation_property_id: relation.propertyId } : {}),
@@ -572,6 +744,14 @@ function hashRepairPlan(plan: Omit<ManagedSchemaRepairPlan, "planHash">): string
       blocked: plan.blocked,
     }))
     .digest("hex");
+}
+
+function readOptionalString(
+  value: Record<string, unknown>,
+  key: string,
+): string | null {
+  const raw = value[key];
+  return typeof raw === "string" && raw.trim() ? raw : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -230,6 +230,12 @@ const dashboard = new DashboardServer(config, store, producer, {
   setupWizard,
   settingsReset,
   sttAutomation,
+}, {
+  clientHeartbeatTimeoutMs: 20000,
+  onClientHeartbeatExpired: () => {
+    console.log("대시보드 연결이 닫혀 서버를 종료합니다.");
+    void shutdown("dashboard_closed").finally(() => process.exit(0));
+  },
 });
 const dashboardUrl = await startDashboardOrExit();
 const initialSetupStatus = setupStatus.getSnapshot();

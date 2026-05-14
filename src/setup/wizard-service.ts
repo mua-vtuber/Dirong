@@ -25,6 +25,7 @@ import { parseNotionPageUrl } from "../notion/target.js";
 import type { NotionRegistryStore } from "../notion/registry-store.js";
 import type { ProjectStore } from "../projects/project-store.js";
 import {
+  DEFAULT_PROJECT_ID,
   projectNotionTokenSecretRef,
   type DirongProjectRow,
 } from "../projects/project-types.js";
@@ -94,7 +95,7 @@ export type SetupWizardStepId =
   | "notionToken"
   | "notionParentPage"
   | "notionManagedDatabases"
-  | "complete";
+  | "projectName";
 
 export type SetupWizardStepStatus = "ready" | "current" | "locked";
 
@@ -909,10 +910,12 @@ export class SetupWizardService {
       this.options.projectStore.updateProjectNotionFields({
         projectId: activeProject.project.id,
         notionTokenSecretRef: secretRef,
+        notionUploadMode: DEFAULT_NOTION_SETTINGS.uploadMode,
         nowIso: this.now().toISOString(),
       });
       this.writeProjectCompatibilityProjection({
         notionTokenSecretRef: secretRef,
+        notionUploadMode: DEFAULT_NOTION_SETTINGS.uploadMode,
       });
     } else {
       this.options.settingsStore.update((settings) => ({
@@ -920,6 +923,7 @@ export class SetupWizardService {
         notion: {
           ...settings.notion,
           tokenSecretRef: secretRef,
+          uploadMode: DEFAULT_NOTION_SETTINGS.uploadMode,
         },
       }));
     }
@@ -971,10 +975,12 @@ export class SetupWizardService {
       this.options.projectStore.updateProjectNotionFields({
         projectId: activeProject.project.id,
         notionParentPageUrl: normalizedUrl,
+        notionUploadMode: DEFAULT_NOTION_SETTINGS.uploadMode,
         nowIso: this.now().toISOString(),
       });
       this.writeProjectCompatibilityProjection({
         notionParentPageUrl: normalizedUrl,
+        notionUploadMode: DEFAULT_NOTION_SETTINGS.uploadMode,
       });
     } else {
       this.options.settingsStore.update((settings) => ({
@@ -982,6 +988,7 @@ export class SetupWizardService {
         notion: {
           ...settings.notion,
           parentPageUrl: normalizedUrl,
+          uploadMode: DEFAULT_NOTION_SETTINGS.uploadMode,
         },
       }));
     }
@@ -1126,6 +1133,48 @@ export class SetupWizardService {
     }
   }
 
+  saveProjectName(body: unknown): SetupWizardActionResult {
+    const name = readCleanString(body, ["name", "projectName"]);
+    if (!name || name.length > 80) {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.project.name.error.invalid.message",
+        userActionKey: "setup.project.name.error.invalid.action",
+      });
+    }
+
+    const activeProject = this.readActiveProjectForSetup();
+    if (!activeProject.ok) {
+      return this.result(activeProject.error);
+    }
+    if (!activeProject.project || !this.options.projectStore) {
+      return this.result({
+        ok: false,
+        status: "not_configured",
+        httpStatus: 409,
+        messageKey: "setup.project.name.error.missingProject.message",
+        userActionKey: "setup.project.name.error.missingProject.action",
+      });
+    }
+
+    const nowIso = this.now().toISOString();
+    this.options.projectStore.updateProjectName({
+      projectId: activeProject.project.id,
+      name,
+      nowIso,
+    });
+    this.options.projectStore.markProjectReady(activeProject.project.id, nowIso);
+
+    return this.result({
+      ok: true,
+      status: "done",
+      messageKey: "setup.project.name.save.done.message",
+      userActionKey: "setup.project.name.save.done.action",
+    });
+  }
+
   private async testClaudeCli(
     settings: DirongLocalSettings,
   ): Promise<ClaudeSetupTestResult> {
@@ -1184,6 +1233,7 @@ export class SetupWizardService {
     guildIds?: string[];
     notionTokenSecretRef?: string;
     notionParentPageUrl?: string;
+    notionUploadMode?: DirongLocalSettings["notion"]["uploadMode"];
   }): void {
     this.options.settingsStore.update((settings) => ({
       ...settings,
@@ -1194,13 +1244,17 @@ export class SetupWizardService {
           }
         : settings.discord,
       notion:
-        input.notionTokenSecretRef || input.notionParentPageUrl
+        input.notionTokenSecretRef ||
+        input.notionParentPageUrl ||
+        input.notionUploadMode
           ? {
               ...settings.notion,
               tokenSecretRef:
                 input.notionTokenSecretRef ?? settings.notion.tokenSecretRef,
               parentPageUrl:
                 input.notionParentPageUrl ?? settings.notion.parentPageUrl,
+              uploadMode:
+                input.notionUploadMode ?? settings.notion.uploadMode,
             }
           : settings.notion,
     }));
@@ -1280,12 +1334,19 @@ export class SetupWizardService {
       projectStore: this.options.projectStore,
     });
     const steps = buildWizardSteps(setup);
+    const wizardComplete = steps.every((step) => step.status === "ready");
+    const effectiveSetup: ProductSetupStatusSnapshot = wizardComplete
+      ? setup
+      : {
+          ...setup,
+          status: setup.status === "blocked" ? "blocked" : "not_configured",
+        };
     const completedStepCount = steps.filter((step) => step.status === "ready").length;
     return {
-      ...setup,
+      ...effectiveSetup,
       wizard: {
         currentStep:
-          steps.find((step) => step.status === "current")?.id ?? "complete",
+          steps.find((step) => step.status === "current")?.id ?? "projectName",
         completedStepCount,
         totalStepCount: steps.length,
         inviteUrl: settings.discord.applicationId
@@ -1520,7 +1581,7 @@ function buildWizardSteps(
     notionToken: setup.secrets.notion.configured,
     notionParentPage: setup.features.notion.parentPageConfigured,
     notionManagedDatabases: setup.features.notion.managedRegistryReady,
-    complete: setup.status === "ready",
+    projectName: isProjectNameConfigured(setup.projectSetup?.activeProject ?? null),
   };
   const ids: SetupWizardStepId[] = [
     "language",
@@ -1532,7 +1593,7 @@ function buildWizardSteps(
     "notionToken",
     "notionParentPage",
     "notionManagedDatabases",
-    "complete",
+    "projectName",
   ];
   const firstIncomplete = ids.findIndex((id) => !readiness[id]);
   return ids.map((id, index) => ({
@@ -1543,6 +1604,22 @@ function buildWizardSteps(
         ? "current"
         : "locked",
   }));
+}
+
+function isProjectNameConfigured(
+  project: NonNullable<ProductSetupStatusSnapshot["projectSetup"]>["activeProject"] | null,
+): boolean {
+  if (!project) {
+    return true;
+  }
+  const name = project.name.trim();
+  if (!name) {
+    return false;
+  }
+  if (project.id === DEFAULT_PROJECT_ID && name === "Default Project") {
+    return false;
+  }
+  return name !== "Untitled Project" && name !== "Fresh Project";
 }
 
 function buildDiscordInviteUrl(applicationId: string): string {

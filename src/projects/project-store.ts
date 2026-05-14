@@ -146,7 +146,7 @@ export class ProjectStore {
     const guildId = cleanNullableString(input.guildId ?? null);
     const notionTokenSecretRef = cleanNullableString(input.notionTokenSecretRef ?? null);
     const notionParentPageUrl = cleanNullableString(input.notionParentPageUrl ?? null);
-    const notionUploadMode = input.notionUploadMode ?? "manual";
+    const notionUploadMode = input.notionUploadMode ?? "automatic_after_ai_cleanup";
 
     this.runner.transaction(() => {
       this.assertGuildAvailable(guildId, projectId);
@@ -304,7 +304,7 @@ export class ProjectStore {
            command_enabled = 1,
            notion_token_secret_ref = NULL,
            notion_parent_page_url = NULL,
-           notion_upload_mode = 'manual',
+           notion_upload_mode = 'automatic_after_ai_cleanup',
            updated_at = ?
        WHERE id = ?`,
       nowIso,
@@ -373,7 +373,7 @@ export class ProjectStore {
          id, name, lifecycle_status, guild_id, guild_name, guild_icon_url,
          command_enabled, notion_token_secret_ref, notion_parent_page_url,
          notion_upload_mode, created_at, updated_at, archived_at
-       ) VALUES (?, ?, 'draft', NULL, NULL, NULL, 1, NULL, NULL, 'manual', ?, ?, NULL)`,
+       ) VALUES (?, ?, 'draft', NULL, NULL, NULL, 1, NULL, NULL, 'automatic_after_ai_cleanup', ?, ?, NULL)`,
       projectId,
       cleanRequiredString(input.name ?? defaultProjectName(projectId), "project name"),
       nowIso,
@@ -404,7 +404,7 @@ export class ProjectStore {
                command_enabled = 0,
                notion_token_secret_ref = NULL,
                notion_parent_page_url = NULL,
-               notion_upload_mode = 'manual',
+               notion_upload_mode = 'automatic_after_ai_cleanup',
                archived_at = COALESCE(archived_at, ?),
                updated_at = ?
            WHERE id = ?`,
@@ -492,7 +492,7 @@ export class ProjectStore {
              command_enabled = 0,
              notion_token_secret_ref = NULL,
              notion_parent_page_url = NULL,
-             notion_upload_mode = 'manual',
+             notion_upload_mode = 'automatic_after_ai_cleanup',
              archived_at = COALESCE(archived_at, ?),
              updated_at = ?
          WHERE id = ?`,
@@ -617,7 +617,7 @@ export class ProjectStore {
         current?.notion_parent_page_url ?? legacy.notionParentPageUrl;
       const nextUploadMode = shouldCopyNotionUploadMode
         ? legacy.notionUploadMode
-        : current?.notion_upload_mode ?? legacy.notionUploadMode ?? "manual";
+        : current?.notion_upload_mode ?? legacy.notionUploadMode ?? "automatic_after_ai_cleanup";
       const hasBoundaryConfig = Boolean(
         nextGuildId || nextTokenSecretRef || nextParentPageUrl,
       );

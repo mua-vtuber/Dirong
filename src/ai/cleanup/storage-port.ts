@@ -68,6 +68,12 @@ export type FailProcessingAiCleanupJobInput = {
   error: string;
 };
 
+export type RetryFailedAiCleanupJobInput = {
+  jobId: string;
+  nowIso: string;
+  maxAttempts: number;
+};
+
 export type CompleteAiCleanupJobInput = {
   jobId: string;
   draftId: string;
@@ -111,6 +117,7 @@ export type AiCleanupRunStore = AiCleanupTimelineStore & {
 };
 
 export type AiCleanupAutomationStore = AiCleanupRunStore & {
+  retryAiCleanupJob(input: RetryFailedAiCleanupJobInput): AiCleanupJobRow | null;
   releaseExpiredProcessingLeases(nowIso?: string): number;
   repairExpiredAiCleanupProcessingJobs(
     nowIso?: string,

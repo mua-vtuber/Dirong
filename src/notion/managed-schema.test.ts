@@ -83,6 +83,7 @@ test("createManagedNotionSchema sends Korean preset fields and resolved relation
     assert.ok("회의록" in meetingProperties);
     assert.ok("날짜" in meetingProperties);
     assert.ok("참가자 연결" in meetingProperties);
+    assert.equal("할 일 목록" in meetingProperties, false);
     assert.deepEqual(
       requireRecord(requireRecord(meetingProperties["참가자 연결"]).relation)
         .data_source_id,
@@ -115,31 +116,38 @@ test("createManagedNotionSchema sends Korean preset fields and resolved relation
       rollup_property_name: "담당",
     });
 
-    const updateBodies = client.calls
+    const updateCalls = client.calls
       .filter((call) => call.method === "updateDataSource")
-      .map((call) => requireRecord(call.body));
-    const actionItemsUpdate = updateBodies.find(
-      (body) => "할 일 목록" in requireRecord(body.properties),
+    const taskMeetingUpdate = updateCalls.find(
+      (call) =>
+        call.id === "task-ds" &&
+        "회의록" in requireRecord(requireRecord(call.body).properties),
     );
-    assert.ok(actionItemsUpdate);
-    const actionItems = requireRecord(
-      requireRecord(actionItemsUpdate.properties)["할 일 목록"],
+    assert.ok(taskMeetingUpdate);
+    const taskMeeting = requireRecord(
+      requireRecord(requireRecord(taskMeetingUpdate.body).properties)["회의록"],
     );
-    assert.deepEqual(requireRecord(actionItems.relation), {
-      data_source_id: "task-ds",
+    assert.equal(taskMeeting.type, "relation");
+    assert.deepEqual(requireRecord(taskMeeting.relation), {
+      data_source_id: "meeting-ds",
       type: "dual_property",
       dual_property: {
-        synced_property_name: "회의록",
+        synced_property_name: "할 일 목록",
       },
     });
 
-    const renameUpdate = updateBodies.find(
-      (body) => "task-ds:회의록 1" in requireRecord(body.properties),
+    const renameUpdate = updateCalls.find(
+      (call) =>
+        call.id === "meeting-ds" &&
+        "meeting-ds:할 일 목록 1" in
+          requireRecord(requireRecord(call.body).properties),
     );
     assert.ok(renameUpdate);
     assert.deepEqual(
-      requireRecord(renameUpdate.properties)["task-ds:회의록 1"],
-      { name: "회의록" },
+      requireRecord(requireRecord(renameUpdate.body).properties)[
+        "meeting-ds:할 일 목록 1"
+      ],
+      { name: "할 일 목록" },
     );
   } finally {
     fixture.close();
@@ -196,8 +204,8 @@ test("createManagedNotionSchema stores managed databases and semantic property m
     );
     assert.equal(
       fixture.store.getPropertyMapping("meeting", "meeting.actionItems")
-        ?.propertyId,
-      "meeting-ds:할 일 목록",
+        ?.propertyName,
+      "할 일 목록",
     );
     assert.equal(
       fixture.store.getPropertyMapping("task", "task.meeting")?.propertyName,

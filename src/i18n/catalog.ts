@@ -850,6 +850,27 @@ export const ko = {
         },
       },
     },
+    project: {
+      name: {
+        save: {
+          done: {
+            message: "프로젝트 이름을 저장했습니다.",
+            action:
+              "디롱이를 재시작해 주세요. 대시보드 창을 닫으면 서버가 자동으로 종료됩니다.",
+          },
+        },
+        error: {
+          invalid: {
+            message: "프로젝트 이름이 올바르지 않습니다.",
+            action: "1자 이상 80자 이하로 입력해 주세요.",
+          },
+          missingProject: {
+            message: "이름을 저장할 active project가 없습니다.",
+            action: "프로젝트를 만든 뒤 다시 시도해 주세요.",
+          },
+        },
+      },
+    },
     dataRetention: {
       status: {
         ready: {
@@ -987,9 +1008,7 @@ export const ko = {
         notionToken: "Notion token 입력",
         notionParent: "노션 DB 관리 페이지 URL 입력",
         notionManaged: "managed DB 생성",
-        recording: "녹음 자동 종료 확인",
-        privacy: "개인정보/보관 정책 확인",
-        final: "최종 점검",
+        projectName: "프로젝트 이름 설정",
       },
       actions: {
         goDashboard: "대시보드로 가기",
@@ -1010,6 +1029,7 @@ export const ko = {
         saveParentPage: "DB 관리 페이지 URL 저장",
         verifyAccess: "접근 확인",
         createManagedDb: "managed DB 생성",
+        saveProjectName: "프로젝트 이름 저장",
         restartFromBeginning: "처음부터 다시 보기",
       },
       fallback: {
@@ -1193,24 +1213,14 @@ export const ko = {
           "이 버튼은 노션 DB 관리 페이지 안에 회의록, 작업자, 할 일 목록 DB를 만들고 registry에 내부 mapping을 저장합니다.",
         openInNotion: "Notion에서 열기",
       },
-      recording: {
-        title: "녹음 자동 종료를 확인합니다",
-        description:
-          "추천 기본값은 켜짐입니다. 음성 채널에 사람이 모두 나가고 Dirong 봇만 남으면 90초 뒤 녹음을 종료합니다.",
-        confirm: "자동 종료 기본값을 확인했습니다.",
-      },
-      privacy: {
-        title: "개인정보와 보관 정책을 확인합니다",
-        audioKept: "음성 파일 자동 삭제가 꺼져 있으며 Dirong 실행 PC에 보관됩니다.",
-        audioDeleted:
-          "음성 파일은 Dirong 실행 PC에 저장되며, Notion 업로드 성공 후 즉시 삭제합니다.",
-        textDraftRetention: "STT 텍스트와 AI draft는 기본 {days}일 뒤 삭제합니다.",
-        confirm: "녹음 시작 안내와 기본 보관 정책을 확인했습니다.",
-      },
-      final: {
-        title: "최종 점검",
-        description:
-          "기능별 상태가 모두 ready이면 녹음부터 Notion 업로드까지 사용할 준비가 된 상태입니다.",
+      projectName: {
+        title: "디롱이 프로젝트 이름을 정합니다",
+        description: "디롱이에서 사용할 프로젝트 이름을 입력해주세요.",
+        label: "프로젝트 이름",
+        placeholder: "예: 주간 운영 회의",
+        restartTitle: "설정이 끝났습니다",
+        restartDescription:
+          "변경된 설정을 적용하려면 디롱이를 재시작해 주세요. 대시보드 창을 닫으면 서버도 자동으로 종료됩니다.",
       },
       features: {
         discord: "Discord",
@@ -1229,6 +1239,7 @@ export const ko = {
       draftDone: "회의록 draft 생성 완료",
       aiRunning: "회의록 생성 중",
       aiQueued: "AI cleanup job 대기 중",
+      aiRetryQueued: "회의록 재시도 대기 중 ({attempts}/{maxAttempts})",
       aiBlocked: "회의록 생성 보류",
       aiFailed: "회의록 생성 실패",
       sttRunning: "STT 처리 중",
@@ -1260,6 +1271,10 @@ export const ko = {
       last: "마지막",
       repair: "복구",
       details: "자동화 세부정보",
+      retrying: "재시도 대기 중 ({attempts}/{maxAttempts})",
+      retry: "다시 시도",
+      retryRequested: "재시도 요청 중...",
+      failureReason: "실패 원인",
       sttDone: "STT 완료",
       sttFailed: "STT 실패",
       sttMissingFile: "음성 파일 없음",
@@ -1273,6 +1288,7 @@ export const ko = {
       latestDetails: "최근 Notion write 자세히 보기",
       send: "Notion으로 보내기",
       retry: "다시 시도",
+      failureReason: "업로드 실패 원인",
       pageReady: "페이지 준비됨",
     },
     status: {
@@ -1314,6 +1330,7 @@ export const ko = {
         title: "AI 회의록 작성",
         waiting: "AI 회의록 대기",
         processing: "AI가 회의록을 작성 중...",
+        retrying: "회의록을 다시 시도하는 중...",
         done: "회의록 작성 완료",
         failed: "회의록 작성 확인 필요",
       },
@@ -2721,6 +2738,27 @@ export const en = {
         },
       },
     },
+    project: {
+      name: {
+        save: {
+          done: {
+            message: "Project name saved.",
+            action:
+              "Restart Dirong. Closing the dashboard window will stop the server automatically.",
+          },
+        },
+        error: {
+          invalid: {
+            message: "The project name is invalid.",
+            action: "Enter 1 to 80 characters.",
+          },
+          missingProject: {
+            message: "There is no active project to rename.",
+            action: "Create a project, then try again.",
+          },
+        },
+      },
+    },
     dataRetention: {
       status: {
         ready: {
@@ -2858,9 +2896,7 @@ export const en = {
         notionToken: "Enter Notion Token",
         notionParent: "Enter Notion DB Management Page URL",
         notionManaged: "Create Managed DBs",
-        recording: "Confirm Auto Stop",
-        privacy: "Confirm Privacy/Retention",
-        final: "Final Check",
+        projectName: "Set Project Name",
       },
       actions: {
         goDashboard: "Go to Dashboard",
@@ -2881,6 +2917,7 @@ export const en = {
         saveParentPage: "Save DB management page URL",
         verifyAccess: "Check access",
         createManagedDb: "Create managed DBs",
+        saveProjectName: "Save project name",
         restartFromBeginning: "Review from the beginning",
       },
       fallback: {
@@ -3064,24 +3101,14 @@ export const en = {
           "This button creates the Meeting, Member, and Action Item DBs inside the Notion DB management page and saves the internal mapping in the registry.",
         openInNotion: "Open in Notion",
       },
-      recording: {
-        title: "Confirm automatic recording stop",
-        description:
-          "The recommended default is on. When everyone leaves the voice channel and only the Dirong bot remains, recording stops after 90 seconds.",
-        confirm: "I confirmed the automatic stop default.",
-      },
-      privacy: {
-        title: "Confirm privacy and retention policy",
-        audioKept: "Automatic audio deletion is off, so audio files remain on the PC running Dirong.",
-        audioDeleted:
-          "Audio files are stored on the PC running Dirong and deleted immediately after a successful Notion upload.",
-        textDraftRetention: "STT text and AI drafts are deleted after {days} days by default.",
-        confirm: "I confirmed the recording notice and default retention policy.",
-      },
-      final: {
-        title: "Final check",
-        description:
-          "When every feature status is ready, Dirong is ready to use from recording through Notion upload.",
+      projectName: {
+        title: "Name your Dirong project",
+        description: "Enter the project name you want to use in Dirong.",
+        label: "Project name",
+        placeholder: "Example: Weekly operations meeting",
+        restartTitle: "Setup is complete",
+        restartDescription:
+          "Restart Dirong to apply the saved setup. Closing the dashboard window will also stop the server automatically.",
       },
       features: {
         discord: "Discord",
@@ -3100,6 +3127,7 @@ export const en = {
       draftDone: "Meeting-note draft created",
       aiRunning: "Creating meeting notes",
       aiQueued: "AI cleanup job is waiting",
+      aiRetryQueued: "Meeting-note retry queued ({attempts}/{maxAttempts})",
       aiBlocked: "Meeting-note generation is blocked",
       aiFailed: "Meeting-note generation failed",
       sttRunning: "Transcription is running",
@@ -3131,6 +3159,10 @@ export const en = {
       last: "Last",
       repair: "repair",
       details: "Automation details",
+      retrying: "Retry queued ({attempts}/{maxAttempts})",
+      retry: "Retry",
+      retryRequested: "Requesting retry...",
+      failureReason: "Failure reason",
       sttDone: "STT done",
       sttFailed: "STT failed",
       sttMissingFile: "Audio file missing",
@@ -3144,6 +3176,7 @@ export const en = {
       latestDetails: "Recent Notion write details",
       send: "Send to Notion",
       retry: "Retry",
+      failureReason: "Upload failure reason",
       pageReady: "Page ready",
     },
     status: {
@@ -3185,6 +3218,7 @@ export const en = {
         title: "AI meeting notes",
         waiting: "Waiting for AI notes",
         processing: "AI is writing meeting notes...",
+        retrying: "Retrying meeting-note generation...",
         done: "Meeting notes ready",
         failed: "Meeting notes need attention",
       },

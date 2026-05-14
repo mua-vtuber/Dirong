@@ -481,7 +481,7 @@ function upsertDefaultProject(
        command_enabled, notion_token_secret_ref, notion_parent_page_url,
        notion_upload_mode, created_at, updated_at, archived_at
      ) VALUES (
-       ?, ?, ?, ?, ?, NULL, 1, NULL, ?, 'manual', ?, ?, NULL
+       ?, ?, ?, ?, ?, NULL, 1, NULL, ?, 'automatic_after_ai_cleanup', ?, ?, NULL
      )
      ON CONFLICT(id) DO UPDATE SET
        name = CASE

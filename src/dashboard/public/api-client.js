@@ -4,6 +4,7 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
     let i18nMessages = {};
     let i18nLocale = 'ko';
     const SETUP_SKIP_DASHBOARD_KEY = 'dirong.setup.skipToDashboard';
+    const SETUP_RESTART_NOTICE_KEY = 'dirong.setup.showRestartNotice';
     function normalizeActiveView(view) {
       return ['setup', 'dashboard', 'db', 'logs', 'settings'].includes(view) ? view : 'dashboard';
     }
@@ -26,6 +27,30 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
         'Content-Type': 'application/json',
         'X-Dirong-Dashboard-Token': window.__DIRONG_DASHBOARD_TOKEN__ ?? ''
       };
+    }
+    const DASHBOARD_HEARTBEAT_MS = 3000;
+    let dashboardHeartbeatTimer = null;
+    async function sendDashboardHeartbeat() {
+      try {
+        await fetch('/api/dashboard/heartbeat', {
+          method: 'POST',
+          headers: dashboardJsonHeaders(),
+          body: '{}',
+          keepalive: true
+        });
+      } catch (_error) {
+        // The main refresh path reports visible connection failures.
+      }
+    }
+    function startDashboardHeartbeat() {
+      if (dashboardHeartbeatTimer) return;
+      void sendDashboardHeartbeat();
+      dashboardHeartbeatTimer = window.setInterval(sendDashboardHeartbeat, DASHBOARD_HEARTBEAT_MS);
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', startDashboardHeartbeat, { once: true });
+    } else {
+      startDashboardHeartbeat();
     }
     async function dashboardApiReadJson(response) {
       try {
@@ -82,6 +107,11 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
       if (!setup) return;
       if (!setupIsIncomplete(setup)) {
         window.sessionStorage.removeItem(SETUP_SKIP_DASHBOARD_KEY);
+        if (window.sessionStorage.getItem(SETUP_RESTART_NOTICE_KEY) === 'true') {
+          activeView = 'setup';
+          window.localStorage.setItem('dirong.dashboard.view', activeView);
+          return;
+        }
         if (activeView === 'setup') {
           activeView = 'dashboard';
           window.localStorage.setItem('dirong.dashboard.view', activeView);
@@ -95,6 +125,9 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
     }
     function setActiveView(view) {
       activeView = normalizeActiveView(view);
+      if (activeView !== 'setup') {
+        window.sessionStorage.removeItem(SETUP_RESTART_NOTICE_KEY);
+      }
       window.localStorage.setItem('dirong.dashboard.view', activeView);
       updateVisibleView();
       refresh();
@@ -183,8 +216,6 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
     const sectionCache = new Map();
     const setupLocalState = {
       stepIndex: Number(window.localStorage.getItem('dirong.setup.stepIndex') ?? 0),
-      recordingDone: window.localStorage.getItem('dirong.setup.recordingDone') === 'true',
-      privacyDone: window.localStorage.getItem('dirong.setup.privacyDone') === 'true',
       sttProvider: window.localStorage.getItem('dirong.setup.sttProvider') || null,
       sttModel: window.localStorage.getItem('dirong.setup.sttModel') || null,
       aiMode: window.localStorage.getItem('dirong.setup.aiMode') || null,

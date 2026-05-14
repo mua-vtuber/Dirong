@@ -388,7 +388,6 @@ function formatReferences(
 
 function formatReference(reference: TimelineReference): string {
   return [
-    `\`${reference.chunkId}\`/\`${reference.sttJobId}\``,
     formatTimeRange(reference.startMs, reference.endMs),
     cleanInline(reference.speaker),
   ]

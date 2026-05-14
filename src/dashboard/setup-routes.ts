@@ -349,6 +349,10 @@ export async function handleSetupWizardPost(
       sendWizardResult(response, await setupWizard.createManagedDatabases());
       return;
     }
+    if (pathname === "/api/setup/project/name") {
+      sendWizardResult(response, setupWizard.saveProjectName(body));
+      return;
+    }
 
     sendJson(response, withMessageKeys(locale, {
       ok: false,

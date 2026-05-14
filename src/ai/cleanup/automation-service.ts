@@ -81,6 +81,15 @@ export type AiCleanupAutomationSnapshot = {
   progress: AiCleanupProgressSnapshot | null;
 };
 
+export type AiCleanupAutomationRetryResult = {
+  ok: boolean;
+  status: "done" | "failed" | "not_configured";
+  message: string;
+  userAction: string | null;
+  job: AiCleanupAutomationJobSnapshot | null;
+  snapshot: AiCleanupAutomationSnapshot;
+};
+
 export type AiCleanupAutomationServiceOptions = {
   enabled: boolean;
   provider: AiCleanupProvider;
@@ -195,6 +204,51 @@ export class AiCleanupAutomationService {
     }
 
     return await this.loop.runOnce();
+  }
+
+  async retryFailedJob(
+    input: { jobId: string },
+    locale?: DirongLocale,
+  ): Promise<AiCleanupAutomationRetryResult> {
+    const resolvedLocale = resolveAppLocale({
+      locale,
+      getLocale: this.options.localeResolver,
+    });
+    if (!this.options.enabled) {
+      return {
+        ok: false,
+        status: "not_configured",
+        message: retryText(resolvedLocale, "disabledMessage"),
+        userAction: retryText(resolvedLocale, "disabledAction"),
+        job: null,
+        snapshot: this.getSnapshot(resolvedLocale),
+      };
+    }
+    const job = this.store.retryAiCleanupJob({
+      jobId: input.jobId,
+      nowIso: new Date().toISOString(),
+      maxAttempts: this.options.runner.maxAttempts,
+    });
+    if (!job) {
+      return {
+        ok: false,
+        status: "failed",
+        message: retryText(resolvedLocale, "missingMessage"),
+        userAction: retryText(resolvedLocale, "missingAction"),
+        job: null,
+        snapshot: this.getSnapshot(resolvedLocale),
+      };
+    }
+
+    void this.runOnce().catch((error) => this.handleScheduledError(error));
+    return {
+      ok: true,
+      status: "done",
+      message: retryText(resolvedLocale, "queuedMessage"),
+      userAction: null,
+      job: makeJobSnapshot(job),
+      snapshot: this.getSnapshot(resolvedLocale),
+    };
   }
 
   private async tick(signal: AbortSignal): Promise<AiCleanupAutomationSnapshot> {
@@ -742,6 +796,32 @@ function makeJobSnapshot(job: AiCleanupJobRow): AiCleanupAutomationJobSnapshot {
     lastError:
       job.last_error === null ? null : redactSensitiveText(job.last_error),
   };
+}
+
+function retryText(
+  locale: DirongLocale,
+  key:
+    | "disabledMessage"
+    | "disabledAction"
+    | "missingMessage"
+    | "missingAction"
+    | "queuedMessage",
+): string {
+  const koText: Record<typeof key, string> = {
+    disabledMessage: "AI 회의록 자동화가 꺼져 있어 재시도할 수 없습니다.",
+    disabledAction: "AI 설정을 완료한 뒤 다시 시도해 주세요.",
+    missingMessage: "재시도할 실패 job을 찾지 못했습니다.",
+    missingAction: "대시보드를 새로고침한 뒤 최신 실패 job에서 다시 시도해 주세요.",
+    queuedMessage: "회의록 생성을 다시 시도합니다.",
+  };
+  const enText: Record<typeof key, string> = {
+    disabledMessage: "AI meeting-note automation is disabled, so retry cannot start.",
+    disabledAction: "Finish AI setup, then try again.",
+    missingMessage: "Could not find a failed job to retry.",
+    missingAction: "Refresh the dashboard and retry from the latest failed job.",
+    queuedMessage: "Retrying meeting-note generation.",
+  };
+  return (locale === "en" ? enText : koText)[key];
 }
 
 function makeSnapshot(

@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS dirong_projects (
   command_enabled INTEGER NOT NULL DEFAULT 1 CHECK (command_enabled IN (0, 1)),
   notion_token_secret_ref TEXT,
   notion_parent_page_url TEXT,
-  notion_upload_mode TEXT NOT NULL DEFAULT 'manual' CHECK (
+  notion_upload_mode TEXT NOT NULL DEFAULT 'automatic_after_ai_cleanup' CHECK (
     notion_upload_mode IN ('manual', 'automatic_after_ai_cleanup')
   ),
   created_at TEXT NOT NULL,

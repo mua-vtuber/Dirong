@@ -1,5 +1,10 @@
 # Dirong Discord Record Bot
 
+> 디롱이가 도움이 되셨다면 저에게 팁으로 응원해주세요. 여러분의 팁은 다음 창작 활동을 이어가는 에너지가 됩니다.
+> If Dirong has been helpful, please consider supporting me with a tip. Your support helps fuel my next creative projects.
+
+[한국어 설명서](#korean-guide)
+
 Dirong is a local-first Discord voice recording bot for meeting workflows. It records a Discord voice session, turns audio into transcripts, prepares cleaned meeting notes, and can publish the final draft to Notion.
 
 The app is designed to be run on your own machine. Settings, secrets, recordings, transcripts, drafts, and the SQLite database are stored locally, not in a hosted service.
@@ -210,6 +215,8 @@ npm test
 The project uses TypeScript, native Node.js test runner, Discord.js, SQLite, local dashboard assets, and local processing scripts.
 
 ---
+
+<a id="korean-guide"></a>
 
 # 디롱 Discord 녹음 봇
 

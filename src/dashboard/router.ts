@@ -10,7 +10,7 @@ import {
   appendDashboardRuntimeSnapshots,
   appendSignedAudioUrlsToDashboardState,
 } from "./state.js";
-import { sendHtml, sendJson, sendText } from "./http.js";
+import { isRecord, readJsonBody, sendHtml, sendJson, sendText, withMessageKeys } from "./http.js";
 import {
   handleNotionAction,
   handleNotionMemberRosterSync,
@@ -58,6 +58,7 @@ export type DashboardRouteContext = {
   store: DashboardStore;
   producer: RecordingProducer;
   runtimeSources: DashboardRuntimeSources;
+  recordClientHeartbeat?(): void;
 };
 
 export async function routeDashboardRequest(
@@ -89,6 +90,12 @@ export async function routeDashboardRequest(
 
   if (request.method === "POST" && themeEndpoint) {
     await handleThemeSave(request, response, context.runtimeSources);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/dashboard/heartbeat") {
+    context.recordClientHeartbeat?.();
+    sendJson(response, { ok: true, status: "done" });
     return;
   }
 
@@ -137,6 +144,16 @@ export async function routeDashboardRequest(
       context.runtimeSources,
       locale,
       true,
+    );
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/ai-cleanup/retry") {
+    await handleAiCleanupRetry(
+      request,
+      response,
+      context.runtimeSources,
+      locale,
     );
     return;
   }
@@ -329,4 +346,47 @@ export async function routeDashboardRequest(
   }
 
   sendText(response, 404, "Not Found");
+}
+
+async function handleAiCleanupRetry(
+  request: IncomingMessage,
+  response: ServerResponse,
+  sources: DashboardRuntimeSources,
+  locale: ReturnType<typeof getDashboardResponseLocale>,
+): Promise<void> {
+  if (!sources.aiCleanupAutomation?.retryFailedJob) {
+    sendJson(response, withMessageKeys(locale, {
+      ok: false,
+      status: "not_configured",
+      messageKey: "error.dashboard.requestInvalid.message",
+      userActionKey: "error.dashboard.requestInvalid.action",
+    }), 500);
+    return;
+  }
+
+  try {
+    const body = await readJsonBody(request);
+    const jobId = isRecord(body) && typeof body.jobId === "string"
+      ? body.jobId.trim()
+      : "";
+    if (!jobId) {
+      sendJson(response, withMessageKeys(locale, {
+        ok: false,
+        status: "failed",
+        messageKey: "error.dashboard.requestInvalid.message",
+        userActionKey: "error.dashboard.requestInvalid.action",
+      }), 400);
+      return;
+    }
+    const result = await sources.aiCleanupAutomation.retryFailedJob({ jobId }, locale);
+    sendJson(response, result, result.ok ? 200 : 400);
+  } catch (error) {
+    sendJson(response, withMessageKeys(locale, {
+      ok: false,
+      status: "failed",
+      messageKey: "error.dashboard.requestInvalid.message",
+      userActionKey: "error.dashboard.requestInvalid.action",
+      detail: error instanceof Error ? error.message : String(error),
+    }), 400);
+  }
 }

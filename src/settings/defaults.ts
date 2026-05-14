@@ -90,7 +90,7 @@ export const DEFAULT_NOTION_SETTINGS = {
   requestTimeoutMs: DEFAULT_NOTION_REQUEST_TIMEOUT_MS,
   targetUrl: null,
   targetType: "data_source",
-  uploadMode: "manual",
+  uploadMode: "automatic_after_ai_cleanup",
   templateType: "app",
   includeTranscript: "never",
   autoPollMs: 5000,

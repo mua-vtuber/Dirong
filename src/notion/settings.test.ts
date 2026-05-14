@@ -15,7 +15,7 @@ test("default Notion runtime settings are disabled until product setup enables t
   assert.equal(DEFAULT_NOTION_SETTINGS.requestTimeoutMs, 30000);
   assert.equal(DEFAULT_NOTION_SETTINGS.targetUrl, null);
   assert.equal(DEFAULT_NOTION_SETTINGS.targetType, "data_source");
-  assert.equal(DEFAULT_NOTION_SETTINGS.uploadMode, "manual");
+  assert.equal(DEFAULT_NOTION_SETTINGS.uploadMode, "automatic_after_ai_cleanup");
   assert.equal(DEFAULT_NOTION_SETTINGS.templateType, "app");
   assert.equal(DEFAULT_NOTION_SETTINGS.includeTranscript, "never");
   assert.equal(DEFAULT_NOTION_SETTINGS.autoPollMs, 5000);

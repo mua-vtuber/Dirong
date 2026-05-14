@@ -651,7 +651,7 @@ function buildProductNotionSettings(
     requestTimeoutMs: DEFAULT_NOTION_SETTINGS.requestTimeoutMs,
     targetUrl: DEFAULT_NOTION_SETTINGS.targetUrl,
     targetType: DEFAULT_NOTION_SETTINGS.targetType,
-    uploadMode: settings.notion.uploadMode ?? DEFAULT_NOTION_SETTINGS.uploadMode,
+    uploadMode: DEFAULT_NOTION_SETTINGS.uploadMode,
     templateType: DEFAULT_NOTION_SETTINGS.templateType,
     includeTranscript: DEFAULT_NOTION_SETTINGS.includeTranscript,
     autoPollMs: DEFAULT_NOTION_SETTINGS.autoPollMs,
@@ -692,7 +692,7 @@ function projectSettingsProjection(
       ? {
           tokenSecretRef: activeProject.notion_token_secret_ref ?? undefined,
           parentPageUrl: activeProject.notion_parent_page_url ?? undefined,
-          uploadMode: activeProject.notion_upload_mode,
+          uploadMode: DEFAULT_NOTION_SETTINGS.uploadMode,
         }
       : {},
   };
@@ -1191,7 +1191,7 @@ function buildProductEditableSettings(
     },
     notion: {
       parentPageUrl: settings.notion.parentPageUrl ?? null,
-      uploadMode: settings.notion.uploadMode ?? DEFAULT_NOTION_SETTINGS.uploadMode,
+      uploadMode: DEFAULT_NOTION_SETTINGS.uploadMode,
     },
     recording: {
       aloneFinalizeEnabled:

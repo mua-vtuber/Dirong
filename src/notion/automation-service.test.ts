@@ -69,7 +69,7 @@ test("NotionAutomationService localizes runtime snapshot with app locale", async
   }
 });
 
-test("NotionAutomationService does nothing in manual upload mode", async () => {
+test("NotionAutomationService treats manual upload mode as automatic", async () => {
   const fixture = createFixture();
   try {
     const client = new FakeNotionClient();
@@ -80,9 +80,10 @@ test("NotionAutomationService does nothing in manual upload mode", async () => {
 
     const snapshot = await service.runOnce();
 
-    assert.equal(snapshot.status, "manual");
-    assert.equal(countNotionWrites(fixture.database), 0);
-    assert.deepEqual(client.calls, []);
+    assert.equal(snapshot.status, "done");
+    assert.equal(snapshot.uploadMode, "automatic_after_ai_cleanup");
+    assert.equal(countNotionWrites(fixture.database), 1);
+    assert.equal(client.calls.length > 0, true);
   } finally {
     fixture.close();
   }
@@ -322,7 +323,7 @@ test("NotionAutomationService starts polling before Notion settings are complete
   }
 });
 
-test("NotionAutomationService clears stale run details after stop and manual reconfiguration", async () => {
+test("NotionAutomationService clears stale run details after stop and automatic reconfiguration", async () => {
   const fixture = createFixture();
   try {
     let currentSettings = notionSettings();
@@ -339,10 +340,15 @@ test("NotionAutomationService clears stale run details after stop and manual rec
     await service.stop();
     currentSettings = notionSettings({ uploadMode: "manual" });
     service.start();
-    const manual = await service.runOnce();
+    const idle = await service.runOnce();
 
-    assert.equal(manual.status, "manual");
-    assertRunSpecificFieldsCleared(manual);
+    assert.equal(idle.status, "idle");
+    assert.equal(idle.uploadMode, "automatic_after_ai_cleanup");
+    assert.equal(idle.sessionId, null);
+    assert.equal(idle.draftId, null);
+    assert.equal(idle.writeId, null);
+    assert.equal(idle.pageUrl, null);
+    assert.equal(idle.lastRunStatus, null);
   } finally {
     fixture.close();
   }

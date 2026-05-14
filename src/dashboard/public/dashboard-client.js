@@ -503,23 +503,37 @@
     function renderAiFlowCard(state) {
       const latestAiJob = (state.recentAiCleanupJobs ?? [])[0];
       const draft = state.latestMeetingNotesDraft;
+      const retrying = latestAiJob?.status === 'queued' && Number(latestAiJob.attempts ?? 0) > 0;
       const status = draft ? 'ready' :
         ['processing', 'queued'].includes(String(latestAiJob?.status)) ? 'processing' :
         ['failed', 'blocked'].includes(String(latestAiJob?.status)) ? 'failed' : 'idle';
       const key = draft ? 'dashboard.card.aiNotes.done' :
+        retrying ? 'dashboard.card.aiNotes.retrying' :
         status === 'processing' ? 'dashboard.card.aiNotes.processing' :
         status === 'failed' ? 'dashboard.card.aiNotes.failed' :
         'dashboard.card.aiNotes.waiting';
       const detail = latestAiJob
         ? '<div class="muted">' + escapeHtml(latestAiJob.status) + ' / ' + escapeHtml(latestAiJob.provider) + '</div>'
         : '';
-      return flowCard('dashboard.card.aiNotes.title', status, i18n(key) + detail);
+      const retryState = retrying
+        ? '<div class="muted">' + i18n('dashboard.automation.retrying', {
+            attempts: latestAiJob.attempts ?? 0,
+            maxAttempts: latestAiJob.max_attempts ?? '-'
+          }) + '</div>'
+        : '';
+      const failure = latestAiJob && ['failed', 'blocked'].includes(String(latestAiJob.status))
+        ? renderInlineFailureReason('dashboard.automation.failureReason', latestAiJob.last_error) +
+          '<div class="toolbar" style="margin-top:8px"><button type="button" onclick="postAiCleanupRetry(\'' +
+          escapeHtml(latestAiJob.id) + '\')">' + i18n('dashboard.automation.retry') +
+          '</button><span class="muted" id="aiCleanupActionStatus"></span></div>'
+        : '';
+      return flowCard('dashboard.card.aiNotes.title', status, i18n(key) + detail + retryState + failure);
     }
     function renderNotionFlowCard(state) {
       const latest = state.latestNotionWrite;
       const status = latest?.status === 'done' ? 'ready' :
         ['processing', 'queued', 'retry_wait'].includes(String(state.notionAutomation?.status ?? latest?.status)) ? 'processing' :
-        ['failed', 'blocked'].includes(String(latest?.status ?? state.notion?.status)) ? 'failed' : 'idle';
+        ['failed', 'blocked'].includes(String(latest?.status ?? state.notionAutomation?.status ?? state.notion?.status)) ? 'failed' : 'idle';
       const key = status === 'ready' ? 'dashboard.card.notionUpload.done' :
         status === 'processing' ? 'dashboard.card.notionUpload.processing' :
         status === 'failed' ? 'dashboard.card.notionUpload.failed' :
@@ -528,7 +542,14 @@
         ? '<div><a href="' + escapeHtml(latest.notion_page_url) + '" target="_blank" rel="noreferrer">' +
           i18n('dashboard.common.openNotion') + '</a></div>'
         : '';
-      return flowCard('dashboard.card.notionUpload.title', status, i18n(key) + link);
+      const failed = ['failed', 'blocked'].includes(String(latest?.status ?? state.notionAutomation?.status ?? ''));
+      const retry = failed
+        ? renderInlineFailureReason(
+            'dashboard.notionUploadPanel.failureReason',
+            latest?.last_error ?? state.notionAutomation?.technicalDetail
+          ) + renderNotionRetryButton(state)
+        : '';
+      return flowCard('dashboard.card.notionUpload.title', status, i18n(key) + link + retry);
     }
     function flowCard(titleKey, status, body) {
       return '<article class="flow-card ' + statusTone(status) + '"><div class="flow-card-header"><h3>' + i18n(titleKey) +
@@ -1052,6 +1073,23 @@
         if (statusEl) statusEl.textContent = error instanceof Error ? error.message : String(error);
       }
     }
+    async function postAiCleanupRetry(jobId) {
+      const statusEl = document.getElementById('aiCleanupActionStatus');
+      if (statusEl) statusEl.textContent = tr('dashboard.automation.retryRequested');
+      try {
+        const res = await fetch('/api/ai-cleanup/retry', {
+          method: 'POST',
+          headers: dashboardJsonHeaders(),
+          body: JSON.stringify({ jobId })
+        });
+        const result = await res.json();
+        if (statusEl) statusEl.textContent = result.status + ': ' + result.message;
+        await refresh();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (statusEl) statusEl.textContent = message;
+      }
+    }
     function renderNeedsAttention(state) {
       const rows = filterLogItems(buildLogItems(state).filter((item) => item.needsAttention));
       if (rows.length === 0) return logEmptyState();
@@ -1236,6 +1274,7 @@
           maxAttempts: j.max_attempts,
           failureKind: j.failure_kind,
           lastError: j.last_error,
+          nextAttemptAt: j.next_attempt_at,
           promptPath: j.prompt_path,
           rawOutputPath: j.raw_output_path,
           stderrPath: j.stderr_path
@@ -1468,7 +1507,12 @@
         message = tr('dashboard.pipeline.aiRunning');
       } else if (latestAiJob?.status === 'queued') {
         status = 'queued';
-        message = tr('dashboard.pipeline.aiQueued');
+        message = Number(latestAiJob.attempts ?? 0) > 0
+          ? tr('dashboard.pipeline.aiRetryQueued', {
+              attempts: latestAiJob.attempts ?? 0,
+              maxAttempts: latestAiJob.max_attempts ?? '-'
+            })
+          : tr('dashboard.pipeline.aiQueued');
       } else if (latestAiJob?.status === 'failed' || latestAiJob?.status === 'blocked') {
         status = latestAiJob.status;
         message = latestAiJob.status === 'blocked' ? tr('dashboard.pipeline.aiBlocked') : tr('dashboard.pipeline.aiFailed');
@@ -1574,7 +1618,7 @@
         ? '<div class="value"><a href="' + escapeHtml(latest.notion_page_url) + '" target="_blank" rel="noreferrer">' + i18n('dashboard.notionUploadPanel.openPage') + '</a></div>'
         : '';
       const error = latest?.last_error
-        ? '<details><summary class="muted">' + i18n('dashboard.notionUploadPanel.lastError') + '</summary><pre>' + escapeHtml(latest.last_error) + '</pre></details>'
+        ? renderInlineFailureReason('dashboard.notionUploadPanel.failureReason', latest.last_error)
         : '';
       const automation = state.notionAutomation
         ? '<div style="margin-top:10px"><div class="label">' + i18n('dashboard.notionUploadPanel.automation') +
@@ -1597,7 +1641,7 @@
         '<div class="label">notion · ' + escapeHtml(statusLabel(notion.status)) +
         ' (' + escapeHtml(notion.status) + ') · ' + escapeHtml(notion.uploadMode) + '</div>' +
         renderHumanDisplay(notion, { status: latest?.status ?? notion.status }) +
-        managedRegistry + page + automation + latestDetails + buttons + error + '</div>';
+        managedRegistry + page + automation + error + latestDetails + buttons + '</div>';
     }
     function renderManagedRegistryDetails(registry, options = {}) {
       if (!registry) {
@@ -1646,15 +1690,25 @@
       return displayTitle(state.notionAutomation, displayTitle(state.notion));
     }
     function renderNotionButtons(state) {
+      return renderNotionRetryButton(state);
+    }
+    function renderNotionRetryButton(state) {
+      const latest = state.latestNotionWrite;
+      const failed = ['failed', 'blocked'].includes(String(latest?.status ?? state.notionAutomation?.status ?? ''));
+      if (!failed) return '';
       const draftId = state.latestMeetingNotesDraft?.id ?? '';
       const sessionId = state.currentSession?.id ?? '';
       const disabled = (!draftId && !sessionId) || state.notion?.status !== 'ready';
       const disabledAttr = disabled ? ' disabled' : '';
       return '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">' +
-        '<button type="button"' + disabledAttr + ' onclick="postNotionAction(\'send\')">' + i18n('dashboard.notionUploadPanel.send') + '</button>' +
         '<button type="button"' + disabledAttr + ' onclick="postNotionAction(\'retry\')">' + i18n('dashboard.notionUploadPanel.retry') + '</button>' +
         '<span class="muted" id="notionActionStatus"></span>' +
         '</div>';
+    }
+    function renderInlineFailureReason(labelKey, reason) {
+      if (!reason) return '';
+      return '<details class="muted" style="margin-top:8px"><summary>' + i18n(labelKey) +
+        '</summary><pre>' + escapeHtml(reason) + '</pre></details>';
     }
     function renderAloneFinalize(aloneFinalize) {
       if (!aloneFinalize) {

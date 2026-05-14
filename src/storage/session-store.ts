@@ -533,6 +533,14 @@ export class SessionStore {
     this.aiCleanupJobs.block(input);
   }
 
+  retryAiCleanupJob(input: {
+    jobId: string;
+    nowIso: string;
+    maxAttempts: number;
+  }): AiCleanupJobRow | null {
+    return this.mapAiCleanupJobRow(this.aiCleanupJobs.retryFailed(input));
+  }
+
   failProcessingAiCleanupJob(input: {
     jobId: string;
     failureKind: AiCleanupFailureKind;

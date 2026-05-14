@@ -240,6 +240,36 @@ export class AiCleanupJobQueue {
     );
   }
 
+  retryFailed(input: {
+    jobId: string;
+    nowIso: string;
+    maxAttempts: number;
+  }): AiCleanupJobRow | null {
+    const job = this.get(input.jobId);
+    if (!job || job.status !== "failed") {
+      return null;
+    }
+    this.sql.run(
+      `UPDATE ai_cleanup_jobs
+       SET status = 'queued',
+           attempts = 0,
+           max_attempts = ?,
+           locked_by = NULL,
+           locked_until = NULL,
+           next_attempt_at = ?,
+           failure_kind = NULL,
+           last_error = NULL,
+           updated_at = ?
+       WHERE id = ?
+         AND status = 'failed'`,
+      Math.max(1, input.maxAttempts),
+      input.nowIso,
+      input.nowIso,
+      input.jobId,
+    );
+    return this.get(input.jobId);
+  }
+
   markDone(input: {
     jobId: string;
     jsonPath: string;

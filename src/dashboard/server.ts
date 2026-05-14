@@ -1,6 +1,9 @@
 import { createServer, type Server } from "node:http";
 import { DirongError } from "../errors.js";
-import type { AiCleanupAutomationSnapshot } from "../ai/cleanup/automation-service.js";
+import type {
+  AiCleanupAutomationRetryResult,
+  AiCleanupAutomationSnapshot,
+} from "../ai/cleanup/automation-service.js";
 import type { AiProviderRuntimeReadinessSnapshot } from "../ai/cleanup/provider-lifecycle.js";
 import type { Phase1Config } from "../config.js";
 import type { NotionAutomationSnapshot } from "../notion/automation-service.js";
@@ -52,6 +55,10 @@ export type DashboardAiReadinessSource = {
 
 export type DashboardAiCleanupAutomationSource = {
   getSnapshot(locale?: DirongLocale): AiCleanupAutomationSnapshot;
+  retryFailedJob?(
+    input: { jobId: string },
+    locale?: DirongLocale,
+  ): Promise<AiCleanupAutomationRetryResult>;
 };
 
 export type DashboardAloneFinalizeSource = {
@@ -117,6 +124,7 @@ export type DashboardSetupWizardSource = {
   saveNotionParentPageUrl(body: unknown): SetupWizardActionResult;
   verifyNotionParentPage(): Promise<SetupWizardActionResult>;
   createManagedDatabases(): Promise<SetupWizardActionResult>;
+  saveProjectName(body: unknown): SetupWizardActionResult;
 };
 
 export type DashboardProjectsCreateDraftInput = {
@@ -158,9 +166,12 @@ export type DashboardRuntimeSources = {
 };
 
 export const DEFAULT_DASHBOARD_STOP_FORCE_CLOSE_MS = 1000;
+export const DEFAULT_DASHBOARD_CLIENT_HEARTBEAT_TIMEOUT_MS = 20000;
 
 export type DashboardServerLifecycleOptions = {
   stopForceCloseMs?: number;
+  clientHeartbeatTimeoutMs?: number;
+  onClientHeartbeatExpired?: () => void;
 };
 
 export class DashboardServer {
@@ -168,6 +179,9 @@ export class DashboardServer {
   private url: string | null = null;
   private dashboardToken = createDashboardToken();
   private audioTokenSecret = createDashboardToken();
+  private clientHeartbeatMonitor: NodeJS.Timeout | null = null;
+  private lastClientHeartbeatAt = 0;
+  private clientHeartbeatExpired = false;
 
   constructor(
     private readonly config: Phase1Config,
@@ -184,6 +198,8 @@ export class DashboardServer {
 
     this.dashboardToken = createDashboardToken();
     this.audioTokenSecret = createDashboardToken();
+    this.lastClientHeartbeatAt = 0;
+    this.clientHeartbeatExpired = false;
     const server = createServer((request, response) => {
       void routeDashboardRequest({
         request,
@@ -194,6 +210,7 @@ export class DashboardServer {
         store: this.store,
         producer: this.producer,
         runtimeSources: this.runtimeSources,
+        recordClientHeartbeat: () => this.recordClientHeartbeat(),
       });
     });
     this.server = server;
@@ -238,6 +255,7 @@ export class DashboardServer {
     }
     this.server = null;
     this.url = null;
+    this.stopClientHeartbeatMonitor();
 
     server.closeIdleConnections?.();
     await new Promise<void>((resolve) => {
@@ -259,6 +277,46 @@ export class DashboardServer {
 
   getUrl(): string {
     return this.url ?? `http://${this.config.dashboardHost}:${this.config.dashboardPort}/`;
+  }
+
+  private recordClientHeartbeat(): void {
+    if (!this.lifecycleOptions.onClientHeartbeatExpired || this.clientHeartbeatExpired) {
+      return;
+    }
+    this.lastClientHeartbeatAt = Date.now();
+    this.startClientHeartbeatMonitor();
+  }
+
+  private startClientHeartbeatMonitor(): void {
+    if (this.clientHeartbeatMonitor) {
+      return;
+    }
+    const timeoutMs = Math.max(
+      1000,
+      this.lifecycleOptions.clientHeartbeatTimeoutMs ??
+        DEFAULT_DASHBOARD_CLIENT_HEARTBEAT_TIMEOUT_MS,
+    );
+    const intervalMs = Math.max(250, Math.floor(timeoutMs / 2));
+    this.clientHeartbeatMonitor = setInterval(() => {
+      if (!this.server || this.lastClientHeartbeatAt === 0) {
+        return;
+      }
+      if (Date.now() - this.lastClientHeartbeatAt <= timeoutMs) {
+        return;
+      }
+      this.clientHeartbeatExpired = true;
+      this.stopClientHeartbeatMonitor();
+      this.lifecycleOptions.onClientHeartbeatExpired?.();
+    }, intervalMs);
+    this.clientHeartbeatMonitor.unref?.();
+  }
+
+  private stopClientHeartbeatMonitor(): void {
+    if (!this.clientHeartbeatMonitor) {
+      return;
+    }
+    clearInterval(this.clientHeartbeatMonitor);
+    this.clientHeartbeatMonitor = null;
   }
 }
 

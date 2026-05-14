@@ -300,7 +300,7 @@ test("DirongDatabase adds project foundation and backfills unambiguous legacy da
             guild_id: "guild-a",
             guild_name: "Guild A",
             notion_parent_page_url: "https://notion.so/parent",
-            notion_upload_mode: "manual",
+            notion_upload_mode: "automatic_after_ai_cleanup",
           },
         ],
       );

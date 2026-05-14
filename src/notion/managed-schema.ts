@@ -110,7 +110,7 @@ export async function createManagedNotionSchema(
 
   const meeting = requireCreatedDatabase(createdByRole, "meeting");
   const task = requireCreatedDatabase(createdByRole, "task");
-  const withTaskRelation = await addMeetingActionItemsRelation({
+  const withTaskRelation = await addTaskMeetingRelation({
     client: input.client,
     preset,
     meeting,
@@ -342,44 +342,39 @@ function buildRollupSchema(
   return rollupSchema;
 }
 
-async function addMeetingActionItemsRelation(input: {
+async function addTaskMeetingRelation(input: {
   client: NotionClient;
   preset: NotionSchemaPreset;
   meeting: CreatedDatabaseContext;
   task: CreatedDatabaseContext;
 }): Promise<CreatedMeetingTaskRelationContexts> {
-  const property = input.preset.databases.meeting.properties.find(
-    (item) => item.key === "meeting.actionItems",
+  const property = input.preset.databases.task.properties.find(
+    (item) => item.key === "task.meeting",
   );
   if (!property) {
-    throw new Error("meeting.actionItems preset이 없습니다.");
+    throw new Error("task.meeting preset이 없습니다.");
   }
 
-  await input.client.updateDataSource(input.meeting.dataSourceId, {
+  await input.client.updateDataSource(input.task.dataSourceId, {
     properties: {
-      [property.name]: buildPropertySchema({
-        property,
-        database: input.preset.databases.meeting,
-        role: "meeting",
-        createdByRole: new Map<NotionDatabaseRole, CreatedDatabaseContext>([
-          ["meeting", input.meeting],
-          ["task", input.task],
-        ]),
+      [property.name]: buildTaskMeetingRelationSchema({
+        meeting: input.meeting,
+        actionItemsName: presetPropertyName("meeting.actionItems"),
       }),
     },
   });
 
-  const meetingDataSource = await input.client.retrieveDataSource(
-    input.meeting.dataSourceId,
+  const taskDataSource = await input.client.retrieveDataSource(
+    input.task.dataSourceId,
   );
-  const taskDataSource = await ensureTaskMeetingRelationName({
+  const meetingDataSource = await ensureMeetingActionItemsRelationName({
     client: input.client,
     meeting: input.meeting,
     task: input.task,
-    taskDataSource: await input.client.retrieveDataSource(
-      input.task.dataSourceId,
+    meetingDataSource: await input.client.retrieveDataSource(
+      input.meeting.dataSourceId,
     ),
-    expectedName: presetPropertyName("task.meeting"),
+    expectedName: presetPropertyName("meeting.actionItems"),
   });
 
   return {
@@ -393,6 +388,22 @@ async function addMeetingActionItemsRelation(input: {
       database: input.preset.databases.task,
       dataSource: taskDataSource,
     }),
+  };
+}
+
+function buildTaskMeetingRelationSchema(input: {
+  meeting: CreatedDatabaseContext;
+  actionItemsName: string;
+}): JsonObject {
+  return {
+    type: "relation",
+    relation: {
+      data_source_id: input.meeting.dataSourceId,
+      type: "dual_property",
+      dual_property: {
+        synced_property_name: input.actionItemsName,
+      },
+    },
   };
 }
 
@@ -441,34 +452,34 @@ function initialDatabasePreset(
   };
 }
 
-async function ensureTaskMeetingRelationName(input: {
+async function ensureMeetingActionItemsRelationName(input: {
   client: NotionClient;
   meeting: CreatedDatabaseContext;
   task: CreatedDatabaseContext;
-  taskDataSource: NotionDataSourceResponse;
+  meetingDataSource: NotionDataSourceResponse;
   expectedName: string;
 }): Promise<NotionDataSourceResponse> {
   const relation = findRelationToDataSource(
-    input.taskDataSource,
-    input.meeting.dataSourceId,
+    input.meetingDataSource,
+    input.task.dataSourceId,
   );
   if (!relation) {
     throw new Error(
-      `${input.task.role} Notion DB에서 ${input.meeting.role} relation을 찾지 못했습니다.`,
+      `${input.meeting.role} Notion DB에서 ${input.task.role} relation을 찾지 못했습니다.`,
     );
   }
   if (relation.name === input.expectedName) {
-    return input.taskDataSource;
+    return input.meetingDataSource;
   }
 
-  await input.client.updateDataSource(input.task.dataSourceId, {
+  await input.client.updateDataSource(input.meeting.dataSourceId, {
     properties: {
       [relation.id ?? relation.name]: {
         name: input.expectedName,
       },
     },
   });
-  return input.client.retrieveDataSource(input.task.dataSourceId);
+  return input.client.retrieveDataSource(input.meeting.dataSourceId);
 }
 
 function findRelationToDataSource(

@@ -25,7 +25,8 @@ test("renderMeetingNotesDraftMarkdown renders core Korean sections", () => {
   assert.match(markdown, /기한: 금요일/);
   assert.match(markdown, /미해결: Notion API 연동 범위/);
   assert.match(markdown, /불확실: 장기 회의 map-reduce 범위/);
-  assert.match(markdown, /`chunk_1`\/`stt_chunk_1` 00:01-00:02 Taniar/);
+  assert.match(markdown, /00:01-00:02 Taniar/);
+  assert.doesNotMatch(markdown, /chunk_1|stt_chunk_1/);
 });
 
 test("renderMeetingNotesDraftMarkdown handles empty arrays naturally", () => {

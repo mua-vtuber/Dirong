@@ -25,6 +25,7 @@ import {
 } from "../settings/defaults.js";
 import { SetupWizardService } from "../setup/wizard-service.js";
 import type {
+  DashboardAiCleanupAutomationSource,
   DashboardNotionAutomationSource,
   DashboardNotionSource,
   DashboardProjectsSource,
@@ -484,10 +485,19 @@ test("DashboardServer setup wizard routes read state and post actions through th
     const openAiTestedBody = await openAiTested.json() as { ok: boolean };
     assert.equal(openAiTested.status, 200);
     assert.equal(openAiTestedBody.ok, true);
+    const projectNamed = await postJson(
+      fixture.baseUrl,
+      "/api/setup/project/name",
+      { name: "Dirong Test Project" },
+    );
+    const projectNamedBody = await projectNamed.json() as { ok: boolean };
+    assert.equal(projectNamed.status, 200);
+    assert.equal(projectNamedBody.ok, true);
     assert.deepEqual(calls, [
       { applicationId: "123456789012345678" },
       { model: "small" },
       { apiKey: "test-openai-key", model: "gpt-4o-mini-transcribe" },
+      { name: "Dirong Test Project" },
     ]);
   } finally {
     await fixture.close();
@@ -1212,6 +1222,35 @@ test("DashboardServer Notion retry action forces retry and never returns token",
   }
 });
 
+test("DashboardServer AI cleanup retry action queues a failed job", async () => {
+  const retries: string[] = [];
+  const fixture = await startDashboardFixture({
+    aiCleanupAutomation: makeAiCleanupAutomationSource(retries),
+  });
+  try {
+    const response = await postJson(fixture.baseUrl, "/api/ai-cleanup/retry", {
+      jobId: "ai-job-failed-1",
+    });
+    const body = await response.json() as {
+      ok: boolean;
+      status: string;
+      job: { id: string; attempts: number; maxAttempts: number };
+      snapshot: { status: string };
+    };
+
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.status, "done");
+    assert.equal(body.job.id, "ai-job-failed-1");
+    assert.equal(body.job.attempts, 0);
+    assert.equal(body.job.maxAttempts, 3);
+    assert.equal(body.snapshot.status, "idle");
+    assert.deepEqual(retries, ["ai-job-failed-1"]);
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("DashboardServer Notion property rules save through dashboard source", async () => {
   const savedRules: Array<{
     databaseRole?: string;
@@ -1397,6 +1436,7 @@ type AudioFixture = {
 type DashboardFixtureOptions = {
   audio?: AudioFixture;
   notion?: DashboardNotionSource;
+  aiCleanupAutomation?: DashboardAiCleanupAutomationSource;
   projects?: DashboardProjectsSource;
   settingsReset?: DashboardSettingsResetSource;
   setupStatus?: DashboardSetupStatusSource;
@@ -1411,6 +1451,9 @@ async function startDashboardFixture(
     makeStore(options.audio),
     makeProducer(),
     {
+      ...(options.aiCleanupAutomation
+        ? { aiCleanupAutomation: options.aiCleanupAutomation }
+        : {}),
       ...(options.notion ? { notion: options.notion } : {}),
       ...(options.projects ? { projects: options.projects } : {}),
       ...(options.settingsReset ? { settingsReset: options.settingsReset } : {}),
@@ -1575,7 +1618,7 @@ function projectRow(input: {
     command_enabled: 1,
     notion_token_secret_ref: input.notionTokenSecretRef ?? null,
     notion_parent_page_url: input.notionParentPageUrl ?? null,
-    notion_upload_mode: "manual",
+    notion_upload_mode: "automatic_after_ai_cleanup",
     created_at: "2026-05-13T00:00:00.000Z",
     updated_at: "2026-05-13T00:00:00.000Z",
     archived_at: null,
@@ -1690,7 +1733,7 @@ function makeNotionSource(
       enabled: true,
       configured: true,
       status: "ready",
-      uploadMode: "manual",
+      uploadMode: "automatic_after_ai_cleanup",
       targetUrl: "https://notion.so/db",
       message: "Notion upload is configured.",
       userAction: null,
@@ -1712,7 +1755,7 @@ function makeNotionSource(
         requestTimeoutMs: 30000,
         targetUrl: "https://notion.so/db",
         targetType: "data_source",
-        uploadMode: "manual",
+        uploadMode: "automatic_after_ai_cleanup",
         templateType: "app",
         includeTranscript: "never",
         autoPollMs: 5000,
@@ -2157,6 +2200,7 @@ function makeSetupWizardSource(calls: unknown[]): DashboardSetupWizardSource {
     saveNotionParentPageUrl: action,
     verifyNotionParentPage: async () => action({}),
     createManagedDatabases: async () => action({}),
+    saveProjectName: action,
   };
 }
 
@@ -2180,6 +2224,53 @@ function makeNotionAutomationSource(): DashboardNotionAutomationSource {
       inFlightDraftIds: [],
       repairedExpiredLeases: 0,
     }),
+  };
+}
+
+function makeAiCleanupAutomationSource(
+  retries: string[] = [],
+): DashboardAiCleanupAutomationSource {
+  return {
+    getSnapshot: () => ({
+      enabled: true,
+      status: "idle",
+      provider: "claude-cli",
+      model: "haiku",
+      checkedAt: "2026-05-07T00:00:00.000Z",
+      sessionId: null,
+      message: "AI 회의록 자동화 대기 중",
+      userAction: null,
+      technicalDetail: null,
+      stt: null,
+      job: null,
+      lastRunStatus: null,
+      inFlightSessionIds: [],
+      repairedExpiredJobs: { requeued: 0, failed: 0 },
+      repairedExpiredSttLeases: 0,
+      warnings: [],
+      progress: null,
+    }),
+    retryFailedJob: async ({ jobId }) => {
+      retries.push(jobId);
+      const snapshot = makeAiCleanupAutomationSource().getSnapshot();
+      return {
+        ok: true,
+        status: "done",
+        message: "재시도 대기열에 넣었습니다.",
+        userAction: null,
+        job: {
+          id: jobId,
+          status: "queued",
+          attempts: 0,
+          maxAttempts: 3,
+          inputHash: "input-hash",
+          inputEntryCount: 1,
+          failureKind: null,
+          lastError: null,
+        },
+        snapshot,
+      };
+    },
   };
 }
 

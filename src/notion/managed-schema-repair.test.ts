@@ -45,6 +45,34 @@ test("managed schema repair plan creates missing non-title properties", () => {
   );
   assert.equal(plan.body?.properties["날짜"] !== undefined, true);
   assert.equal(plan.body?.properties["상태"] !== undefined, true);
+  assert.deepEqual(plan.body?.properties["날짜"], {
+    type: "date",
+    date: {},
+  });
+  assert.deepEqual(plan.body?.properties["상태"], {
+    type: "select",
+    select: {
+      options: [
+        { name: "draft", color: "gray" },
+        { name: "done", color: "green" },
+        { name: "retry_wait", color: "yellow" },
+        { name: "failed", color: "red" },
+      ],
+    },
+  });
+});
+
+test("managed schema repair plan creates missing meeting action item relation", () => {
+  const properties = propertiesForRole("meeting");
+  delete properties["할 일 목록"];
+  const plan = planFor("meeting", properties);
+
+  assert.deepEqual(
+    plan.operations.map((operation) => [operation.kind, operation.semanticKey]),
+    [["create_property", "meeting.actionItems"]],
+  );
+  assert.equal(plan.body, null);
+  assert.equal(plan.operations[0]?.patch, null);
 });
 
 test("managed schema repair plan blocks missing title properties", () => {
@@ -157,6 +185,98 @@ test("managed schema repair apply keeps registry unchanged when Notion update fa
   }
 });
 
+test("managed schema repair apply creates meeting action items from task relation", async () => {
+  const fixture = createFixture();
+  try {
+    seedCompleteRegistry(fixture.store);
+    const before = propertiesForRole("meeting");
+    delete before["할 일 목록"];
+    const generated = propertiesForRole("meeting");
+    generated["할 일 목록 1"] = {
+      ...generated["할 일 목록"],
+      id: "generated-action-items-id",
+      name: "할 일 목록 1",
+    };
+    delete generated["할 일 목록"];
+    const after = propertiesForRole("meeting");
+    after["할 일 목록"] = {
+      ...after["할 일 목록"],
+      id: "generated-action-items-id",
+    };
+    const plan = planFor("meeting", before);
+    const client = fakeClient([before, generated, after]);
+
+    const result = await applyManagedSchemaRepair({
+      client,
+      registryStore: fixture.store,
+      role: "meeting",
+      expectedPlanHash: plan.planHash,
+      nowIso: "2026-05-12T00:01:00.000Z",
+    });
+
+    assert.equal(result.status, "done");
+    assert.deepEqual(result.registryUpdated.map((item) => item.semanticKey), [
+      "meeting.actionItems",
+    ]);
+    assert.equal(
+      fixture.store.getPropertyMapping("meeting", "meeting.actionItems")
+        ?.propertyId,
+      "generated-action-items-id",
+    );
+    assert.equal(client.updateCalls[0]?.dataSourceId, "task-ds");
+    assert.deepEqual(
+      readUpdateProperty(client.updateCalls[0]?.body, "회의록"),
+      {
+        type: "relation",
+        relation: {
+          data_source_id: "meeting-ds",
+          type: "dual_property",
+          dual_property: {
+            synced_property_name: "할 일 목록",
+          },
+        },
+      },
+    );
+    assert.equal(client.updateCalls[1]?.dataSourceId, "meeting-ds");
+    assert.deepEqual(
+      readUpdateProperty(client.updateCalls[1]?.body, "generated-action-items-id"),
+      { name: "할 일 목록" },
+    );
+  } finally {
+    fixture.close();
+  }
+});
+
+test("managed schema repair apply fails when Notion response still misses selected property", async () => {
+  const fixture = createFixture();
+  try {
+    seedCompleteRegistry(fixture.store);
+    const before = propertiesForRole("meeting");
+    delete before["할 일 목록"];
+    const plan = planFor("meeting", before);
+    const client = fakeClient([before, before]);
+
+    const result = await applyManagedSchemaRepair({
+      client,
+      registryStore: fixture.store,
+      role: "meeting",
+      expectedPlanHash: plan.planHash,
+      nowIso: "2026-05-12T00:01:00.000Z",
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.status, "failed");
+    assert.match(result.userAction ?? "", /할 일 목록/);
+    assert.equal(
+      fixture.store.getPropertyMapping("meeting", "meeting.actionItems")
+        ?.propertyId,
+      propertyId("meeting.actionItems"),
+    );
+  } finally {
+    fixture.close();
+  }
+});
+
 function planFor(
   role: NotionDatabaseRole,
   properties: NotionDataSourceProperties,
@@ -228,8 +348,8 @@ function seedCompleteRegistry(store: NotionRegistryStore): void {
 function fakeClient(
   retrieveResults: NotionDataSourceProperties[],
   updateError: Error | null = null,
-): NotionClient & { updateCalls: unknown[] } {
-  const updateCalls: unknown[] = [];
+): NotionClient & { updateCalls: Array<{ dataSourceId: string; body: unknown }> } {
+  const updateCalls: Array<{ dataSourceId: string; body: unknown }> = [];
   let retrieveIndex = 0;
   return {
     updateCalls,
@@ -238,8 +358,8 @@ function fakeClient(
       properties:
         retrieveResults[Math.min(retrieveIndex++, retrieveResults.length - 1)] ?? {},
     }),
-    updateDataSource: async (_dataSourceId, body) => {
-      updateCalls.push(body);
+    updateDataSource: async (dataSourceId, body) => {
+      updateCalls.push({ dataSourceId, body });
       if (updateError) {
         throw updateError;
       }
@@ -255,6 +375,17 @@ function fakeClient(
     appendBlockChildren: notImplemented,
     retrieveBlockChildren: notImplemented,
   };
+}
+
+function readUpdateProperty(body: unknown, propertyName: string): unknown {
+  assert.equal(typeof body, "object");
+  assert.notEqual(body, null);
+  assert.equal(Array.isArray(body), false);
+  const properties = (body as { properties?: unknown }).properties;
+  assert.equal(typeof properties, "object");
+  assert.notEqual(properties, null);
+  assert.equal(Array.isArray(properties), false);
+  return (properties as Record<string, unknown>)[propertyName];
 }
 
 async function notImplemented(): Promise<NotionDataSourceResponse> {

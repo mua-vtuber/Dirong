@@ -10,9 +10,7 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
       { id: 'notionToken', titleKey: 'steps.notionToken' },
       { id: 'notionParent', titleKey: 'steps.notionParent' },
       { id: 'notionManaged', titleKey: 'steps.notionManaged' },
-      { id: 'recording', titleKey: 'steps.recording' },
-      { id: 'privacy', titleKey: 'steps.privacy' },
-      { id: 'final', titleKey: 'steps.final' }
+      { id: 'projectName', titleKey: 'steps.projectName' }
     ];
     const setupClaudeModels = ['haiku', 'sonnet', 'opus'];
     function setupWizardKey(key) {
@@ -54,7 +52,7 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
       const shouldAutoCheckDiscord = prepareDiscordAutoCheck(setup, activeStep.id);
       const progress = setupStepDefinitions.filter((step) => isSetupStepReady(setup, step.id)).length;
       const setupAction = setup.status === 'ready'
-        ? '<button type="button" onclick="setActiveView(&quot;dashboard&quot;)">' + setupWizardText('actions.goDashboard') + '</button>'
+        ? '<button type="button" onclick="setupGoDashboard()">' + setupWizardText('actions.goDashboard') + '</button>'
         : '<button type="button" onclick="skipSetupToDashboard()">' + setupWizardText('actions.skipToDashboard') + '</button>';
       const stepButtons = setupStepDefinitions.map((step, index) => {
         const ready = isSetupStepReady(setup, step.id);
@@ -101,12 +99,12 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
       if (id === 'notionToken') return setup.secrets?.notion?.configured === true;
       if (id === 'notionParent') return setup.features?.notion?.parentPageConfigured === true;
       if (id === 'notionManaged') return setup.features?.notion?.managedRegistryReady === true;
-      if (id === 'recording') return setupLocalState.recordingDone;
-      if (id === 'privacy') return setupLocalState.privacyDone;
-      if (id === 'final') {
-        return setup.status === 'ready' && setupLocalState.recordingDone && setupLocalState.privacyDone;
-      }
+      if (id === 'projectName') return isSetupProjectNameReady(setup);
       return false;
+    }
+    function isSetupProjectNameReady(setup) {
+      const name = setup?.projectSetup?.activeProject?.name;
+      return Boolean(name && !['Default Project', 'Untitled Project', 'Fresh Project'].includes(name));
     }
     function isDiscordCredentialsSaved(setup) {
       return Boolean(setup?.features?.discord?.applicationIdConfigured && setup?.secrets?.discordBot?.configured);
@@ -138,9 +136,7 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
       if (id === 'notionToken') return renderSetupNotionToken(setup);
       if (id === 'notionParent') return renderSetupNotionParent(setup);
       if (id === 'notionManaged') return renderSetupNotionManaged(setup);
-      if (id === 'recording') return renderSetupRecording();
-      if (id === 'privacy') return renderSetupPrivacy(setup);
-      return renderSetupFinal(setup);
+      return renderSetupProjectName(setup);
     }
     function renderSetupLanguage(setup) {
       const locale = setup.locale ?? setupDefaults(setup)?.dashboard?.locale;
@@ -453,39 +449,25 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
         renderManagedRegistryDetails(setup.features?.notion?.managedRegistry, { compact: true }) +
         renderCreatedNotionDatabases();
     }
-    function renderSetupRecording() {
-      return '<h3>' + setupWizardText('recording.title') + '</h3>' +
-        '<p class="setup-copy">' + setupWizardText('recording.description') + '</p>' +
-        '<label class="setup-guild"><input id="setupRecordingConfirm" type="checkbox"' +
-        (setupLocalState.recordingDone ? ' checked' : '') + '> ' +
-        setupWizardText('recording.confirm') + '</label>' +
-        '<div class="setup-actions"><button type="button" onclick="setupConfirmRecording()">' +
-        setupWizardText('actions.continue') + '</button></div>';
-    }
-    function renderSetupPrivacy(setup) {
-      const retention = setup.features?.dataRetention;
-      const defaultRetention = setupDefaults(setup)?.retention;
-      const audioCopyKey = retention?.deleteAudioAfterNotionUpload === false
-        ? 'privacy.audioKept'
-        : 'privacy.audioDeleted';
-      const retentionDays = retention?.textDraftRetentionDays ?? defaultRetention?.textDraftRetentionDays ?? '-';
-      return '<h3>' + setupWizardText('privacy.title') + '</h3>' +
-        '<p class="setup-copy">' + setupWizardText(audioCopyKey) + ' ' +
-        setupWizardText('privacy.textDraftRetention', { days: retentionDays }) + '</p>' +
-        '<label class="setup-guild"><input id="setupPrivacyConfirm" type="checkbox"' +
-        (setupLocalState.privacyDone ? ' checked' : '') + '> ' +
-        setupWizardText('privacy.confirm') + '</label>' +
-        '<div class="setup-actions"><button type="button" onclick="setupConfirmPrivacy()">' +
-        setupWizardText('actions.continue') + '</button></div>';
-    }
-    function renderSetupFinal(setup) {
-      return '<h3>' + setupWizardText('final.title') + '</h3>' +
-        '<p class="setup-copy">' + setupWizardText('final.description') + '</p>' +
-        renderSetupFeatureGrid(setup) +
-        '<div class="setup-actions"><button type="button" onclick="setSetupStep(0)">' +
-        setupWizardText('actions.restartFromBeginning') + '</button>' +
-        '<button type="button" onclick="setActiveView(&quot;dashboard&quot;)">' +
-        setupWizardText('actions.goDashboard') + '</button></div>';
+    function renderSetupProjectName(setup) {
+      const projectName = setup?.projectSetup?.activeProject?.name ?? '';
+      const ready = setup.status === 'ready' || isSetupProjectNameReady(setup);
+      const restartNotice = ready
+        ? '<section class="setup-help setup-ok"><h4>' + setupWizardText('projectName.restartTitle') +
+          '</h4><p>' + setupWizardText('projectName.restartDescription') + '</p></section>'
+        : '';
+      const goDashboard = ready
+        ? '<button type="button" onclick="setupGoDashboard()">' + setupWizardText('actions.goDashboard') + '</button>'
+        : '';
+      return '<h3>' + setupWizardText('projectName.title') + '</h3>' +
+        '<p class="setup-copy">' + setupWizardText('projectName.description') + '</p>' +
+        '<div class="setup-form"><label>' + setupWizardText('projectName.label') +
+        '<input id="setupProjectName" type="text" maxlength="80" autocomplete="off" value="' +
+        escapeHtml(projectName) + '" placeholder="' + setupWizardText('projectName.placeholder') + '"></label></div>' +
+        '<div class="setup-actions"><button type="button" onclick="setupSaveProjectName()">' +
+        setupWizardText('actions.saveProjectName') + '</button>' + goDashboard + '</div>' +
+        restartNotice +
+        renderSetupFeatureGrid(setup);
     }
     function setupRadioCard(name, value, current, title, body, handler) {
       const selected = current === value;
@@ -643,18 +625,6 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
       const selected = document.querySelector('input[name="setupLanguage"]:checked')?.value ?? defaults.dashboard.locale;
       const result = await setupPost('/api/settings/language', { locale: selected });
       if (result.ok) setupGoNext();
-    }
-    function setupConfirmRecording() {
-      if (document.getElementById('setupRecordingConfirm')?.checked !== true) return;
-      setupLocalState.recordingDone = true;
-      window.localStorage.setItem('dirong.setup.recordingDone', 'true');
-      setupGoNext();
-    }
-    function setupConfirmPrivacy() {
-      if (document.getElementById('setupPrivacyConfirm')?.checked !== true) return;
-      setupLocalState.privacyDone = true;
-      window.localStorage.setItem('dirong.setup.privacyDone', 'true');
-      setupGoNext();
     }
     async function setupSaveDiscordApplicationId() {
       resetDiscordConnectionCheck();
@@ -814,4 +784,14 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
     }
     async function setupCreateManagedDatabases() {
       await setupPost('/api/setup/notion/managed-databases', {});
+    }
+    async function setupSaveProjectName() {
+      window.sessionStorage.setItem(SETUP_RESTART_NOTICE_KEY, 'true');
+      await setupPost('/api/setup/project/name', {
+        name: document.getElementById('setupProjectName')?.value ?? ''
+      });
+    }
+    function setupGoDashboard() {
+      window.sessionStorage.removeItem(SETUP_RESTART_NOTICE_KEY);
+      setActiveView('dashboard');
     }

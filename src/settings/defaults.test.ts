@@ -72,7 +72,7 @@ test("product defaults snapshot matches the current effective defaults", () => {
     requestTimeoutMs: 30000,
     targetUrl: null,
     targetType: "data_source",
-    uploadMode: "manual",
+    uploadMode: "automatic_after_ai_cleanup",
     templateType: "app",
     includeTranscript: "never",
     autoPollMs: 5000,

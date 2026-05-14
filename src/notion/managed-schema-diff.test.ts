@@ -33,6 +33,36 @@ test("managed schema diff reports healthy when registry mappings and remote sche
   );
 });
 
+test("managed schema diff accepts rollup references when ids differ but names match", () => {
+  const properties = propertiesForRole("task");
+  for (const propertyName of ["담당자", "담당"]) {
+    const property = properties[propertyName];
+    assert.ok(property);
+    assert.ok(property.rollup);
+    properties[propertyName] = {
+      ...property,
+      rollup: {
+        ...property.rollup,
+        relation_property_id: `${propertyName}-relation-id-from-notion`,
+        rollup_property_id: `${propertyName}-target-id-from-notion`,
+      },
+    };
+  }
+
+  const diff = buildManagedSchemaDiff({
+    databaseRole: "task",
+    properties,
+    mappings: mappingsForAllRoles(),
+    managedDatabases: managedDatabases(),
+  });
+
+  assert.equal(diff.status, "healthy");
+  assert.equal(
+    diff.issues.some((issue) => issue.code === "rollup_target_mismatch"),
+    false,
+  );
+});
+
 test("managed schema diff treats deleted remote properties as repairable", () => {
   const properties = propertiesForRole("meeting");
   delete properties["날짜"];

@@ -23,6 +23,7 @@ import {
 } from "./registry-store.js";
 import { parseNotionPageUrl } from "./target.js";
 import {
+  isRecord,
   readDataSourcePropertyMap,
   readFirstDataSourceId,
 } from "./data-source-readers.js";
@@ -60,6 +61,11 @@ export type ManagedNotionSchemaCreationResult = {
 type CreatedDatabaseContext = ManagedNotionDatabaseCreation & {
   dataSource: NotionDataSourceResponse;
   propertiesBySemanticKey: Map<NotionPropertySemanticKey, CreatedProperty>;
+};
+
+type CreatedMeetingTaskRelationContexts = {
+  meeting: CreatedDatabaseContext;
+  task: CreatedDatabaseContext;
 };
 
 type CreatedProperty = {
@@ -104,13 +110,14 @@ export async function createManagedNotionSchema(
 
   const meeting = requireCreatedDatabase(createdByRole, "meeting");
   const task = requireCreatedDatabase(createdByRole, "task");
-  const meetingWithActionItems = await addMeetingActionItemsRelation({
+  const withTaskRelation = await addMeetingActionItemsRelation({
     client: input.client,
     preset,
     meeting,
     task,
   });
-  createdByRole.set("meeting", meetingWithActionItems);
+  createdByRole.set("meeting", withTaskRelation.meeting);
+  createdByRole.set("task", withTaskRelation.task);
 
   const nowIso = input.nowIso ?? new Date().toISOString();
   const managedDatabases = MANAGED_DATABASE_CREATE_ORDER.map((role) =>
@@ -210,7 +217,10 @@ function buildInitialDataSourceProperties(input: {
 }): Record<string, unknown> {
   const properties: Record<string, unknown> = {};
   for (const property of input.database.properties) {
-    if (property.key === "meeting.actionItems") {
+    if (
+      property.key === "meeting.actionItems" ||
+      property.key === "task.meeting"
+    ) {
       continue;
     }
     properties[property.name] = buildPropertySchema({
@@ -281,16 +291,17 @@ function buildRelationSchema(
   );
 
   if (property.relation.mode === "synced") {
-    const source = requireCreatedProperty(
-      target,
+    const source = target.propertiesBySemanticKey.get(
       property.relation.sourceProperty,
     );
     return {
       data_source_id: target.dataSourceId,
       type: "dual_property",
       dual_property: {
-        synced_property_id: source.id,
-        synced_property_name: source.name,
+        ...(source?.id ? { synced_property_id: source.id } : {}),
+        synced_property_name:
+          source?.name ??
+          presetPropertyName(property.relation.sourceProperty),
       },
     };
   }
@@ -336,7 +347,7 @@ async function addMeetingActionItemsRelation(input: {
   preset: NotionSchemaPreset;
   meeting: CreatedDatabaseContext;
   task: CreatedDatabaseContext;
-}): Promise<CreatedDatabaseContext> {
+}): Promise<CreatedMeetingTaskRelationContexts> {
   const property = input.preset.databases.meeting.properties.find(
     (item) => item.key === "meeting.actionItems",
   );
@@ -358,12 +369,31 @@ async function addMeetingActionItemsRelation(input: {
     },
   });
 
-  const dataSource = await input.client.retrieveDataSource(input.meeting.dataSourceId);
-  return buildCreatedDatabaseContext({
-    ...input.meeting,
-    database: input.preset.databases.meeting,
-    dataSource,
+  const meetingDataSource = await input.client.retrieveDataSource(
+    input.meeting.dataSourceId,
+  );
+  const taskDataSource = await ensureTaskMeetingRelationName({
+    client: input.client,
+    meeting: input.meeting,
+    task: input.task,
+    taskDataSource: await input.client.retrieveDataSource(
+      input.task.dataSourceId,
+    ),
+    expectedName: presetPropertyName("task.meeting"),
   });
+
+  return {
+    meeting: buildCreatedDatabaseContext({
+      ...input.meeting,
+      database: input.preset.databases.meeting,
+      dataSource: meetingDataSource,
+    }),
+    task: buildCreatedDatabaseContext({
+      ...input.task,
+      database: input.preset.databases.task,
+      dataSource: taskDataSource,
+    }),
+  };
 }
 
 function buildCreatedDatabaseContext(input: {
@@ -393,6 +423,14 @@ function initialDatabasePreset(
   database: NotionSchemaPresetDatabase,
 ): NotionSchemaPresetDatabase {
   if (role !== "meeting") {
+    if (role === "task") {
+      return {
+        ...database,
+        properties: database.properties.filter(
+          (property) => property.key !== "task.meeting",
+        ),
+      };
+    }
     return database;
   }
   return {
@@ -401,6 +439,65 @@ function initialDatabasePreset(
       (property) => property.key !== "meeting.actionItems",
     ),
   };
+}
+
+async function ensureTaskMeetingRelationName(input: {
+  client: NotionClient;
+  meeting: CreatedDatabaseContext;
+  task: CreatedDatabaseContext;
+  taskDataSource: NotionDataSourceResponse;
+  expectedName: string;
+}): Promise<NotionDataSourceResponse> {
+  const relation = findRelationToDataSource(
+    input.taskDataSource,
+    input.meeting.dataSourceId,
+  );
+  if (!relation) {
+    throw new Error(
+      `${input.task.role} Notion DB에서 ${input.meeting.role} relation을 찾지 못했습니다.`,
+    );
+  }
+  if (relation.name === input.expectedName) {
+    return input.taskDataSource;
+  }
+
+  await input.client.updateDataSource(input.task.dataSourceId, {
+    properties: {
+      [relation.id ?? relation.name]: {
+        name: input.expectedName,
+      },
+    },
+  });
+  return input.client.retrieveDataSource(input.task.dataSourceId);
+}
+
+function findRelationToDataSource(
+  dataSource: NotionDataSourceResponse,
+  targetDataSourceId: string,
+): { id: string | null; name: string } | null {
+  for (const [fallbackName, value] of readDataSourcePropertyMap(dataSource)) {
+    const relation = value.relation;
+    if (
+      isRecord(relation) &&
+      relation.data_source_id === targetDataSourceId
+    ) {
+      return {
+        id: readOptionalString(value, "id"),
+        name: readOptionalString(value, "name") ?? fallbackName,
+      };
+    }
+  }
+  return null;
+}
+
+function presetPropertyName(semanticKey: NotionPropertySemanticKey): string {
+  for (const database of Object.values(KOREAN_NOTION_SCHEMA_PRESET.databases)) {
+    const property = database.properties.find((item) => item.key === semanticKey);
+    if (property) {
+      return property.name;
+    }
+  }
+  throw new Error(`${semanticKey} preset property를 찾지 못했습니다.`);
 }
 
 function extractCreatedProperties(

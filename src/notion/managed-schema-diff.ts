@@ -626,7 +626,11 @@ function samePropertyReference(
   expected: ManagedActualProperty,
 ): boolean {
   if (actualId && expected.id) {
-    return actualId === expected.id;
+    return (
+      actualId === expected.id ||
+      actualName === expected.name ||
+      actualName === expected.key
+    );
   }
   return actualName === expected.name || actualName === expected.key;
 }
@@ -637,7 +641,10 @@ function sameMappingReference(
   expected: NotionPropertyMapping,
 ): boolean {
   if (actualId && expected.propertyId) {
-    return actualId === expected.propertyId;
+    return (
+      actualId === expected.propertyId ||
+      actualName === expected.propertyName
+    );
   }
   return actualName === expected.propertyName;
 }

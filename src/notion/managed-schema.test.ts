@@ -96,11 +96,7 @@ test("createManagedNotionSchema sends Korean preset fields and resolved relation
     });
 
     const taskProperties = readInitialProperties(taskBody);
-    assert.deepEqual(
-      requireRecord(requireRecord(taskProperties["회의록"]).relation)
-        .data_source_id,
-      "meeting-ds",
-    );
+    assert.equal("회의록" in taskProperties, false);
     assert.deepEqual(
       requireRecord(requireRecord(taskProperties["작업자 연결"]).relation)
         .data_source_id,
@@ -119,20 +115,32 @@ test("createManagedNotionSchema sends Korean preset fields and resolved relation
       rollup_property_name: "담당",
     });
 
-    const updateBody = requireRecord(
-      client.calls.find((call) => call.method === "updateDataSource")?.body,
+    const updateBodies = client.calls
+      .filter((call) => call.method === "updateDataSource")
+      .map((call) => requireRecord(call.body));
+    const actionItemsUpdate = updateBodies.find(
+      (body) => "할 일 목록" in requireRecord(body.properties),
     );
+    assert.ok(actionItemsUpdate);
     const actionItems = requireRecord(
-      requireRecord(updateBody.properties)["할 일 목록"],
+      requireRecord(actionItemsUpdate.properties)["할 일 목록"],
     );
     assert.deepEqual(requireRecord(actionItems.relation), {
       data_source_id: "task-ds",
       type: "dual_property",
       dual_property: {
-        synced_property_id: "task-ds:회의록",
         synced_property_name: "회의록",
       },
     });
+
+    const renameUpdate = updateBodies.find(
+      (body) => "task-ds:회의록 1" in requireRecord(body.properties),
+    );
+    assert.ok(renameUpdate);
+    assert.deepEqual(
+      requireRecord(renameUpdate.properties)["task-ds:회의록 1"],
+      { name: "회의록" },
+    );
   } finally {
     fixture.close();
   }
@@ -190,6 +198,10 @@ test("createManagedNotionSchema stores managed databases and semantic property m
       fixture.store.getPropertyMapping("meeting", "meeting.actionItems")
         ?.propertyId,
       "meeting-ds:할 일 목록",
+    );
+    assert.equal(
+      fixture.store.getPropertyMapping("task", "task.meeting")?.propertyName,
+      "회의록",
     );
     assert.equal(
       fixture.store.getPropertyMapping("task", "task.assignee")?.sourceKind,
@@ -306,10 +318,29 @@ class FakeNotionClient implements NotionClient {
       throw new Error(`unknown data source ${dataSourceId}`);
     }
     const existingProperties = requireRecord(dataSource.properties);
-    Object.assign(
-      existingProperties,
-      materializeProperties(dataSourceId, readUpdateProperties(body)),
-    );
+    for (const [name, config] of Object.entries(readUpdateProperties(body))) {
+      const propertyConfig = requireRecord(config);
+      if (isRenameOnlyUpdate(propertyConfig)) {
+        renameMaterializedProperty(
+          existingProperties,
+          name,
+          propertyConfig.name as string,
+        );
+        continue;
+      }
+
+      const materialized = materializeProperty(
+        dataSourceId,
+        name,
+        propertyConfig,
+      );
+      existingProperties[name] = materialized;
+      this.createReciprocalRelationIfNeeded({
+        sourceDataSourceId: dataSourceId,
+        sourceProperty: materialized,
+        propertyConfig,
+      });
+    }
     return dataSource;
   }
 
@@ -343,46 +374,125 @@ class FakeNotionClient implements NotionClient {
       throw new Error(`${method} failed`);
     }
   }
+
+  private createReciprocalRelationIfNeeded(input: {
+    sourceDataSourceId: string;
+    sourceProperty: JsonObject;
+    propertyConfig: JsonObject;
+  }): void {
+    const relation = maybeRecord(input.propertyConfig.relation);
+    if (
+      !relation ||
+      relation.type !== "dual_property" ||
+      typeof relation.data_source_id !== "string"
+    ) {
+      return;
+    }
+
+    const targetDataSource = this.dataSources.get(relation.data_source_id);
+    if (!targetDataSource) {
+      throw new Error(`unknown data source ${relation.data_source_id}`);
+    }
+
+    const dualProperty = maybeRecord(relation.dual_property) ?? {};
+    const requestedName =
+      typeof dualProperty.synced_property_name === "string" &&
+      dualProperty.synced_property_name.trim()
+        ? dualProperty.synced_property_name
+        : "관련 항목";
+    const reciprocalName = dualProperty.synced_property_id
+      ? requestedName
+      : `${requestedName} 1`;
+    const targetProperties = requireRecord(targetDataSource.properties);
+    targetProperties[reciprocalName] = {
+      id: `${relation.data_source_id}:${reciprocalName}`,
+      name: reciprocalName,
+      type: "relation",
+      relation: {
+        data_source_id: input.sourceDataSourceId,
+        type: "dual_property",
+        dual_property: {
+          synced_property_id: input.sourceProperty.id,
+          synced_property_name: input.sourceProperty.name,
+        },
+      },
+    };
+  }
 }
+
+const PROPERTY_TYPES = [
+  "title",
+  "rich_text",
+  "date",
+  "people",
+  "select",
+  "multi_select",
+  "status",
+  "relation",
+  "rollup",
+] as const;
 
 function materializeProperties(
   dataSourceId: string,
   properties: JsonObject,
 ): JsonObject {
   return Object.fromEntries(
-    Object.entries(properties).map(([name, config]) => {
-      const propertyConfig = requireRecord(config);
-      const type = inferPropertyType(propertyConfig);
-      return [
-        name,
-        {
-          id: type === "title" ? "title" : `${dataSourceId}:${name}`,
-          name,
-          type,
-          [type]: propertyConfig[type] ?? {},
-        },
-      ];
-    }),
+    Object.entries(properties).map(([name, config]) => [
+      name,
+      materializeProperty(dataSourceId, name, requireRecord(config)),
+    ]),
   );
 }
 
+function materializeProperty(
+  dataSourceId: string,
+  name: string,
+  propertyConfig: JsonObject,
+): JsonObject {
+  const type = inferPropertyType(propertyConfig);
+  return {
+    id: type === "title" ? "title" : `${dataSourceId}:${name}`,
+    name,
+    type,
+    [type]: propertyConfig[type] ?? {},
+  };
+}
+
 function inferPropertyType(config: JsonObject): string {
-  for (const type of [
-    "title",
-    "rich_text",
-    "date",
-    "people",
-    "select",
-    "multi_select",
-    "status",
-    "relation",
-    "rollup",
-  ]) {
+  for (const type of PROPERTY_TYPES) {
     if (type in config) {
       return type;
     }
   }
   throw new Error(`unknown property config ${JSON.stringify(config)}`);
+}
+
+function isRenameOnlyUpdate(config: JsonObject): boolean {
+  return typeof config.name === "string" &&
+    PROPERTY_TYPES.every((type) => !(type in config));
+}
+
+function renameMaterializedProperty(
+  properties: JsonObject,
+  patchKey: string,
+  name: string,
+): void {
+  const entry = Object.entries(properties).find(([key, property]) => {
+    if (key === patchKey) {
+      return true;
+    }
+    const propertyRecord = maybeRecord(property);
+    return propertyRecord?.id === patchKey || propertyRecord?.name === patchKey;
+  });
+  if (!entry) {
+    throw new Error(`unknown property ${patchKey}`);
+  }
+
+  const [oldKey, property] = entry;
+  const propertyRecord = requireRecord(property);
+  delete properties[oldKey];
+  propertyRecord.name = name;
+  properties[name] = propertyRecord;
 }
 
 function readDatabaseTitle(body: unknown): string {
@@ -430,6 +540,13 @@ function requireRecord(value: unknown): JsonObject {
   assert.equal(typeof value, "object");
   assert.notEqual(value, null);
   assert.equal(Array.isArray(value), false);
+  return value as JsonObject;
+}
+
+function maybeRecord(value: unknown): JsonObject | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
   return value as JsonObject;
 }
 

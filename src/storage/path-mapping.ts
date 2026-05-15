@@ -1,5 +1,5 @@
 // Pure free-function extraction of the five private mapXxxRow helpers that lived
-// on SessionStore (session-store.ts lines 771-851 in the pre-Wave-2 source). The
+// on the legacy SessionStore (pre-Wave-2 source, now deleted). The
 // path-normalization contract is preserved BYTE-IDENTICAL — these functions only
 // rewrite *_path columns through `resolveStoredPath`, leaving every other column
 // untouched.

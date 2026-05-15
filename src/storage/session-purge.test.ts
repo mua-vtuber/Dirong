@@ -10,7 +10,10 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { SqlRunner } from "./sql-runner.js";
-import { SessionStore } from "./session-store.js";
+import {
+  createStorageContext,
+  type StorageContext,
+} from "./storage-context.js";
 import { purgeSessions, previewSessionPurge } from "./session-purge.js";
 import { DirongDatabase } from "./sqlite.js";
 
@@ -104,7 +107,7 @@ test("purgeSessions missing-audio selector targets only sessions with missing lo
 type PurgeFixture = {
   dir: string;
   database: DirongDatabase;
-  store: SessionStore;
+  ctx: StorageContext;
   sessionId: string;
   close: () => void;
 };
@@ -112,17 +115,17 @@ type PurgeFixture = {
 function createFixture(): PurgeFixture {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-session-purge-"));
   const database = new DirongDatabase(path.join(dir, "dirong.sqlite"), 1000);
-  const store = new SessionStore(database, {
+  const ctx = createStorageContext(database, {
     storageRoot: dir,
     normalizeStoredPaths: true,
   });
   return {
     dir,
     database,
-    store,
+    ctx,
     sessionId: "meeting_purge_test",
     close: () => {
-      store.close();
+      ctx.close();
       rmSync(dir, { recursive: true, force: true });
     },
   };
@@ -145,7 +148,7 @@ function seedSession(
     writeFileSync(sttAudioPath, "stt");
   }
 
-  fixture.store.createSession({
+  fixture.ctx.writes.createSession({
     id: sessionId,
     guildId: "guild",
     guildName: "Guild",
@@ -156,14 +159,14 @@ function seedSession(
     startedByDisplayName: "Taniar",
     dataDir: sessionDir,
   });
-  fixture.store.upsertSpeaker({
+  fixture.ctx.writes.upsertSpeaker({
     sessionId,
     userId: "speaker",
     displayNameSnapshot: "Taniar",
     isBot: false,
     seenAtMs: 0,
   });
-  fixture.store.createChunkWriting({
+  fixture.ctx.writes.createChunkWriting({
     chunkId,
     sessionId,
     chunkIndex: 1,
@@ -172,7 +175,7 @@ function seedSession(
     startedAtMs: 0,
     rawAudioPath,
   });
-  fixture.store.finalizeRawChunk({
+  fixture.ctx.writes.finalizeRawChunk({
     chunkId,
     endedAtMs: 1000,
     durationMs: 1000,
@@ -181,7 +184,7 @@ function seedSession(
     closeReason: "test",
     pipelineError: null,
   });
-  fixture.store.completeChunkTranscodeAndQueueJob({
+  fixture.ctx.writes.completeChunkTranscodeAndQueueJob({
     chunkId,
     sttAudioPath,
     sttAudioFormat: "webm",
@@ -189,11 +192,11 @@ function seedSession(
     sttSha256: "stt-sha",
     maxAttempts: 3,
   });
-  fixture.store.recordConnectionEvent({
+  fixture.ctx.writes.recordConnectionEvent({
     sessionId,
     eventType: "test_event",
   });
-  fixture.store.recordRepairItem({
+  fixture.ctx.writes.recordRepairItem({
     type: "test_repair",
     sessionId,
     chunkId,

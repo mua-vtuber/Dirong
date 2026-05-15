@@ -23,7 +23,11 @@ import type {
   AiCleanupProviderResult,
 } from "./provider.js";
 import { DirongDatabase } from "../../storage/sqlite.js";
-import { SessionStore } from "../../storage/session-store.js";
+import {
+  createStorageContext,
+  flattenStorageContext,
+  type FlatStorageStore,
+} from "../../storage/storage-context.js";
 
 test("AiCleanupAutomationService waits while STT queued jobs remain", async () => {
   const fixture = createSessionFixture();
@@ -593,7 +597,7 @@ test("formatAiCleanupAutomationForStatus renders concise non-developer status", 
 type AutomationFixture = {
   dir: string;
   database: DirongDatabase;
-  store: SessionStore;
+  store: FlatStorageStore;
   sessionId: string;
   close: () => void;
   countAiRows: () => { jobs: number; drafts: number };
@@ -604,7 +608,8 @@ function createSessionFixture(
 ): AutomationFixture {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-ai-auto-"));
   const database = new DirongDatabase(path.join(dir, "dirong.sqlite"), 1000);
-  const store = new SessionStore(database);
+  const ctx = createStorageContext(database);
+  const store = flattenStorageContext(ctx);
   const sessionId = "meeting_ai_auto_test";
   if (options.projectId) {
     insertProject(database, options.projectId, "Project Alpha");

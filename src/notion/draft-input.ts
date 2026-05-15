@@ -3,7 +3,7 @@ import type {
   MeetingNotesDraftRow,
   SessionRow,
   TranscriptSegmentRow,
-} from "../storage/session-store.js";
+} from "../storage/storage-context.js";
 
 export type NotionDraftSpeaker = {
   user_id: string;

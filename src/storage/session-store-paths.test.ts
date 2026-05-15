@@ -4,7 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createStoragePathResolver } from "./path-resolver.js";
-import { SessionStore } from "./session-store.js";
+import {
+  createStorageContext,
+  type StorageContext,
+} from "./storage-context.js";
 import { DirongDatabase } from "./sqlite.js";
 
 test("storage path resolver stores root-local paths as portable relative paths", () => {
@@ -19,14 +22,14 @@ test("storage path resolver stores root-local paths as portable relative paths",
   assert.equal(resolver.resolveStoredPath(outside), outside);
 });
 
-test("SessionStore stores new audio paths relative and resolves reads", () => {
+test("StorageContext stores new audio paths relative and resolves reads", () => {
   const fixture = createFixture();
   try {
-    const store = new SessionStore(fixture.database, {
+    const ctx = createStorageContext(fixture.database, {
       storageRoot: fixture.dir,
       normalizeStoredPaths: true,
     });
-    const paths = seedSessionWithAudio(store, fixture.dir);
+    const paths = seedSessionWithAudio(ctx, fixture.dir);
 
     assert.equal(readScalar(fixture, "SELECT data_dir FROM sessions"), paths.sessionId);
     assert.equal(
@@ -42,25 +45,25 @@ test("SessionStore stores new audio paths relative and resolves reads", () => {
       `${paths.sessionId}/stt-audio/chunk.webm`,
     );
 
-    assert.equal(store.getSession(paths.sessionId)?.data_dir, paths.sessionDir);
+    assert.equal(ctx.reads.getSession(paths.sessionId)?.data_dir, paths.sessionDir);
     assert.equal(
-      store.getAudioPathForChunk(paths.chunkId, "stt")?.path,
+      ctx.reads.getAudioPathForChunk(paths.chunkId, "stt")?.path,
       paths.sttAudioPath,
     );
-    assert.equal(store.hasChunkAudioPath(paths.rawAudioPath), true);
+    assert.equal(ctx.reads.hasChunkAudioPath(paths.rawAudioPath), true);
   } finally {
     fixture.close();
   }
 });
 
-test("SessionStore status text localizes primary recording state", () => {
+test("StorageContext status text localizes primary recording state", () => {
   const fixture = createFixture();
   try {
-    const store = new SessionStore(fixture.database, {
+    const ctx = createStorageContext(fixture.database, {
       storageRoot: fixture.dir,
       normalizeStoredPaths: true,
     });
-    const paths = seedSessionWithAudio(store, fixture.dir);
+    const paths = seedSessionWithAudio(ctx, fixture.dir);
     const runtime = {
       isRecording: true,
       sessionId: paths.sessionId,
@@ -70,8 +73,8 @@ test("SessionStore status text localizes primary recording state", () => {
       openChunks: 0,
     };
 
-    const english = store.statusText(runtime, "http://127.0.0.1:3095/", "en");
-    const korean = store.statusText(runtime, "http://127.0.0.1:3095/", "ko");
+    const english = ctx.reads.statusText(runtime, "http://127.0.0.1:3095/", "en");
+    const korean = ctx.reads.statusText(runtime, "http://127.0.0.1:3095/", "ko");
 
     assert.match(
       english,
@@ -88,12 +91,12 @@ test("SessionStore status text localizes primary recording state", () => {
   }
 });
 
-test("SessionStore normalizes existing absolute path rows under the storage root", () => {
+test("StorageContext normalizes existing absolute path rows under the storage root", () => {
   const fixture = createFixture();
   try {
-    const legacyStore = new SessionStore(fixture.database);
-    const paths = seedSessionWithAudio(legacyStore, fixture.dir);
-    legacyStore.recordRepairItem({
+    const legacyCtx = createStorageContext(fixture.database);
+    const paths = seedSessionWithAudio(legacyCtx, fixture.dir);
+    legacyCtx.writes.recordRepairItem({
       type: "path_test",
       sessionId: paths.sessionId,
       chunkId: paths.chunkId,
@@ -104,7 +107,7 @@ test("SessionStore normalizes existing absolute path rows under the storage root
     assert.equal(readScalar(fixture, "SELECT data_dir FROM sessions"), paths.sessionDir);
     assert.equal(readScalar(fixture, "SELECT raw_audio_path FROM chunks"), paths.rawAudioPath);
 
-    const normalizedStore = new SessionStore(fixture.database, {
+    const normalizedCtx = createStorageContext(fixture.database, {
       storageRoot: fixture.dir,
       normalizeStoredPaths: true,
     });
@@ -115,7 +118,7 @@ test("SessionStore normalizes existing absolute path rows under the storage root
       `${paths.sessionId}/chunks/chunk.ogg`,
     );
     assert.equal(
-      normalizedStore.getAudioPathForChunk(paths.chunkId, "raw")?.path,
+      normalizedCtx.reads.getAudioPathForChunk(paths.chunkId, "raw")?.path,
       paths.rawAudioPath,
     );
     assert.equal(
@@ -134,14 +137,14 @@ test("SessionStore normalizes existing absolute path rows under the storage root
   }
 });
 
-test("SessionStore stores AI cleanup artifact paths relative and resolves reads", () => {
+test("StorageContext stores AI cleanup artifact paths relative and resolves reads", () => {
   const fixture = createFixture();
   try {
-    const store = new SessionStore(fixture.database, {
+    const ctx = createStorageContext(fixture.database, {
       storageRoot: fixture.dir,
       normalizeStoredPaths: true,
     });
-    const paths = seedSessionWithAudio(store, fixture.dir);
+    const paths = seedSessionWithAudio(ctx, fixture.dir);
     const aiDir = path.join(paths.sessionDir, "ai-cleanup");
     const timelineJsonPath = path.join(aiDir, "timeline.json");
     const timelineMarkdownPath = path.join(aiDir, "timeline.md");
@@ -151,7 +154,7 @@ test("SessionStore stores AI cleanup artifact paths relative and resolves reads"
     const parsedJsonPath = path.join(aiDir, "draft.json");
     const markdownPath = path.join(aiDir, "draft.md");
 
-    const job = store.getOrCreateAiCleanupJob({
+    const job = ctx.jobs.getOrCreateAiCleanupJob({
       id: "ai_path_job",
       sessionId: paths.sessionId,
       provider: "fake",
@@ -165,7 +168,7 @@ test("SessionStore stores AI cleanup artifact paths relative and resolves reads"
       inputTimelineMarkdownPath: timelineMarkdownPath,
       maxAttempts: 3,
     });
-    store.updateAiCleanupJobArtifacts({
+    ctx.jobs.updateAiCleanupJobArtifacts({
       jobId: job.id,
       promptPath,
       rawOutputPath,
@@ -174,7 +177,7 @@ test("SessionStore stores AI cleanup artifact paths relative and resolves reads"
       markdownPath,
       outputHash: "output-hash",
     });
-    store.completeAiCleanupJob({
+    ctx.writes.completeAiCleanupJob({
       jobId: job.id,
       draftId: "draft_path_job",
       schemaVersion: "meeting-notes-draft-v1",
@@ -206,9 +209,9 @@ test("SessionStore stores AI cleanup artifact paths relative and resolves reads"
       `${paths.sessionId}/ai-cleanup/draft.json`,
     );
 
-    assert.equal(store.getAiCleanupJob(job.id)?.prompt_path, promptPath);
+    assert.equal(ctx.reads.getAiCleanupJob(job.id)?.prompt_path, promptPath);
     assert.equal(
-      store.getLatestMeetingNotesDraft(paths.sessionId)?.markdown_path,
+      ctx.reads.getLatestMeetingNotesDraft(paths.sessionId)?.markdown_path,
       markdownPath,
     );
   } finally {
@@ -243,14 +246,14 @@ function createFixture(): PathFixture {
   };
 }
 
-function seedSessionWithAudio(store: SessionStore, root: string): SeededPaths {
+function seedSessionWithAudio(ctx: StorageContext, root: string): SeededPaths {
   const sessionId = "meeting_path_test";
   const sessionDir = path.join(root, sessionId);
   const chunkId = `${sessionId}_000001_speaker`;
   const rawAudioPath = path.join(sessionDir, "chunks", "chunk.ogg");
   const sttAudioPath = path.join(sessionDir, "stt-audio", "chunk.webm");
 
-  store.createSession({
+  ctx.writes.createSession({
     id: sessionId,
     guildId: "guild",
     guildName: "Guild",
@@ -261,14 +264,14 @@ function seedSessionWithAudio(store: SessionStore, root: string): SeededPaths {
     startedByDisplayName: "Taniar",
     dataDir: sessionDir,
   });
-  store.upsertSpeaker({
+  ctx.writes.upsertSpeaker({
     sessionId,
     userId: "speaker",
     displayNameSnapshot: "Taniar",
     isBot: false,
     seenAtMs: 0,
   });
-  store.createChunkWriting({
+  ctx.writes.createChunkWriting({
     chunkId,
     sessionId,
     chunkIndex: 1,
@@ -277,7 +280,7 @@ function seedSessionWithAudio(store: SessionStore, root: string): SeededPaths {
     startedAtMs: 0,
     rawAudioPath,
   });
-  store.finalizeRawChunk({
+  ctx.writes.finalizeRawChunk({
     chunkId,
     endedAtMs: 1000,
     durationMs: 1000,
@@ -286,7 +289,7 @@ function seedSessionWithAudio(store: SessionStore, root: string): SeededPaths {
     closeReason: "test",
     pipelineError: null,
   });
-  store.completeChunkTranscodeAndQueueJob({
+  ctx.writes.completeChunkTranscodeAndQueueJob({
     chunkId,
     sttAudioPath,
     sttAudioFormat: "webm",

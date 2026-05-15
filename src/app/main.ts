@@ -88,7 +88,10 @@ import {
   type RetentionDeletionExecutionResult,
   type RetentionPolicy,
 } from "../storage/file-retention.js";
-import { SessionStore } from "../storage/session-store.js";
+import {
+  createStorageContext,
+  flattenStorageContext,
+} from "../storage/storage-context.js";
 import { SqlRunner } from "../storage/sql-runner.js";
 import { DirongDatabase } from "../storage/sqlite.js";
 import {
@@ -115,11 +118,12 @@ const projectStore = new ProjectStore(notionSqlRunner);
 projectStore.backfillDefaultProjectFromLegacySettings({
   settings: productRuntime.localSettings,
 });
-const store = new SessionStore(database, {
+const ctx = createStorageContext(database, {
   storageRoot: config.dataDir,
   normalizeStoredPaths: true,
 });
-const repairSummary = await runStartupRepair(store, config);
+const store = flattenStorageContext(ctx);
+const repairSummary = await runStartupRepair(ctx, config);
 const sttProviderSelection = createPhase3SttProvider(appSettings.stt);
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],

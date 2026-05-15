@@ -10,7 +10,10 @@ import {
   createPhase3SttProvider,
 } from "../stt/provider-factory.js";
 import { runSttBatch } from "../stt/runner.js";
-import { SessionStore } from "../storage/session-store.js";
+import {
+  createStorageContext,
+  flattenStorageContext,
+} from "../storage/storage-context.js";
 import { DirongDatabase } from "../storage/sqlite.js";
 import { backupDatabaseSnapshot } from "../storage/sqlite-backup.js";
 import { parsePhase3SttArgs } from "./phase3-stt-cli.js";
@@ -47,10 +50,11 @@ try {
   }
 
   const database = new DirongDatabase(phase1Config.dbPath, phase1Config.dbBusyTimeoutMs);
-  const store = new SessionStore(database, {
+  const ctx = createStorageContext(database, {
     storageRoot: phase1Config.dataDir,
     normalizeStoredPaths: !options.dryRun,
   });
+  const store = flattenStorageContext(ctx);
 
   const result = await runSttBatch(store, {
     workerId: `real-stt-${provider.providerName}-${process.pid}`,

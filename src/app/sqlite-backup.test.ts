@@ -3,7 +3,10 @@ import { closeSync, existsSync, mkdtempSync, openSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { SessionStore } from "../storage/session-store.js";
+import {
+  createStorageContext,
+  flattenStorageContext,
+} from "../storage/storage-context.js";
 import { DirongDatabase } from "../storage/sqlite.js";
 import { backupDatabaseSnapshot } from "../storage/sqlite-backup.js";
 
@@ -58,7 +61,8 @@ function createQueuedJobFixture(): {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-backup-"));
   const dbPath = path.join(dir, "dirong.sqlite");
   const database = new DirongDatabase(dbPath, 1000);
-  const store = new SessionStore(database);
+  const ctx = createStorageContext(database);
+  const store = flattenStorageContext(ctx);
   const sessionId = "meeting_backup_test";
   const chunkId = `${sessionId}_000001_speaker`;
 

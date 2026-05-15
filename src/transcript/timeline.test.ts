@@ -3,7 +3,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { SessionStore } from "../storage/session-store.js";
+import {
+  createStorageContext,
+  flattenStorageContext,
+  type FlatStorageStore,
+} from "../storage/storage-context.js";
 import { DirongDatabase } from "../storage/sqlite.js";
 import {
   buildPhase4TranscriptTimeline,
@@ -152,13 +156,14 @@ test("buildPhase4TranscriptTimeline can include no_speech for diagnostics", () =
 });
 
 function createFixtureStore(): {
-  store: SessionStore;
+  store: FlatStorageStore;
   sessionId: string;
   close: () => void;
 } {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-timeline-"));
   const database = new DirongDatabase(path.join(dir, "dirong.sqlite"), 1000);
-  const store = new SessionStore(database);
+  const ctx = createStorageContext(database);
+  const store = flattenStorageContext(ctx);
   const sessionId = "meeting_test";
 
   store.createSession({
@@ -191,7 +196,7 @@ function createFixtureStore(): {
 }
 
 function addCompletedTranscript(
-  store: SessionStore,
+  store: FlatStorageStore,
   input: {
     chunkIndex: number;
     startMs: number;

@@ -3,10 +3,10 @@ import path from "node:path";
 import type { Phase1Config } from "../config.js";
 import { resolveFfmpegPath, sha256File, transcodeToSttSafe } from "../media.js";
 import type { ChunkRow, RepairScanSummary } from "./rows.js";
-import type { SessionStore } from "./session-store.js";
+import type { StorageContext } from "./storage-context.js";
 
 export async function runStartupRepair(
-  store: SessionStore,
+  ctx: StorageContext,
   config: Phase1Config,
 ): Promise<RepairScanSummary> {
   const summary: RepairScanSummary = {
@@ -19,19 +19,19 @@ export async function runStartupRepair(
     orphanAudioFiles: 0,
   };
 
-  summary.oldPartFiles = scanOldPartFiles(store, config);
-  const writingSummary = await repairStaleWritingChunks(store, config);
+  summary.oldPartFiles = scanOldPartFiles(ctx, config);
+  const writingSummary = await repairStaleWritingChunks(ctx, config);
   summary.staleWritingChunksRepaired = writingSummary.repaired;
   summary.staleWritingChunksFailed = writingSummary.failed;
-  summary.missingSttJobsCreated = await repairChunksMissingSttJobs(store, config);
-  summary.missingAudioJobsFailed = store.failJobsWithMissingAudio();
-  summary.expiredLeasesReleased = store.releaseExpiredProcessingLeases();
-  summary.orphanAudioFiles = scanOrphanAudioFiles(store, config.dataDir);
+  summary.missingSttJobsCreated = await repairChunksMissingSttJobs(ctx, config);
+  summary.missingAudioJobsFailed = ctx.jobs.failJobsWithMissingAudio();
+  summary.expiredLeasesReleased = ctx.runtime.releaseExpiredProcessingLeases();
+  summary.orphanAudioFiles = scanOrphanAudioFiles(ctx, config.dataDir);
 
   return summary;
 }
 
-function scanOldPartFiles(store: SessionStore, config: Phase1Config): number {
+function scanOldPartFiles(ctx: StorageContext, config: Phase1Config): number {
   if (!existsSync(config.dataDir)) {
     return 0;
   }
@@ -49,7 +49,7 @@ function scanOldPartFiles(store: SessionStore, config: Phase1Config): number {
       continue;
     }
 
-    store.recordRepairItem({
+    ctx.writes.recordRepairItem({
       type: "old_part_file",
       severity: "warn",
       sessionId: inferSessionId(config.dataDir, filePath),
@@ -67,10 +67,10 @@ function scanOldPartFiles(store: SessionStore, config: Phase1Config): number {
 }
 
 async function repairStaleWritingChunks(
-  store: SessionStore,
+  ctx: StorageContext,
   config: Phase1Config,
 ): Promise<{ repaired: number; failed: number }> {
-  const chunks = store.listWritingChunks();
+  const chunks = ctx.reads.listWritingChunks();
   if (chunks.length === 0) {
     return { repaired: 0, failed: 0 };
   }
@@ -87,11 +87,11 @@ async function repairStaleWritingChunks(
     const partPath = partPathForRawPath(chunk.raw_audio_path);
     if (existsSync(chunk.raw_audio_path)) {
       const rawStat = statSync(chunk.raw_audio_path);
-      const session = store.getSession(chunk.session_id);
+      const session = ctx.reads.getSession(chunk.session_id);
       const endedAtMs = estimateEndedAtMs(chunk, session?.started_at ?? null, rawStat.mtimeMs);
       const rawSha256 = rawStat.size > 0 ? await sha256File(chunk.raw_audio_path) : null;
 
-      store.finalizeRawChunk({
+      ctx.writes.finalizeRawChunk({
         chunkId: chunk.id,
         endedAtMs,
         durationMs: Math.max(0, endedAtMs - chunk.started_at_ms),
@@ -102,12 +102,12 @@ async function repairStaleWritingChunks(
       });
 
       if (!ffmpeg.path) {
-        store.markChunkTranscodeFailed({
+        ctx.writes.markChunkTranscodeFailed({
           chunkId: chunk.id,
           error: "startup repair에 필요한 FFmpeg가 없습니다.",
         });
-        store.updateSessionStatus(chunk.session_id, "needs_repair");
-        store.recordRepairItem({
+        ctx.writes.updateSessionStatus(chunk.session_id, "needs_repair");
+        ctx.writes.recordRepairItem({
           type: "stale_writing_chunk_no_ffmpeg",
           sessionId: chunk.session_id,
           chunkId: chunk.id,
@@ -118,8 +118,8 @@ async function repairStaleWritingChunks(
         continue;
       }
 
-      const repairedJob = await transcodeRawAndQueue(store, config, chunk, ffmpeg.path);
-      store.recordRepairItem({
+      const repairedJob = await transcodeRawAndQueue(ctx, config, chunk, ffmpeg.path);
+      ctx.writes.recordRepairItem({
         type: repairedJob
           ? "stale_writing_chunk_repaired"
           : "stale_writing_chunk_transcode_failed",
@@ -133,22 +133,22 @@ async function repairStaleWritingChunks(
       if (repairedJob) {
         repaired += 1;
       } else {
-        store.updateSessionStatus(chunk.session_id, "needs_repair");
+        ctx.writes.updateSessionStatus(chunk.session_id, "needs_repair");
         failed += 1;
       }
       continue;
     }
 
     if (existsSync(partPath)) {
-      store.markChunkFailed({
+      ctx.writes.markChunkFailed({
         chunkId: chunk.id,
         error: {
           message: "stale writing chunk에 final file은 없고 .part file만 남았습니다.",
           partPath,
         },
       });
-      store.updateSessionStatus(chunk.session_id, "needs_repair");
-      store.recordRepairItem({
+      ctx.writes.updateSessionStatus(chunk.session_id, "needs_repair");
+      ctx.writes.recordRepairItem({
         type: "stale_writing_chunk_part_only",
         sessionId: chunk.session_id,
         chunkId: chunk.id,
@@ -160,14 +160,14 @@ async function repairStaleWritingChunks(
       continue;
     }
 
-    store.markChunkFailed({
+    ctx.writes.markChunkFailed({
       chunkId: chunk.id,
       error: {
         message: "stale writing chunk에 final file과 .part file이 모두 없습니다.",
       },
     });
-    store.updateSessionStatus(chunk.session_id, "needs_repair");
-    store.recordRepairItem({
+    ctx.writes.updateSessionStatus(chunk.session_id, "needs_repair");
+    ctx.writes.recordRepairItem({
       type: "stale_writing_chunk_audio_missing",
       sessionId: chunk.session_id,
       chunkId: chunk.id,
@@ -181,10 +181,10 @@ async function repairStaleWritingChunks(
 }
 
 async function repairChunksMissingSttJobs(
-  store: SessionStore,
+  ctx: StorageContext,
   config: Phase1Config,
 ): Promise<number> {
-  const chunks = store.listChunksMissingSttJob();
+  const chunks = ctx.reads.listChunksMissingSttJob();
   if (chunks.length === 0) {
     return 0;
   }
@@ -194,8 +194,8 @@ async function repairChunksMissingSttJobs(
 
   for (const chunk of chunks) {
     if (chunk.stt_audio_path && existsSync(chunk.stt_audio_path)) {
-      if (store.queueExistingSttJobForChunk(chunk.id, config.sttMaxAttempts)) {
-        store.recordRepairItem({
+      if (ctx.jobs.queueExistingSttJobForChunk(chunk.id, config.sttMaxAttempts)) {
+        ctx.writes.recordRepairItem({
           type: "missing_stt_job_created",
           status: "repaired",
           severity: "info",
@@ -209,7 +209,7 @@ async function repairChunksMissingSttJobs(
     }
 
     if (!ffmpeg.path) {
-      store.recordRepairItem({
+      ctx.writes.recordRepairItem({
         type: "missing_stt_job_no_ffmpeg",
         sessionId: chunk.session_id,
         chunkId: chunk.id,
@@ -220,7 +220,7 @@ async function repairChunksMissingSttJobs(
       continue;
     }
 
-    const repaired = await transcodeRawAndQueue(store, config, chunk, ffmpeg.path);
+    const repaired = await transcodeRawAndQueue(ctx, config, chunk, ffmpeg.path);
     if (repaired) {
       created += 1;
     }
@@ -230,13 +230,13 @@ async function repairChunksMissingSttJobs(
 }
 
 async function transcodeRawAndQueue(
-  store: SessionStore,
+  ctx: StorageContext,
   config: Phase1Config,
   chunk: ChunkRow,
   ffmpegPath: string,
 ): Promise<boolean> {
   if (!existsSync(chunk.raw_audio_path)) {
-    store.recordRepairItem({
+    ctx.writes.recordRepairItem({
       type: "missing_stt_job_raw_audio_missing",
       sessionId: chunk.session_id,
       chunkId: chunk.id,
@@ -247,7 +247,7 @@ async function transcodeRawAndQueue(
     return false;
   }
 
-  const session = store.getSession(chunk.session_id);
+  const session = ctx.reads.getSession(chunk.session_id);
   const sttAudioDir = path.join(session?.data_dir ?? path.dirname(chunk.raw_audio_path), "stt-audio");
   mkdirSync(sttAudioDir, { recursive: true });
   const baseName = path.basename(chunk.raw_audio_path, path.extname(chunk.raw_audio_path));
@@ -260,11 +260,11 @@ async function transcodeRawAndQueue(
   );
 
   if (!transcode.playbackChecked || transcode.byteSize === 0) {
-    store.markChunkTranscodeFailed({
+    ctx.writes.markChunkTranscodeFailed({
       chunkId: chunk.id,
       error: transcode.error ?? "startup repair STT-safe transcode failed",
     });
-    store.recordRepairItem({
+    ctx.writes.recordRepairItem({
       type: "missing_stt_job_transcode_failed",
       sessionId: chunk.session_id,
       chunkId: chunk.id,
@@ -280,7 +280,7 @@ async function transcodeRawAndQueue(
   }
 
   const sttSha256 = await sha256File(transcode.outputPath);
-  store.completeChunkTranscodeAndQueueJob({
+  ctx.writes.completeChunkTranscodeAndQueueJob({
     chunkId: chunk.id,
     sttAudioPath: transcode.outputPath,
     sttAudioFormat: transcode.format,
@@ -288,7 +288,7 @@ async function transcodeRawAndQueue(
     sttSha256,
     maxAttempts: config.sttMaxAttempts,
   });
-  store.recordRepairItem({
+  ctx.writes.recordRepairItem({
     type: "missing_stt_job_created_after_transcode",
     status: "repaired",
     severity: "info",
@@ -299,7 +299,7 @@ async function transcodeRawAndQueue(
   return true;
 }
 
-function scanOrphanAudioFiles(store: SessionStore, dataDir: string): number {
+function scanOrphanAudioFiles(ctx: StorageContext, dataDir: string): number {
   if (!existsSync(dataDir)) {
     return 0;
   }
@@ -315,11 +315,11 @@ function scanOrphanAudioFiles(store: SessionStore, dataDir: string): number {
       continue;
     }
 
-    if (store.hasChunkAudioPath(filePath)) {
+    if (ctx.reads.hasChunkAudioPath(filePath)) {
       continue;
     }
 
-    store.recordRepairItem({
+    ctx.writes.recordRepairItem({
       type: "orphan_audio_file",
       severity: "warn",
       sessionId: inferSessionId(dataDir, filePath),

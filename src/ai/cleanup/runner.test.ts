@@ -4,7 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { DirongError } from "../../errors.js";
-import { SessionStore } from "../../storage/session-store.js";
+import {
+  createStorageContext,
+  flattenStorageContext,
+  type FlatStorageStore,
+} from "../../storage/storage-context.js";
 import { DirongDatabase } from "../../storage/sqlite.js";
 import {
   FakeAiCleanupProvider,
@@ -30,9 +34,10 @@ test("runAiCleanupForSession dry-run does not change the DB", async () => {
   const fixture = createFinalizedTranscriptFixture();
   try {
     const before = fixture.countAiRows();
-    const readOnlyStore = new SessionStore(
+    const readOnlyCtx = createStorageContext(
       new DirongDatabase(fixture.dbPath, 1000, { readOnly: true }),
     );
+    const readOnlyStore = flattenStorageContext(readOnlyCtx);
     try {
       const result = await runAiCleanupForSession(readOnlyStore, {
         ...baseRunOptions(fixture.sessionId),
@@ -44,7 +49,7 @@ test("runAiCleanupForSession dry-run does not change the DB", async () => {
       assert.equal(result.dbChanged, false);
       assert.equal(result.inputEntryCount, 1);
     } finally {
-      readOnlyStore.close();
+      readOnlyCtx.close();
     }
     assert.deepEqual(fixture.countAiRows(), before);
   } finally {
@@ -521,7 +526,7 @@ function createFinalizedTranscriptFixture(input: {
 } = {}): {
   dir: string;
   dbPath: string;
-  store: SessionStore;
+  store: FlatStorageStore;
   sessionId: string;
   close: () => void;
   countAiRows: () => { jobs: number; drafts: number; attempts: number };
@@ -530,7 +535,8 @@ function createFinalizedTranscriptFixture(input: {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-ai-cleanup-"));
   const dbPath = path.join(dir, "dirong.sqlite");
   const database = new DirongDatabase(dbPath, 1000);
-  const store = new SessionStore(database);
+  const ctx = createStorageContext(database);
+  const store = flattenStorageContext(ctx);
   const sessionId = "meeting_ai_cleanup_test";
   const chunkId = `${sessionId}_000001_speaker`;
   if (input.projectId) {

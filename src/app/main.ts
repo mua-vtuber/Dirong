@@ -123,7 +123,29 @@ const ctx = createStorageContext(database, {
   normalizeStoredPaths: true,
 });
 const store = flattenStorageContext(ctx);
-const repairSummary = await runStartupRepair(ctx, config);
+let repairSummary;
+try {
+  repairSummary = await runStartupRepair(ctx, config);
+} catch (error) {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  console.error("startup repair failed:", errorMessage);
+  store.recordConnectionEvent({
+    sessionId: null,
+    eventType: "startup_repair_failed",
+    level: "error",
+    details: { error: errorMessage },
+  });
+  // D-08: continue boot — repair is 보조, not a critical path.
+  repairSummary = {
+    oldPartFiles: 0,
+    staleWritingChunksRepaired: 0,
+    staleWritingChunksFailed: 0,
+    missingSttJobsCreated: 0,
+    missingAudioJobsFailed: 0,
+    expiredLeasesReleased: 0,
+    orphanAudioFiles: 0,
+  };
+}
 const sttProviderSelection = createPhase3SttProvider(appSettings.stt);
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
@@ -257,7 +279,25 @@ let consoleReadline: ReadlineInterface | null = null;
 
 console.log("디롱이 Recording + STT dashboard 시작:", dashboardUrl);
 console.log("설정 상태 API:", `${dashboardUrl}api/setup/status`);
-console.log("startup repair:", JSON.stringify(repairSummary, null, 2));
+const reconciledTotal =
+  repairSummary.oldPartFiles +
+  repairSummary.staleWritingChunksRepaired +
+  repairSummary.staleWritingChunksFailed +
+  repairSummary.missingSttJobsCreated +
+  repairSummary.missingAudioJobsFailed +
+  repairSummary.expiredLeasesReleased +
+  repairSummary.orphanAudioFiles;
+
+console.log(`startup repair: ${reconciledTotal} items reconciled`);
+if (reconciledTotal > 0) {
+  console.log(`  oldPartFiles: ${repairSummary.oldPartFiles}`);
+  console.log(`  staleWritingChunksRepaired: ${repairSummary.staleWritingChunksRepaired}`);
+  console.log(`  staleWritingChunksFailed: ${repairSummary.staleWritingChunksFailed}`);
+  console.log(`  missingSttJobsCreated: ${repairSummary.missingSttJobsCreated}`);
+  console.log(`  missingAudioJobsFailed: ${repairSummary.missingAudioJobsFailed}`);
+  console.log(`  expiredLeasesReleased: ${repairSummary.expiredLeasesReleased}`);
+  console.log(`  orphanAudioFiles: ${repairSummary.orphanAudioFiles}`);
+}
 if (config.openDashboard) {
   openDashboardUrl(dashboardUrl);
 }

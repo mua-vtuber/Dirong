@@ -173,6 +173,8 @@ None active. The previously-flagged `@snazzah/davey` native-binding gap was reso
 
 **Environment note (carry-forward):** `node_modules/@snazzah/` must contain BOTH platform binaries when developing across Windows and WSL on the same checkout. Re-running `npm install` from whichever side has the missing binary is the canonical fix — do NOT `npm rebuild`, the package ships prebuilt and has no source to recompile.
 
+**Environment note 2 (added 2026-05-16 from Phase 2 UAT investigation):** `node-crc` shares the same cross-platform native-binding pain point as `@snazzah/davey`. The recording producer's chunk-CRC step loads `node_modules/node-crc/build/Release/crc.node`; if a WSL-side `npm install` overwrites that with a Linux ELF binary, the Windows-side bot will throw `ERR_DLOPEN_FAILED: ... is not a valid Win32 application` on the first chunk finalize attempt — causing chunks to stay stuck at `status='writing'`, downstream STT/AI cleanup fails by cascade, and dashboard playback bars are not rendered (because `appendSignedAudioUrlsToDashboardState` requires `status !== 'writing'`). **Recovery:** run `npm install` (or `npm rebuild node-crc`) on the side that's missing the correct binary. Same pattern as `@snazzah/davey`. Long-term mitigation: maintain platform-isolated `node_modules/`, or document this in CONTRIBUTING when v1 ships.
+
 ## Deferred Items
 
 Items acknowledged and carried forward (v2 scope, see REQUIREMENTS.md):

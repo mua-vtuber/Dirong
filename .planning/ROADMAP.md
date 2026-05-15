@@ -13,7 +13,7 @@ This is a bounded, contained milestone — 16 v1 requirements across STORE / REL
 - Decimal phases (e.g. 2.1): Reserved for urgent insertions (none planned)
 
 - [x] **Phase 1: Storage Foundation** - Split SessionStore into role-scoped facades, wrap each migration in a single transaction, and add migration crash-recovery tests *(completed 2026-05-15)*
-- [ ] **Phase 2: Persistent CLI & Recording Reliability** - Track and reap orphan `claude` PIDs, fix abort-listener race, auto-run repair-scan on boot, and cover the 60s force-close branch with an integration test
+- [x] **Phase 2: Persistent CLI & Recording Reliability** - Track and reap orphan `claude` PIDs, fix abort-listener race, auto-run repair-scan on boot, and cover the 60s force-close branch with an integration test *(completed 2026-05-16)*
 - [ ] **Phase 3: Policy Compliance — Silent Fallbacks & Mock Isolation** - Eliminate the four silent-fallback sites, route AI-cleanup `console.warn` to the dashboard, and structurally isolate fake providers behind ESLint
 - [ ] **Phase 4: Dashboard Surface Hygiene** - Replace ambiguous `null`/`{}` route returns with a `RouteOutcome` union and warn at startup when the dashboard binds outside loopback
 
@@ -71,7 +71,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Storage Foundation | 1/1 (5/5 tasks) | ✓ Complete (4/4 waves, UAT 9/9 pass) | 2026-05-15 |
-| 2. Persistent CLI & Recording Reliability | 0/TBD | Not started | - |
+| 2. Persistent CLI & Recording Reliability | 1/1 (6/6 tasks) | ✓ Complete (3/3 waves) | 2026-05-16 |
 | 3. Policy Compliance — Silent Fallbacks & Mock Isolation | 0/TBD | Not started | - |
 | 4. Dashboard Surface Hygiene | 0/TBD | Not started | - |
 

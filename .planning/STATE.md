@@ -5,19 +5,27 @@
 See: .planning/PROJECT.md (updated 2026-05-15)
 
 **Core value:** A meeting host can run `/dirong start` in Discord and end up with a clean, validated, locally-owned meeting note (and an optional Notion page) without exporting any audio or transcript outside their machine.
-**Current focus:** Phase 2 — Persistent CLI & Recording Reliability. Wave 2 of 3 complete (T4 boot repair, 5/6 tasks); pending Wave 3 (T6 verification gate).
+**Current focus:** Phase 2 — Persistent CLI & Recording Reliability — ✓ COMPLETE (3 waves / 6 tasks). Next: Phase 3 — Policy Compliance (POLY-01..03 + LOG-01) — awaiting `/gsd:verify-work 2` then `/gsd:discuss-phase 3` (or `/gsd:transition`).
 
 ## Current Position
 
-Phase: 1 of 4 (Storage Foundation) — ✓ COMPLETE
-Wave: 4 of 4 — ✓ All complete
-Plan: T1.1 + T1.2 + T2.1 + T3.1 + T4.1 of 5 done (100%)
-Status: Phase 1 success — all 4 ROADMAP criteria simultaneously hold; `npm run build && npm test` green (517/517 pass, 0 skipped, 8.9s); STORE-01 + STORE-02 + STORE-03 + TEST-02 satisfied
-Last activity: 2026-05-15 — Wave 4 executed: T4.1 package.json enumeration + final phase gate (impl commit 00474ea, merge 0627ff7); 5 new facade test paths appended to `scripts.test`; forbidden-entry check (no `migration-idempotency` / `migration-crash-recovery` / `migrations-test-helpers` in package.json) confirmed PASS
+Phase: 2 of 4 (Persistent CLI & Recording Reliability) — ✓ COMPLETE
+Wave: 3 of 3 — ✓ All complete
+Plan: T1 + T2 + T3 + T5 + T4 + T6 of 6 done (100%)
+Status: Phase 2 success — all 5 ROADMAP criteria simultaneously hold; `npm run build && npm test` green (528/528 pass, 0 skipped, 8.5s); RELY-01 + RELY-02 + RELY-03 + RELY-04 + RELY-05 + TEST-01 satisfied
+Last activity: 2026-05-16 — Wave 3 T6 verification gate executed inline (no code changes, pure audit); all 5 ROADMAP grep checks PASS, package.json enumeration audit clean, no sibling test files created.
 
-Progress: [██████████] 100% (T1.1 + T1.2 + T2.1 + T3.1 + T4.1 / 5 tasks) — Phase 1 COMPLETE
+Progress: [██████████] 100% (T1 + T2 + T3 + T5 + T4 + T6 / 6 tasks) — Phase 2 COMPLETE
 
-## Wave Status
+## Wave Status (Phase 2)
+
+| Wave | Tasks | Commits | Status |
+|------|-------|---------|--------|
+| 1 (T1→T2→T3 trio + T5 ∥) | 4 | 3fc9b86, 4f6e8b2, 2a53f23, dd3a29a, 94d2ccb, b0e101a | ✓ Complete |
+| 2 (T4 boot repair) | 1 | 1496663, 95d623a | ✓ Complete |
+| 3 (T6 verification gate) | 1 | (inline audit, no code commit) | ✓ Complete |
+
+## Wave Status (Phase 1 — archived)
 
 | Wave | Tasks | Commits | Status |
 |------|-------|---------|--------|
@@ -95,9 +103,23 @@ Recent decisions affecting current work:
 
 **Pre-merge friction recovery (orchestrator playbook reused from Phase 1):** stash CRLF noise → merge trio worktree → merge T5 worktree → stash pop produced 4 UU conflicts on trio-touched files → `git checkout --ours` + add → `git reset HEAD` for stash-applied non-conflicted noise → drop stash.
 
+### Wave 3 Outcomes (T6 — 2026-05-16) — Phase 2 close-out
+
+- T6 ran INLINE (no worktree, no code changes) — pure audit task.
+- `npm run build && npm test` green: 528/528 tests pass, 0 skipped, 8.54s.
+- All 5 ROADMAP Phase 2 success criteria simultaneously hold:
+  1. ✔ SC1 — `trackedPids` in provider; `reapTrackedPids` + `process.on("exit")` wired in `main.ts`.
+  2. ✔ SC2 — `addEventListener("abort", ...)` line index < first `await this.killSession()` inside `generate()` (verified statically + behaviorally by T1's tests).
+  3. ✔ SC3 — `forceKillIfStale` on provider; `safeguardInterval` + `clearInterval` in service.
+  4. ✔ SC4 — literal `"startup repair: N items reconciled"` in main.ts; `JSON.stringify(repairSummary` = 0; `startup_repair_failed` event wired.
+  5. ✔ SC5 — `chunk_finalize_timeout` assertion in `recording-producer.test.ts`.
+- package.json audit: both touched test files (`claude-persistent-cli-provider.test.js`, `recording-producer.test.js`) already enumerated since Phase 1; zero new test files created (TEST-01 extended existing).
+- T6 SUMMARY committed in next commit; no source code commits (audit-only task per plan T6 `<action>`).
+
 ### Pending Todos
 
-- **Wave 3 (T6) — final verification gate.** `/gsd:execute-phase 2 --wave 3` runs all 5 ROADMAP success-criterion grep checks + `npm run build && npm test` and confirms no new test files were added (Waves 1+2 only extended existing test files). Final phase exit gate.
+- **Phase 2 verification — entry gate.** `/gsd:verify-work 2` to run UAT. Phase 2 is a backend reliability hardening with no UI changes; UAT will likely be a snapshot-style verification similar to Phase 1's (cold-start smoke, persistent CLI lifecycle, recording producer force-close path).
+- **Phase 3 (Policy Compliance — POLY-01/02/03 + LOG-01) — next.** Forward dependency from Phase 1 already satisfied (StorageContext threading). After Phase 2 UAT passes, run `/gsd:discuss-phase 3` or `/gsd:transition`.
 - **POLY follow-up (Phase 3):** update narrow ports (`RecordingProducerStore`, `DashboardStore`, `SttBatchStore`, `AiCleanupAutomationStore`) to accept facade-typed inputs, then delete `flattenStorageContext` + `FlatStorageStore` from `storage-context.ts`.
 - **Hygiene follow-up (deferred):** `dist/storage/job-retry-policy.test.js` is a pre-existing test file (commit `524ccf5`, pre-Phase-1) not enumerated in `package.json#scripts.test`. Out of scope for Phase 1/2; a future audit task should enumerate it or formally deprecate it.
 

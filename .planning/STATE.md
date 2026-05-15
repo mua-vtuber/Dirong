@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-05-15)
 
 **Core value:** A meeting host can run `/dirong start` in Discord and end up with a clean, validated, locally-owned meeting note (and an optional Notion page) without exporting any audio or transcript outside their machine.
-**Current focus:** Phase 1 — Storage Foundation (Stability & Hardening v0.1 milestone) — Wave 3 of 4 complete; pending Wave 4
+**Current focus:** Phase 1 — Storage Foundation (Stability & Hardening v0.1 milestone) — ✓ COMPLETE (4 waves / 5 tasks). Next: Phase 2 — Persistent CLI & Recording Reliability (awaiting `/gsd:discuss-phase 2` or `/gsd:transition`).
 
 ## Current Position
 
-Phase: 1 of 4 (Storage Foundation)
-Wave: 4 of 4 (Wave 1 + Wave 2 + Wave 3 done; awaiting `/gsd:execute-phase 1 --wave 4`)
-Plan: T1.1 + T1.2 + T2.1 + T3.1 of 5 done (80%)
-Status: Wave 3 gate passed — `npm run build && npm test` green (495/495 pass); ROADMAP success criterion #1 grep gate returns 0 hits
-Last activity: 2026-05-15 — Wave 3 executed: T3.1 atomic cutover (impl commit 6997ccd, SUMMARY e4157e1, merge 39e3712); 8 production callers + 12 test callers cut over; `repair-scan.ts` accepts `StorageContext` (advisory A2 applied — `RepairScanStore` composite removed); `src/storage/session-store.ts` (879 lines) deleted; transitional `flattenStorageContext` helper added to bridge legacy narrow-port interfaces (POLY follow-up flagged)
+Phase: 1 of 4 (Storage Foundation) — ✓ COMPLETE
+Wave: 4 of 4 — ✓ All complete
+Plan: T1.1 + T1.2 + T2.1 + T3.1 + T4.1 of 5 done (100%)
+Status: Phase 1 success — all 4 ROADMAP criteria simultaneously hold; `npm run build && npm test` green (517/517 pass, 0 skipped, 8.9s); STORE-01 + STORE-02 + STORE-03 + TEST-02 satisfied
+Last activity: 2026-05-15 — Wave 4 executed: T4.1 package.json enumeration + final phase gate (impl commit 00474ea, merge 0627ff7); 5 new facade test paths appended to `scripts.test`; forbidden-entry check (no `migration-idempotency` / `migration-crash-recovery` / `migrations-test-helpers` in package.json) confirmed PASS
 
-Progress: [████████░░] 80% (T1.1 + T1.2 + T2.1 + T3.1 / 5 tasks)
+Progress: [██████████] 100% (T1.1 + T1.2 + T2.1 + T3.1 + T4.1 / 5 tasks) — Phase 1 COMPLETE
 
 ## Wave Status
 
@@ -24,7 +24,7 @@ Progress: [████████░░] 80% (T1.1 + T1.2 + T2.1 + T3.1 / 5 ta
 | 1 (sequential T1.1 → T1.2) | 2 | 119cb29, 473dbcd | ✓ Complete |
 | 2 (T2.1) | 1 | b099564, 838381d, a6802bd | ✓ Complete |
 | 3 (T3.1 — atomic cutover) | 1 | 6997ccd, e4157e1, 39e3712 | ✓ Complete |
-| 4 (T4.1 — verification) | 1 | — | Pending |
+| 4 (T4.1 — verification) | 1 | 00474ea, 0627ff7 | ✓ Complete |
 
 ## Performance Metrics
 
@@ -61,8 +61,27 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-- Wave 4 (T4.1) — final verification gates (grep + build + full test suite + forbidden-entry checks); enumerate the 5 new `dist/storage/*-store.test.js` + `dist/storage/storage-context.test.js` paths in `package.json#scripts.test`. Note: `npm test` is already green at 495/495 from Wave 3's merge, so Wave 4 mainly formalizes the `scripts.test` enumeration and runs the forbidden-entry check for `migration-idempotency`/`migration-crash-recovery`/`migrations-test-helpers` (which must NOT appear).
-- POLY follow-up (carry into Phase 3): update each `src/*/storage-port.ts` narrow port (e.g. `RecordingProducerStore`, `DashboardStore`, `SttBatchStore`, `AiCleanupAutomationStore`) to accept facade-typed inputs, then delete the transitional `flattenStorageContext` helper + `FlatStorageStore` type from `storage-context.ts`. The helper was added in Wave 3 as a `.bind()`-based pass-through because existing narrow ports expect flat method surfaces — zero behavior change, purely a structural transition step.
+- **Phase 2 (Persistent CLI & Recording Reliability) — entry gate.** Run `/gsd:discuss-phase 2` next to gather Phase 2 context, then `/gsd:plan-phase 2`. Forward dependency from Phase 1 is satisfied (RELY-* work lands against the new facades).
+- **POLY follow-up (carry into Phase 3):** update each `src/*/storage-port.ts` narrow port (e.g. `RecordingProducerStore`, `DashboardStore`, `SttBatchStore`, `AiCleanupAutomationStore`) to accept facade-typed inputs, then delete the transitional `flattenStorageContext` helper + `FlatStorageStore` type from `storage-context.ts`. The helper was added in Wave 3 as a `.bind()`-based pass-through because existing narrow ports expect flat method surfaces — zero behavior change, purely a structural transition step.
+- **Hygiene follow-up (deferred, surfaced by Wave 4 executor):** `dist/storage/job-retry-policy.test.js` is a pre-existing test file (commit `524ccf5`, pre-Phase-1) not enumerated in `package.json#scripts.test`. Out of scope for T4.1's atomic contract; a future audit task should enumerate it or formally deprecate it.
+
+### Wave 4 Outcomes (T4.1 — 2026-05-15) — Phase 1 close-out
+
+- Atomic commit `00474ea`: appended 5 new facade test paths to `package.json#scripts.test` (space-separated, single line preserved):
+  - `dist/storage/session-write-store.test.js`
+  - `dist/storage/session-read-store.test.js`
+  - `dist/storage/job-queue-store.test.js`
+  - `dist/storage/runtime-state-store.test.js`
+  - `dist/storage/storage-context.test.js`
+- Forbidden-entry check PASS: `migration-idempotency`, `migration-crash-recovery`, `migrations-test-helpers` confirmed absent from `package.json` (STORE-03 + TEST-02 live inside `migrations.test.ts` per CONTEXT.md Lock; helpers are non-test).
+- Final test gate: `npm run build && npm test` exits 0 with **517/517 tests pass, 0 fail, 0 skipped, 0 cancelled** (8.9s). The jump from 495 → 517 reflects the 22 new facade tests created in Wave 2 now being discovered via the updated `scripts.test` enumeration.
+- All 4 ROADMAP Phase 1 success criteria simultaneously hold:
+  1. ✔ `grep -r "from .*session-store" src/ --include="*.ts" | grep -v "^src/storage/" | grep -v test` returns 0 hits.
+  2. ✔ TEST-02 (mid-step migration crash recovery) passes inside `dist/storage/migrations.test.js`.
+  3. ✔ STORE-03 (per-migration twice-and-diff idempotency) — all 12 migrations pass inside `dist/storage/migrations.test.js`.
+  4. ✔ `npm run build && npm test` exits 0; no skipped tests; every new facade test file enumerated.
+- Worktree note: executor's worktree branch was created from a stale base; recovered via `git reset --hard main` at startup (zero unique commits lost). Single atomic commit produced.
+- Merge commit `0627ff7` on `main`. Post-merge verification re-run by orchestrator: build + test both exit 0.
 
 ### Wave 3 Outcomes (T3.1 — 2026-05-15)
 

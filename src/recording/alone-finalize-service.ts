@@ -118,7 +118,10 @@ export class AloneFinalizeService {
     this.now = options.now ?? (() => Date.now());
     this.setTimer = options.setTimeout ?? setTimeout;
     this.clearTimer = options.clearTimeout ?? clearTimeout;
-    this.snapshot = createInitialAloneFinalizeSnapshot(options.enabled);
+    this.snapshot = createInitialAloneFinalizeSnapshot(
+      options.enabled,
+      this.locale(),
+    );
   }
 
   start(): void {
@@ -202,8 +205,14 @@ export class AloneFinalizeService {
         sessionId: runtime.sessionId,
         voiceChannelId: runtime.voiceChannelId,
         nonBotMemberCount: this.snapshot.nonBotMemberCount,
-        message: "혼자 남음 자동 종료 건너뜀: 세션을 찾지 못했습니다.",
-        userAction: "녹음 상태와 dashboard를 확인해 주세요.",
+        message: t(
+          this.locale(),
+          "runtimeStatus.aloneFinalize.skippedReason.sessionNotFound.message",
+        ),
+        userAction: t(
+          this.locale(),
+          "runtimeStatus.aloneFinalize.skippedReason.sessionNotFound.action",
+        ),
         technicalDetail: null,
         warnings: ["session_not_found"],
         clearCountdown: false,
@@ -237,8 +246,14 @@ export class AloneFinalizeService {
         sessionId: session.id,
         voiceChannelId: runtime.voiceChannelId,
         nonBotMemberCount: null,
-        message: "혼자 남음 자동 종료 건너뜀: 음성 채널 인원을 정확히 확인하지 못했습니다.",
-        userAction: "녹음은 계속됩니다. dashboard와 Discord 채널 상태를 확인해 주세요.",
+        message: t(
+          this.locale(),
+          "runtimeStatus.aloneFinalize.skippedReason.memberCountUnknown.message",
+        ),
+        userAction: t(
+          this.locale(),
+          "runtimeStatus.aloneFinalize.skippedReason.memberCountUnknown.action",
+        ),
         technicalDetail: memberCount.technicalDetail ?? memberCount.reason,
         warnings: [memberCount.reason],
         clearCountdown: false,
@@ -315,7 +330,11 @@ export class AloneFinalizeService {
       sessionId: input.sessionId,
       voiceChannelId: input.voiceChannelId,
       nonBotMemberCount: input.nonBotMemberCount,
-      message: `혼자 남음 자동 종료 건너뜀: 세션 상태가 ${input.status}입니다.`,
+      message: formatLocaleText(
+        this.locale(),
+        "runtimeStatus.aloneFinalize.skippedReason.sessionStatus.message",
+        { status: input.status },
+      ),
       userAction: null,
       technicalDetail: null,
       warnings: [],
@@ -481,7 +500,10 @@ export class AloneFinalizeService {
     try {
       const result = await this.options.producer.stop({
         stoppedByUserId: "system_alone",
-        stoppedByDisplayName: "디롱이 자동 종료",
+        stoppedByDisplayName: t(
+          this.locale(),
+          "runtimeStatus.aloneFinalize.producerStopDisplayName",
+        ),
       });
       this.snapshot = reduceAloneFinalizeSnapshot(this.snapshot, {
         type: "finalized",
@@ -530,8 +552,8 @@ export class AloneFinalizeService {
       sessionId: countdown.sessionId,
       voiceChannelId: countdown.voiceChannelId,
       nonBotMemberCount: null,
-      message: "혼자 남음 자동 종료를 건너뛰었습니다. 녹음은 계속됩니다.",
-      userAction: "자동 종료 조건을 안전하게 확인하지 못했습니다. dashboard 상태를 확인해 주세요.",
+      message: t(this.locale(), "runtimeStatus.aloneFinalize.skipped.message"),
+      userAction: t(this.locale(), "runtimeStatus.aloneFinalize.skipped.action"),
       technicalDetail,
       warnings: [reason],
       clearCountdown: true,
@@ -594,7 +616,12 @@ export class AloneFinalizeService {
       snapshot,
       this.countdown,
       this.now(),
+      this.locale(),
     );
+  }
+
+  private locale(): DirongLocale {
+    return resolveAppLocale({ getLocale: this.options.localeResolver });
   }
 
   private isoNow(): string {
@@ -615,16 +642,34 @@ export function formatAloneFinalizeForStatus(
   const display = localized.display ?? buildAloneFinalizeDisplay(resolvedLocale, localized);
   const lines = [
     formatHumanStatusDisplayForText(display, {
-      title: "녹음 자동 종료",
-      description: "설명",
-      nextAction: "녹음 자동 종료 조치",
+      title: t(resolvedLocale, "runtimeStatus.aloneFinalize.statusText.title"),
+      description: t(
+        resolvedLocale,
+        "runtimeStatus.aloneFinalize.statusText.description",
+      ),
+      nextAction: t(
+        resolvedLocale,
+        "runtimeStatus.aloneFinalize.statusText.nextAction",
+      ),
     }),
   ];
   if (snapshot.sessionId) {
-    lines.push(`혼자 남음 세션: ${snapshot.sessionId}`);
+    lines.push(
+      formatLocaleText(
+        resolvedLocale,
+        "runtimeStatus.aloneFinalize.statusText.session",
+        { sessionId: snapshot.sessionId },
+      ),
+    );
   }
   if (snapshot.status === "countdown" && snapshot.remainingMs !== null) {
-    lines.push(`자동 종료까지: ${Math.ceil(snapshot.remainingMs / 1000)}초`);
+    lines.push(
+      formatLocaleText(
+        resolvedLocale,
+        "runtimeStatus.aloneFinalize.statusText.countdown",
+        { seconds: Math.ceil(snapshot.remainingMs / 1000) },
+      ),
+    );
   }
   return lines.join("\n");
 }

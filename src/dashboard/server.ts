@@ -1,5 +1,6 @@
 import { createServer, type Server } from "node:http";
 import { DirongError } from "../errors.js";
+import { formatLocaleText } from "../i18n/catalog.js";
 import type {
   AiCleanupAutomationRetryResult,
   AiCleanupAutomationSnapshot,
@@ -236,6 +237,7 @@ export class DashboardServer {
         error,
         this.config.dashboardHost,
         this.config.dashboardPort,
+        this.runtimeSources.setupStatus?.getLocale?.(),
       );
     }
 
@@ -324,6 +326,7 @@ function normalizeListenError(
   error: unknown,
   host: string,
   port: number,
+  locale?: DirongLocale,
 ): unknown {
   if (
     error instanceof Error &&
@@ -332,11 +335,9 @@ function normalizeListenError(
   ) {
     return new DirongError(
       "DASHBOARD_PORT_IN_USE",
-      [
-        `디롱이 dashboard 포트를 이미 사용 중입니다: ${host}:${port}`,
-        "이미 실행 중인 Dirong 앱이 있으면 그 콘솔에서 exit를 입력해 종료해 주세요.",
-        "다른 포트를 쓰려면 dashboard 설정에서 포트를 바꾼 뒤 다시 시작해 주세요.",
-      ].join("\n"),
+      formatLocaleText(locale, "error.userFacing.dashboardPortInUse", {
+        endpoint: `${host}:${port}`,
+      }),
     );
   }
   return error;

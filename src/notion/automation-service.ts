@@ -9,7 +9,7 @@ import {
   resolveAppLocale,
   type AppLocaleResolver,
 } from "../i18n/app-locale.js";
-import { t, type LocaleKey } from "../i18n/catalog.js";
+import { formatLocaleText, t, type LocaleKey } from "../i18n/catalog.js";
 import { PollingLoop } from "../runtime/polling-loop.js";
 import type { DirongLocale } from "../settings/local-settings-store.js";
 import { DEFAULT_PROJECT_ID } from "../projects/project-types.js";
@@ -112,6 +112,7 @@ export class NotionAutomationService {
   constructor(private readonly options: NotionAutomationServiceOptions) {
     const runtime = this.getRuntime();
     const projectId = this.resolveProjectId();
+    const locale = this.resolveLocale();
     this.snapshot = this.makeSnapshot({
       enabled: runtime.settings.enabled,
       configured: isConfigured(runtime, options.registryStore ?? null, projectId),
@@ -123,8 +124,13 @@ export class NotionAutomationService {
       targetId: null,
       writeId: null,
       pageUrl: null,
-      message: initialMessage(runtime, options.registryStore ?? null, projectId),
-      userAction: initialUserAction(runtime, options.registryStore ?? null, projectId),
+      message: initialMessage(runtime, options.registryStore ?? null, projectId, locale),
+      userAction: initialUserAction(
+        runtime,
+        options.registryStore ?? null,
+        projectId,
+        locale,
+      ),
       technicalDetail: null,
       lastRunStatus: null,
       inFlightDraftIds: [],
@@ -138,8 +144,8 @@ export class NotionAutomationService {
           ...this.snapshot,
           status: "failed",
           checkedAt: new Date().toISOString(),
-          message: "Notion 자동 업로드 확인 중 오류가 발생했습니다.",
-          userAction: "local draft는 보존됩니다. Notion 설정과 로그를 확인해 주세요.",
+          message: this.messageForStatus("failed"),
+          userAction: this.userActionForStatus("failed"),
           technicalDetail: summarizeSafeError(error),
         });
       },
@@ -150,6 +156,7 @@ export class NotionAutomationService {
     if (this.snapshot.status === "stopped") {
       const runtime = this.getRuntime();
       const projectId = this.resolveProjectId();
+      const locale = this.resolveLocale();
       this.snapshot = this.makeSnapshot({
         ...clearRunSpecificFields(this.snapshot),
         enabled: runtime.settings.enabled,
@@ -157,8 +164,18 @@ export class NotionAutomationService {
         uploadMode: runtime.settings.uploadMode,
         status: initialStatus(runtime, this.options.registryStore ?? null, projectId),
         checkedAt: new Date().toISOString(),
-        message: initialMessage(runtime, this.options.registryStore ?? null, projectId),
-        userAction: initialUserAction(runtime, this.options.registryStore ?? null, projectId),
+        message: initialMessage(
+          runtime,
+          this.options.registryStore ?? null,
+          projectId,
+          locale,
+        ),
+        userAction: initialUserAction(
+          runtime,
+          this.options.registryStore ?? null,
+          projectId,
+          locale,
+        ),
         technicalDetail: null,
         inFlightDraftIds: this.getInFlightDraftIds(),
       });
@@ -172,7 +189,7 @@ export class NotionAutomationService {
       ...this.snapshot,
       status: "stopped",
       checkedAt: new Date().toISOString(),
-      message: "Notion 자동 업로드 중지됨",
+      message: this.messageForStatus("stopped"),
       userAction: null,
       inFlightDraftIds: this.getInFlightDraftIds(),
     });
@@ -215,7 +232,7 @@ export class NotionAutomationService {
         ...this.snapshot,
         status: "running",
         checkedAt,
-        message: "Notion 업로드 진행 중",
+        message: this.messageForStatus("running"),
         userAction: null,
         repairedExpiredLeases,
         inFlightDraftIds: this.getInFlightDraftIds(),
@@ -244,6 +261,7 @@ export class NotionAutomationService {
       runtime.client,
       this.options.registryStore ?? null,
       projectId,
+      this.resolveLocale(),
     );
     if (!target.ok) {
       this.snapshot = this.makeSnapshot({
@@ -281,7 +299,7 @@ export class NotionAutomationService {
         targetId: target.targetId,
         writeId: null,
         pageUrl: null,
-        message: "Notion 자동 업로드 대기 중: 업로드할 valid draft 없음",
+        message: this.messageForStatus("idle"),
         userAction: null,
         technicalDetail: null,
         lastRunStatus: null,
@@ -315,7 +333,7 @@ export class NotionAutomationService {
       sessionId: candidate.session_id,
       draftId: candidate.id,
       targetId,
-      message: "Notion 자동 업로드 실행 중",
+      message: this.messageForStatus("running"),
       userAction: null,
       technicalDetail: null,
       repairedExpiredLeases,
@@ -338,6 +356,7 @@ export class NotionAutomationService {
         memberRosterStore: this.options.memberRosterStore ?? null,
         customPropertyRules: this.options.customPropertyRules?.() ?? [],
         signal,
+        locale: this.resolveLocale(),
       });
       await applyRetentionAfterSuccessfulUpload(
         this.options.retention,
@@ -354,9 +373,8 @@ export class NotionAutomationService {
         ...this.snapshot,
         status: "failed",
         checkedAt: new Date().toISOString(),
-        message: "Notion 자동 업로드 중 오류가 발생했습니다. local draft는 보존됩니다.",
-        userAction:
-          "Notion 설정과 dashboard의 최신 Notion write 상태를 확인한 뒤 수동 Retry를 시도해 주세요.",
+        message: this.messageForStatus("failed"),
+        userAction: this.userActionForStatus("failed"),
         technicalDetail: summarizeSafeError(error),
         repairedExpiredLeases,
       });
@@ -393,6 +411,15 @@ export class NotionAutomationService {
     return makeSnapshot(snapshot, this.resolveLocale());
   }
 
+  private messageForStatus(status: NotionAutomationStatus): string {
+    return t(this.resolveLocale(), notionAutomationMessageKey(status));
+  }
+
+  private userActionForStatus(status: NotionAutomationStatus): string | null {
+    const key = notionAutomationUserActionKey(status);
+    return key ? t(this.resolveLocale(), key) : null;
+  }
+
   private resolveLocale(): DirongLocale {
     return resolveAppLocale({ getLocale: this.options.localeResolver });
   }
@@ -413,9 +440,15 @@ export function formatNotionAutomationForStatus(
   const display = localized.display ?? buildNotionAutomationDisplay(resolvedLocale, localized);
   const lines = [
     formatHumanStatusDisplayForText(display, {
-      title: "Notion 자동 업로드",
-      description: "설명",
-      nextAction: "Notion 조치",
+      title: t(resolvedLocale, "runtimeStatus.notionAutomation.statusText.title"),
+      description: t(
+        resolvedLocale,
+        "runtimeStatus.notionAutomation.statusText.description",
+      ),
+      nextAction: t(
+        resolvedLocale,
+        "runtimeStatus.notionAutomation.statusText.nextAction",
+      ),
     }),
     `Notion mode: ${snapshot.uploadMode}`,
   ];
@@ -426,7 +459,11 @@ export function formatNotionAutomationForStatus(
     lines.push(`Notion page: ${snapshot.pageUrl}`);
   }
   if (snapshot.repairedExpiredLeases > 0) {
-    lines.push(`Notion lease 복구: ${snapshot.repairedExpiredLeases}개`);
+    lines.push(formatLocaleText(
+      resolvedLocale,
+      "runtimeStatus.notionAutomation.statusText.leaseRepair",
+      { count: snapshot.repairedExpiredLeases },
+    ));
   }
   return lines.join("\n");
 }
@@ -459,6 +496,7 @@ async function resolveAutomationTargetId(
   client: NotionClient | null,
   registryStore: NotionRegistryStore | null,
   projectId: string,
+  locale: DirongLocale,
 ): Promise<
   | { ok: true; targetId: string }
   | {
@@ -499,8 +537,7 @@ async function resolveAutomationTargetId(
       ok: false,
       status: "not_configured",
       message: "Notion target URL is missing.",
-      userAction:
-        "설정 화면에서 managed Notion DB를 생성하거나 업로드 대상을 다시 연결해 주세요.",
+      userAction: t(locale, "runtimeStatus.notionAutomation.target.missingAction"),
       technicalDetail: null,
     };
   }
@@ -511,8 +548,7 @@ async function resolveAutomationTargetId(
       ok: false,
       status: "not_configured",
       message: "Notion target URL is invalid.",
-      userAction:
-        "Notion 데이터베이스 또는 data source URL을 다시 복사해 붙여넣어 주세요.",
+      userAction: t(locale, "runtimeStatus.notionAutomation.target.invalidAction"),
       technicalDetail: parsed.reason,
     };
   }
@@ -525,7 +561,7 @@ async function resolveAutomationTargetId(
       ok: false,
       status: "not_configured",
       message: "Notion client is not available.",
-      userAction: "설정 마법사에 저장한 Notion 연결 토큰을 확인해 주세요.",
+      userAction: t(locale, "runtimeStatus.notionAutomation.target.clientMissingAction"),
       technicalDetail: null,
     };
   }
@@ -538,8 +574,10 @@ async function resolveAutomationTargetId(
         ok: false,
         status: "blocked",
         message: "Notion database must contain exactly one child data source.",
-        userAction:
-          "Notion database에 data source가 여러 개이면 업로드할 data source URL을 직접 복사해 주세요.",
+        userAction: t(
+          locale,
+          "runtimeStatus.notionAutomation.target.multipleDataSourcesAction",
+        ),
         technicalDetail: `child data source count: ${dataSources.length}`,
       };
     }
@@ -549,7 +587,10 @@ async function resolveAutomationTargetId(
         ok: false,
         status: "blocked",
         message: "Notion data source id is missing.",
-        userAction: "Notion data source URL을 다시 복사해 붙여넣어 주세요.",
+        userAction: t(
+          locale,
+          "runtimeStatus.notionAutomation.target.dataSourceMissingAction",
+        ),
         technicalDetail: "database child data source id missing",
       };
     }
@@ -610,8 +651,8 @@ function blockedSnapshot(
       uploadMode: runtime.settings.uploadMode,
       status: "disabled",
       checkedAt,
-      message: "Notion export is disabled.",
-      userAction: "자동 업로드를 쓰려면 Notion 설정에서 업로드를 켜 주세요.",
+      message: t(locale, "runtimeStatus.notionAutomation.disabled.message"),
+      userAction: t(locale, "runtimeStatus.notionAutomation.disabled.action"),
       technicalDetail: null,
     }, locale);
   }
@@ -623,9 +664,8 @@ function blockedSnapshot(
       uploadMode: runtime.settings.uploadMode,
       status: "manual",
       checkedAt,
-      message: "Notion upload is in manual mode.",
-      userAction:
-        "자동 업로드를 쓰려면 Notion 설정에서 자동 업로드 모드를 선택해 주세요.",
+      message: t(locale, "runtimeStatus.notionAutomation.manual.message"),
+      userAction: t(locale, "runtimeStatus.notionAutomation.manual.action"),
       technicalDetail: null,
     }, locale);
   }
@@ -637,9 +677,11 @@ function blockedSnapshot(
       uploadMode: runtime.settings.uploadMode,
       status: "not_configured",
       checkedAt,
-      message: "Notion automatic upload settings are incomplete.",
-      userAction:
-        "설정 마법사에서 Notion 연결 토큰과 managed DB 설정을 완료해 주세요.",
+      message: t(locale, "runtimeStatus.notionAutomation.notConfigured.message"),
+      userAction: t(
+        locale,
+        "runtimeStatus.notionAutomation.notConfigured.action",
+      ),
       technicalDetail: null,
     }, locale);
   }
@@ -680,32 +722,34 @@ function initialMessage(
   runtime: NotionAutomationRuntime,
   registryStore: NotionRegistryStore | null,
   projectId: string,
+  locale: DirongLocale,
 ): string {
   if (!runtime.settings.enabled) {
-    return "Notion export is disabled.";
+    return t(locale, "runtimeStatus.notionAutomation.disabled.message");
   }
   if (runtime.settings.uploadMode !== "automatic_after_ai_cleanup") {
-    return "Notion upload is in manual mode.";
+    return t(locale, "runtimeStatus.notionAutomation.manual.message");
   }
   if (!isConfigured(runtime, registryStore, projectId)) {
-    return "Notion automatic upload settings are incomplete.";
+    return t(locale, "runtimeStatus.notionAutomation.notConfigured.message");
   }
-  return "Notion 자동 업로드 대기 중";
+  return t(locale, "runtimeStatus.notionAutomation.idle.message");
 }
 
 function initialUserAction(
   runtime: NotionAutomationRuntime,
   registryStore: NotionRegistryStore | null,
   projectId: string,
+  locale: DirongLocale,
 ): string | null {
   if (!runtime.settings.enabled) {
-    return "자동 업로드를 쓰려면 Notion 설정에서 업로드를 켜 주세요.";
+    return t(locale, "runtimeStatus.notionAutomation.disabled.action");
   }
   if (runtime.settings.uploadMode !== "automatic_after_ai_cleanup") {
-    return "자동 업로드를 쓰려면 Notion 설정에서 자동 업로드 모드를 선택해 주세요.";
+    return t(locale, "runtimeStatus.notionAutomation.manual.action");
   }
   if (!isConfigured(runtime, registryStore, projectId)) {
-    return "설정 마법사에서 Notion 연결 토큰과 managed DB 설정을 완료해 주세요.";
+    return t(locale, "runtimeStatus.notionAutomation.notConfigured.action");
   }
   return null;
 }

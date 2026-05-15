@@ -23,6 +23,8 @@ import type {
   NotionManagedDatabase,
   NotionPropertyMapping,
 } from "./registry-store.js";
+import { formatLocaleText, t } from "../i18n/catalog.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 
 export type ManagedSchemaIssueCode =
   | "mapping_missing"
@@ -97,7 +99,9 @@ export function buildManagedSchemaDiff(input: {
   mappings: readonly NotionPropertyMapping[];
   managedDatabases: readonly NotionManagedDatabase[];
   preset?: NotionSchemaPreset;
+  locale?: DirongLocale;
 }): ManagedSchemaDiff {
+  const locale = input.locale ?? "ko";
   const preset = input.preset ?? KOREAN_NOTION_SCHEMA_PRESET;
   const expectedProperties = preset.databases[input.databaseRole].properties;
   const mappingsByKey = new Map(
@@ -130,6 +134,7 @@ export function buildManagedSchemaDiff(input: {
       matchedByKey,
       mappingsByKey,
       issues,
+      locale,
     });
   }
   collectExtraIssues({
@@ -137,6 +142,7 @@ export function buildManagedSchemaDiff(input: {
     actualProperties,
     matchedByKey,
     issues,
+    locale,
   });
 
   const warnings = issues
@@ -192,6 +198,7 @@ export function validateManagedDataSourceSchemaForUpload(input: {
   managedDatabases: readonly NotionManagedDatabase[];
   requiredSemanticKeys: readonly NotionPropertySemanticKey[];
   preset?: NotionSchemaPreset;
+  locale?: DirongLocale;
 }): NotionSemanticSchemaValidation {
   const diff = buildManagedSchemaDiff({
     databaseRole: input.databaseRole,
@@ -199,6 +206,7 @@ export function validateManagedDataSourceSchemaForUpload(input: {
     mappings: input.mappings,
     managedDatabases: input.managedDatabases,
     preset: input.preset,
+    locale: input.locale,
   });
   const required = new Set(input.requiredSemanticKeys);
   const missing: NotionSemanticSchemaMissing[] = [];
@@ -264,6 +272,7 @@ export function validateManagedDataSourceSchemaForUpload(input: {
       missing,
       wrongType,
       missingOptions,
+      locale: input.locale ?? "ko",
     }),
   };
 }
@@ -275,6 +284,7 @@ function collectRequiredPropertyIssues(input: {
   matchedByKey: ReadonlyMap<NotionPropertySemanticKey, MatchedProperty>;
   mappingsByKey: ReadonlyMap<NotionPropertySemanticKey, NotionPropertyMapping>;
   issues: ManagedSchemaIssue[];
+  locale: DirongLocale;
 }): void {
   const { expected, mapping, actual } = input.match;
   const propertyName = mapping?.propertyName ?? expected.name;
@@ -288,7 +298,11 @@ function collectRequiredPropertyIssues(input: {
       propertyId: null,
       expected: expected.name,
       actual: null,
-      message: `${expected.key}: SQLite property mapping이 없습니다.`,
+      message: formatLocaleText(
+        input.locale,
+        "notionDashboardService.managedSchemaDiff.issue.mappingMissing",
+        { semanticKey: expected.key },
+      ),
     });
   }
 
@@ -304,8 +318,16 @@ function collectRequiredPropertyIssues(input: {
       actual: null,
       message:
         expected.type === "title"
-          ? `${expected.key}: Notion title 속성은 API로 복구할 수 없습니다.`
-          : `${expected.key}: Notion property를 찾지 못했습니다.`,
+          ? formatLocaleText(
+              input.locale,
+              "notionDashboardService.managedSchemaDiff.issue.remoteMissingTitleUnsupported",
+              { semanticKey: expected.key },
+            )
+          : formatLocaleText(
+              input.locale,
+              "notionDashboardService.managedSchemaDiff.issue.remoteMissing",
+              { semanticKey: expected.key },
+            ),
     });
     return;
   }
@@ -320,7 +342,15 @@ function collectRequiredPropertyIssues(input: {
       propertyId: actual.id,
       expected: expected.type,
       actual: actual.type,
-      message: `${expected.key}: Notion property type이 다릅니다 (${actual.type} -> ${expected.type}).`,
+      message: formatLocaleText(
+        input.locale,
+        "notionDashboardService.managedSchemaDiff.issue.wrongType",
+        {
+          semanticKey: expected.key,
+          actual: actual.type,
+          expected: expected.type,
+        },
+      ),
     });
     return;
   }
@@ -335,7 +365,11 @@ function collectRequiredPropertyIssues(input: {
       propertyId: actual.id,
       expected: mapping.propertyName,
       actual: actual.name,
-      message: `${expected.key}: 연결된 Notion property 이름이 바뀌었습니다.`,
+      message: formatLocaleText(
+        input.locale,
+        "notionDashboardService.managedSchemaDiff.issue.nameDrift",
+        { semanticKey: expected.key },
+      ),
     });
   }
 
@@ -349,7 +383,11 @@ function collectRequiredPropertyIssues(input: {
       propertyId: actual.id,
       expected: mapping.propertyId,
       actual: actual.id,
-      message: `${expected.key}: registry의 property id와 일치하는 Notion property를 찾지 못했고 이름 후보만 찾았습니다.`,
+      message: formatLocaleText(
+        input.locale,
+        "notionDashboardService.managedSchemaDiff.issue.idMismatchNameCandidate",
+        { semanticKey: expected.key },
+      ),
     });
   }
 
@@ -359,6 +397,7 @@ function collectRequiredPropertyIssues(input: {
     actual,
     managedDatabases: input.managedDatabases,
     issues: input.issues,
+    locale: input.locale,
   });
   collectRollupIssue({
     databaseRole: input.databaseRole,
@@ -367,12 +406,14 @@ function collectRequiredPropertyIssues(input: {
     matchedByKey: input.matchedByKey,
     mappingsByKey: input.mappingsByKey,
     issues: input.issues,
+    locale: input.locale,
   });
   collectOptionIssue({
     databaseRole: input.databaseRole,
     expected,
     actual,
     issues: input.issues,
+    locale: input.locale,
   });
 }
 
@@ -380,33 +421,49 @@ function buildManagedUploadUserAction(input: {
   missing: readonly NotionSemanticSchemaMissing[];
   wrongType: readonly NotionSemanticSchemaWrongType[];
   missingOptions: readonly NotionSchemaMissingOption[];
+  locale: DirongLocale;
 }): string {
   const messages: string[] = [];
   if (input.missing.length > 0) {
-    messages.push(
-      `Managed Notion DB에 필요한 semantic 속성을 확인해 주세요: ${input.missing
+    messages.push(formatLocaleText(
+      input.locale,
+      "notionDashboardService.managedSchemaDiff.uploadAction.missing",
+      {
+        items: input.missing
         .map((item) => `${item.semanticKey}(${item.property})`)
-        .join(", ")}`,
-    );
+        .join(", "),
+      },
+    ));
   }
   if (input.wrongType.length > 0) {
-    messages.push(
-      `Managed Notion DB 속성 타입/관계를 확인해 주세요: ${input.wrongType
+    messages.push(formatLocaleText(
+      input.locale,
+      "notionDashboardService.managedSchemaDiff.uploadAction.wrongType",
+      {
+        items: input.wrongType
         .map(
           (item) =>
             `${item.semanticKey}:${item.property}(${item.actual} -> ${item.expected})`,
         )
-        .join(", ")}`,
-    );
+        .join(", "),
+      },
+    ));
   }
   if (input.missingOptions.length > 0) {
-    messages.push(
-      `Managed Notion DB 옵션을 확인해 주세요: ${input.missingOptions
+    messages.push(formatLocaleText(
+      input.locale,
+      "notionDashboardService.managedSchemaDiff.uploadAction.missingOptions",
+      {
+        items: input.missingOptions
         .map((item) => `${item.property}(${item.missingOptions.join(", ")})`)
-        .join(", ")}`,
-    );
+        .join(", "),
+      },
+    ));
   }
-  messages.push("DB 설정 화면에서 Notion 상태를 다시 확인하고 복구 계획을 적용해 주세요.");
+  messages.push(t(
+    input.locale,
+    "notionDashboardService.managedSchemaDiff.uploadAction.checkAgain",
+  ));
   return messages.join(" ");
 }
 
@@ -416,6 +473,7 @@ function collectRelationIssue(input: {
   actual: ManagedActualProperty;
   managedDatabases: readonly NotionManagedDatabase[];
   issues: ManagedSchemaIssue[];
+  locale: DirongLocale;
 }): void {
   if (input.expected.type !== "relation" || !input.expected.relation) {
     return;
@@ -438,7 +496,11 @@ function collectRelationIssue(input: {
       actual: actualDataSourceId,
       expectedDataSourceId,
       actualDataSourceId,
-      message: `${input.expected.key}: relation 대상 DB/data source가 다릅니다.`,
+      message: formatLocaleText(
+        input.locale,
+        "notionDashboardService.managedSchemaDiff.issue.relationTargetMismatch",
+        { semanticKey: input.expected.key },
+      ),
     });
   }
 }
@@ -450,6 +512,7 @@ function collectRollupIssue(input: {
   matchedByKey: ReadonlyMap<NotionPropertySemanticKey, MatchedProperty>;
   mappingsByKey: ReadonlyMap<NotionPropertySemanticKey, NotionPropertyMapping>;
   issues: ManagedSchemaIssue[];
+  locale: DirongLocale;
 }): void {
   if (input.expected.type !== "rollup" || !input.expected.rollup) {
     return;
@@ -476,7 +539,11 @@ function collectRollupIssue(input: {
       actual: rollup
         ? `${rollup.relationPropertyName ?? rollup.relationPropertyId ?? "unknown"} -> ${rollup.rollupPropertyName ?? rollup.rollupPropertyId ?? "unknown"}`
         : null,
-      message: `${input.expected.key}: rollup relation/target property가 다릅니다.`,
+      message: formatLocaleText(
+        input.locale,
+        "notionDashboardService.managedSchemaDiff.issue.rollupTargetMismatch",
+        { semanticKey: input.expected.key },
+      ),
     });
   }
 }
@@ -486,6 +553,7 @@ function collectOptionIssue(input: {
   expected: NotionSchemaPresetProperty;
   actual: ManagedActualProperty;
   issues: ManagedSchemaIssue[];
+  locale: DirongLocale;
 }): void {
   const expectedOptions = input.expected.options ?? [];
   if (expectedOptions.length === 0) {
@@ -515,7 +583,14 @@ function collectOptionIssue(input: {
     actual: [...optionNames].join(", "),
     missingOptions,
     existingOptions: readExistingOptionRefs(input.actual.property, input.actual.type),
-    message: `${input.expected.key}: Notion option이 부족합니다 (${missingOptions.join(", ")}).`,
+    message: formatLocaleText(
+      input.locale,
+      "notionDashboardService.managedSchemaDiff.issue.optionMissing",
+      {
+        semanticKey: input.expected.key,
+        options: missingOptions.join(", "),
+      },
+    ),
   });
 }
 
@@ -524,6 +599,7 @@ function collectExtraIssues(input: {
   actualProperties: readonly ManagedActualProperty[];
   matchedByKey: ReadonlyMap<NotionPropertySemanticKey, MatchedProperty>;
   issues: ManagedSchemaIssue[];
+  locale: DirongLocale;
 }): void {
   const consumed = new Set<ManagedActualProperty>();
   for (const match of input.matchedByKey.values()) {
@@ -545,7 +621,11 @@ function collectExtraIssues(input: {
       propertyId: actual.id,
       expected: null,
       actual: actual.type,
-      message: `${actual.name}: Dirong managed registry에 없는 Notion property입니다. 자동 삭제하지 않습니다.`,
+      message: formatLocaleText(
+        input.locale,
+        "notionDashboardService.managedSchemaDiff.issue.extra",
+        { propertyName: actual.name },
+      ),
     });
   }
 }

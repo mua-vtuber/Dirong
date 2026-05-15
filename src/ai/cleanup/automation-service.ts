@@ -8,7 +8,7 @@ import {
   resolveAppLocale,
   type AppLocaleResolver,
 } from "../../i18n/app-locale.js";
-import { t, type LocaleKey } from "../../i18n/catalog.js";
+import { formatLocaleText, t, type LocaleKey } from "../../i18n/catalog.js";
 import type { DirongLocale } from "../../settings/local-settings-store.js";
 import type {
   AiCleanupJobRow,
@@ -127,9 +127,9 @@ export class AiCleanupAutomationService {
       checkedAt: null,
       sessionId: null,
       message: options.enabled
-        ? "AI cleanup 자동 실행 대기 중"
-        : "AI cleanup 자동 실행이 꺼져 있습니다.",
-      userAction: options.enabled ? null : "필요하면 수동 Phase 4 CLI를 실행해 주세요.",
+        ? this.messageForStatus("idle")
+        : this.messageForStatus("disabled"),
+      userAction: options.enabled ? null : this.userActionForStatus("disabled"),
       technicalDetail: null,
       stt: null,
       job: null,
@@ -162,8 +162,8 @@ export class AiCleanupAutomationService {
       ...this.snapshot,
       status: "failed",
       checkedAt: new Date().toISOString(),
-      message: "AI cleanup 자동 실행 확인 중 오류가 발생했습니다.",
-      userAction: "녹음/STT는 보존됩니다. 로그와 dashboard 상태를 확인해 주세요.",
+      message: this.messageForStatus("failed"),
+      userAction: this.userActionForStatus("failed"),
       technicalDetail: summarizeSafeError(error),
       progress: null,
     });
@@ -174,7 +174,7 @@ export class AiCleanupAutomationService {
       ...this.snapshot,
       status: "stopped",
       checkedAt: new Date().toISOString(),
-      message: "AI cleanup 자동 실행 중지됨",
+      message: this.messageForStatus("stopped"),
       userAction: null,
       inFlightSessionIds: this.getInFlightSessionIds(),
       progress: null,
@@ -196,8 +196,8 @@ export class AiCleanupAutomationService {
         ...this.snapshot,
         status: "disabled",
         checkedAt: new Date().toISOString(),
-        message: "AI cleanup 자동 실행이 꺼져 있습니다.",
-        userAction: "필요하면 수동 Phase 4 CLI를 실행해 주세요.",
+        message: this.messageForStatus("disabled"),
+        userAction: this.userActionForStatus("disabled"),
         progress: null,
       });
       return this.getSnapshot();
@@ -263,7 +263,7 @@ export class AiCleanupAutomationService {
         ...this.snapshot,
         status: "running",
         checkedAt,
-        message: "회의록 생성 중",
+        message: this.messageForStatus("running"),
         userAction: null,
         repairedExpiredJobs,
         repairedExpiredSttLeases,
@@ -280,10 +280,10 @@ export class AiCleanupAutomationService {
         status: "waiting_for_ai_provider",
         checkedAt,
         sessionId: null,
-        message: "AI cleanup 대기 중: AI 준비가 필요합니다.",
+        message: this.messageForStatus("waiting_for_ai_provider"),
         userAction:
           readiness.userAction ??
-          "AI provider 상태를 확인한 뒤 준비가 완료되면 자동으로 다시 시도합니다.",
+          this.userActionForStatus("waiting_for_ai_provider"),
         technicalDetail: readiness.technicalDetail,
         stt: null,
         job: null,
@@ -308,7 +308,7 @@ export class AiCleanupAutomationService {
         status: "waiting_for_finalized_session",
         checkedAt,
         sessionId: null,
-        message: "AI cleanup 대기 중: finalized 세션을 기다리는 중",
+        message: this.messageForStatus("waiting_for_finalized_session"),
         userAction: null,
         technicalDetail: null,
         stt: null,
@@ -337,7 +337,7 @@ export class AiCleanupAutomationService {
           status: "waiting_for_stt",
           checkedAt,
           sessionId: session.id,
-          message: "STT 완료 대기 중",
+          message: this.messageForStatus("waiting_for_stt"),
           userAction: null,
           technicalDetail: null,
           stt,
@@ -380,7 +380,7 @@ export class AiCleanupAutomationService {
           status: "running",
           checkedAt,
           sessionId: session.id,
-          message: "회의록 생성 중",
+          message: this.messageForStatus("running"),
           userAction: null,
           technicalDetail: null,
           stt,
@@ -402,8 +402,8 @@ export class AiCleanupAutomationService {
           status: existingStatusToAutomationStatus(existingJob.status),
           checkedAt,
           sessionId: session.id,
-          message: messageForExistingJob(existingJob),
-          userAction: userActionForExistingJob(existingJob),
+          message: messageForExistingJob(existingJob, this.resolveLocale()),
+          userAction: userActionForExistingJob(existingJob, this.resolveLocale()),
           technicalDetail: existingJob.last_error,
           stt,
           job: makeJobSnapshot(existingJob),
@@ -424,8 +424,8 @@ export class AiCleanupAutomationService {
           status: "not_claimed",
           checkedAt,
           sessionId: session.id,
-          message: "AI cleanup job 재시도 시간을 기다리는 중",
-          userAction: "재시도 시간이 오면 자동으로 다시 실행됩니다.",
+          message: this.messageForStatus("not_claimed"),
+          userAction: this.userActionForStatus("not_claimed"),
           technicalDetail: existingJob.last_error,
           stt,
           job: makeJobSnapshot(existingJob),
@@ -443,7 +443,7 @@ export class AiCleanupAutomationService {
           status: "waiting_for_stt",
           checkedAt,
           sessionId: session.id,
-          message: "AI cleanup 대기 중: STT terminal 조건을 기다리는 중",
+          message: this.messageForStatus("waiting_for_stt"),
           userAction: null,
           technicalDetail: null,
           stt,
@@ -473,7 +473,7 @@ export class AiCleanupAutomationService {
         status: "idle",
         checkedAt,
         sessionId: null,
-        message: "AI cleanup 자동 실행 대기 중",
+        message: this.messageForStatus("idle"),
         userAction: null,
         technicalDetail: null,
         stt: null,
@@ -502,8 +502,8 @@ export class AiCleanupAutomationService {
       sessionId,
       message:
         existingJob?.status === "queued"
-          ? "AI cleanup job 실행 준비 중"
-          : "회의록 생성 중",
+          ? this.messageForStatus("queued")
+          : this.messageForStatus("running"),
       userAction: null,
       technicalDetail: null,
       stt,
@@ -545,11 +545,11 @@ export class AiCleanupAutomationService {
         checkedAt: new Date().toISOString(),
         sessionId,
         message: providerFailure
-          ? "AI cleanup 대기 중: AI provider를 다시 확인해야 합니다."
-          : "AI cleanup 자동 실행 중 오류가 발생했습니다. 녹음/STT는 보존됩니다.",
+          ? this.messageForStatus("waiting_for_ai_provider")
+          : this.messageForStatus("failed"),
         userAction: providerFailure
-          ? "AI CLI 설치/로그인 상태를 확인해 주세요. 녹음과 STT 결과는 보존됩니다."
-          : "로그와 dashboard 상태를 확인한 뒤 필요하면 수동 Phase 4 CLI로 재시도해 주세요.",
+          ? this.userActionForStatus("waiting_for_ai_provider")
+          : this.userActionForStatus("failed"),
         technicalDetail: summarizeSafeError(error),
         stt,
         job: null,
@@ -605,6 +605,15 @@ export class AiCleanupAutomationService {
     return makeSnapshot(snapshot, this.resolveLocale());
   }
 
+  private messageForStatus(status: AiCleanupAutomationStatus): string {
+    return t(this.resolveLocale(), aiCleanupAutomationMessageKey(status));
+  }
+
+  private userActionForStatus(status: AiCleanupAutomationStatus): string | null {
+    const key = aiCleanupAutomationUserActionKey(status);
+    return key ? t(this.resolveLocale(), key) : null;
+  }
+
   private resolveLocale(): DirongLocale {
     return resolveAppLocale({ getLocale: this.options.localeResolver });
   }
@@ -627,16 +636,18 @@ export function formatAiCleanupAutomationForStatus(
   const resolvedLocale = resolveAppLocale({ locale });
   const localized = localizeAiCleanupAutomationSnapshot(snapshot, resolvedLocale);
   const lines = [
-    `AI cleanup 자동화: ${localized.message}`,
-    `AI cleanup provider: ${snapshot.provider} / ${snapshot.model}`,
+    `${t(resolvedLocale, "runtimeStatus.aiCleanupAutomation.statusText.automation")}: ${localized.message}`,
+    `${t(resolvedLocale, "runtimeStatus.aiCleanupAutomation.statusText.provider")}: ${snapshot.provider} / ${snapshot.model}`,
   ];
   if (snapshot.sessionId) {
-    lines.push(`AI cleanup 세션: ${snapshot.sessionId}`);
+    lines.push(
+      `${t(resolvedLocale, "runtimeStatus.aiCleanupAutomation.statusText.session")}: ${snapshot.sessionId}`,
+    );
   }
   if (snapshot.stt) {
     lines.push(
       [
-        "AI cleanup STT:",
+        `${t(resolvedLocale, "runtimeStatus.aiCleanupAutomation.statusText.stt")}:`,
         `done:${snapshot.stt.sttDoneCount}`,
         `failed:${snapshot.stt.sttFailedCount}`,
         `missing_file:${snapshot.stt.sttFailedMissingFileCount}`,
@@ -647,7 +658,7 @@ export function formatAiCleanupAutomationForStatus(
   if (snapshot.progress) {
     lines.push(
       [
-        "AI cleanup 진행:",
+        `${t(resolvedLocale, "runtimeStatus.aiCleanupAutomation.statusText.progress")}:`,
         snapshot.progress.phase,
         `elapsed:${snapshot.progress.elapsedMs}ms`,
         `lines:${snapshot.progress.streamLineCount}`,
@@ -657,13 +668,21 @@ export function formatAiCleanupAutomationForStatus(
     );
   }
   if (snapshot.warnings.length > 0) {
-    lines.push(`AI cleanup 주의: ${snapshot.warnings.join(", ")}`);
+    lines.push(
+      `${t(resolvedLocale, "runtimeStatus.aiCleanupAutomation.statusText.warning")}: ${snapshot.warnings.join(", ")}`,
+    );
   }
   if (snapshot.repairedExpiredSttLeases > 0) {
-    lines.push(`AI cleanup STT lease 복구: ${snapshot.repairedExpiredSttLeases}개`);
+    lines.push(formatLocaleText(
+      resolvedLocale,
+      "runtimeStatus.aiCleanupAutomation.statusText.sttLeaseRepair",
+      { count: snapshot.repairedExpiredSttLeases },
+    ));
   }
   if (localized.userAction) {
-    lines.push(`AI cleanup 조치: ${localized.userAction}`);
+    lines.push(
+      `${t(resolvedLocale, "runtimeStatus.aiCleanupAutomation.statusText.action")}: ${localized.userAction}`,
+    );
   }
   return lines.join("\n");
 }
@@ -684,8 +703,8 @@ function snapshotFromRunResult(input: {
     status,
     checkedAt: new Date().toISOString(),
     sessionId: result.sessionId,
-    message: messageForRunResult(result),
-    userAction: userActionForRunResult(result),
+    message: messageForRunResult(result, input.locale),
+    userAction: userActionForRunResult(result, input.locale),
     technicalDetail: result.error,
     stt: input.stt,
     job: result.job ? makeJobSnapshot(result.job) : null,
@@ -722,59 +741,42 @@ function existingStatusToAutomationStatus(
   return status;
 }
 
-function messageForRunResult(result: AiCleanupRunResult): string {
-  if (result.status === "done") {
-    return "회의록 초안 생성 완료";
-  }
-  if (result.status === "already_done") {
-    return "이미 회의록 초안이 있습니다.";
-  }
-  if (result.status === "blocked") {
-    return "회의록 생성 보류: 생성할 실제 발화가 없거나 입력 조건을 만족하지 않습니다.";
-  }
-  if (result.status === "failed") {
-    return "회의록 생성 실패. 실패했지만 녹음/STT는 보존됩니다.";
-  }
-  if (result.status === "not_claimed") {
-    return "AI cleanup job을 아직 실행할 수 없습니다.";
-  }
-  return "AI cleanup 자동 실행 대기 중";
+function messageForRunResult(
+  result: AiCleanupRunResult,
+  locale: DirongLocale,
+): string {
+  return t(locale, aiCleanupAutomationMessageKey(
+    resultStatusToAutomationStatus(result.status),
+  ));
 }
 
-function userActionForRunResult(result: AiCleanupRunResult): string | null {
-  if (result.status === "blocked") {
-    return "실제 STT 발화가 생기면 다시 실행됩니다. fake/no_speech만 있는 세션은 draft 없이 보류됩니다.";
-  }
-  if (result.status === "failed") {
-    return "AI provider 상태와 job 오류를 확인한 뒤 필요하면 수동 Phase 4 CLI로 재시도해 주세요.";
-  }
-  if (result.status === "not_claimed") {
-    return "이미 처리 중이거나 재시도 시간이 아직 오지 않았습니다.";
-  }
-  return null;
+function userActionForRunResult(
+  result: AiCleanupRunResult,
+  locale: DirongLocale,
+): string | null {
+  const key = aiCleanupAutomationUserActionKey(
+    resultStatusToAutomationStatus(result.status),
+  );
+  return key ? t(locale, key) : null;
 }
 
-function messageForExistingJob(job: AiCleanupJobRow): string {
-  if (job.status === "done") {
-    return "이미 회의록 초안이 있습니다.";
-  }
-  if (job.status === "blocked") {
-    return "회의록 생성 보류 상태입니다.";
-  }
-  if (job.status === "failed") {
-    return "회의록 생성 실패 상태입니다. 녹음/STT는 보존되어 있습니다.";
-  }
-  return "AI cleanup job 상태 확인 중";
+function messageForExistingJob(
+  job: AiCleanupJobRow,
+  locale: DirongLocale,
+): string {
+  return t(locale, aiCleanupAutomationMessageKey(
+    existingStatusToAutomationStatus(job.status),
+  ));
 }
 
-function userActionForExistingJob(job: AiCleanupJobRow): string | null {
-  if (job.status === "blocked") {
-    return "생성할 실제 STT 발화가 있는지 확인해 주세요.";
-  }
-  if (job.status === "failed") {
-    return "AI provider 상태와 job 오류를 확인한 뒤 필요하면 수동 Phase 4 CLI로 재시도해 주세요.";
-  }
-  return null;
+function userActionForExistingJob(
+  job: AiCleanupJobRow,
+  locale: DirongLocale,
+): string | null {
+  const key = aiCleanupAutomationUserActionKey(
+    existingStatusToAutomationStatus(job.status),
+  );
+  return key ? t(locale, key) : null;
 }
 
 function isAiCleanupJobReadyToClaim(
@@ -807,21 +809,14 @@ function retryText(
     | "missingAction"
     | "queuedMessage",
 ): string {
-  const koText: Record<typeof key, string> = {
-    disabledMessage: "AI 회의록 자동화가 꺼져 있어 재시도할 수 없습니다.",
-    disabledAction: "AI 설정을 완료한 뒤 다시 시도해 주세요.",
-    missingMessage: "재시도할 실패 job을 찾지 못했습니다.",
-    missingAction: "대시보드를 새로고침한 뒤 최신 실패 job에서 다시 시도해 주세요.",
-    queuedMessage: "회의록 생성을 다시 시도합니다.",
+  const keys: Record<typeof key, LocaleKey> = {
+    disabledMessage: "runtimeStatus.aiCleanupAutomation.retry.disabledMessage",
+    disabledAction: "runtimeStatus.aiCleanupAutomation.retry.disabledAction",
+    missingMessage: "runtimeStatus.aiCleanupAutomation.retry.missingMessage",
+    missingAction: "runtimeStatus.aiCleanupAutomation.retry.missingAction",
+    queuedMessage: "runtimeStatus.aiCleanupAutomation.retry.queuedMessage",
   };
-  const enText: Record<typeof key, string> = {
-    disabledMessage: "AI meeting-note automation is disabled, so retry cannot start.",
-    disabledAction: "Finish AI setup, then try again.",
-    missingMessage: "Could not find a failed job to retry.",
-    missingAction: "Refresh the dashboard and retry from the latest failed job.",
-    queuedMessage: "Retrying meeting-note generation.",
-  };
-  return (locale === "en" ? enText : koText)[key];
+  return t(locale, keys[key]);
 }
 
 function makeSnapshot(

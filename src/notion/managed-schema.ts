@@ -3,8 +3,9 @@ import type {
   NotionClient,
   NotionDataSourceResponse,
 } from "./client.js";
+import { formatLocaleText, t } from "../i18n/catalog.js";
 import {
-  KOREAN_NOTION_SCHEMA_PRESET,
+  notionSchemaPresetForLocale,
   type NotionDatabaseRole,
   type NotionLocale,
   type NotionPropertySemanticKey,
@@ -83,15 +84,19 @@ export async function createManagedNotionSchema(
   const validation = validateNotionSchemaPreset(preset);
   if (!validation.ok) {
     throw new Error(
-      `Notion schema preset이 유효하지 않습니다: ${validation.errors
-        .map((error) => error.message)
-        .join(" ")}`,
+      formatLocaleText(locale, "notionManagedSchema.error.invalidPreset", {
+        errors: validation.errors.map((error) => error.message).join(" "),
+      }),
     );
   }
 
   const parsedPage = parseNotionPageUrl(input.parentPageUrl);
   if (parsedPage.kind !== "page_id") {
-    throw new Error(`Notion 부모 page URL이 유효하지 않습니다: ${parsedPage.reason}`);
+    throw new Error(formatLocaleText(
+      locale,
+      "notionManagedSchema.error.invalidParentPageUrl",
+      { reason: parsedPage.reason },
+    ));
   }
 
   await input.client.retrievePage(parsedPage.id);
@@ -165,6 +170,7 @@ async function createManagedDatabase(input: {
   const databasePreset = input.preset.databases[input.role];
   const createResponse = await input.client.createDatabase(
     buildCreateDatabaseBody({
+      preset: input.preset,
       parentPageId: input.parentPageId,
       database: databasePreset,
       role: input.role,
@@ -188,6 +194,7 @@ async function createManagedDatabase(input: {
 }
 
 export function buildCreateDatabaseBody(input: {
+  preset: NotionSchemaPreset;
   parentPageId: string;
   database: NotionSchemaPresetDatabase;
   role: NotionDatabaseRole;
@@ -202,6 +209,7 @@ export function buildCreateDatabaseBody(input: {
     is_inline: false,
     initial_data_source: {
       properties: buildInitialDataSourceProperties({
+        preset: input.preset,
         database: input.database,
         role: input.role,
         createdByRole: input.createdByRole,
@@ -211,6 +219,7 @@ export function buildCreateDatabaseBody(input: {
 }
 
 function buildInitialDataSourceProperties(input: {
+  preset: NotionSchemaPreset;
   database: NotionSchemaPresetDatabase;
   role: NotionDatabaseRole;
   createdByRole: ReadonlyMap<NotionDatabaseRole, CreatedDatabaseContext>;
@@ -224,6 +233,7 @@ function buildInitialDataSourceProperties(input: {
       continue;
     }
     properties[property.name] = buildPropertySchema({
+      preset: input.preset,
       property,
       database: input.database,
       role: input.role,
@@ -234,6 +244,7 @@ function buildInitialDataSourceProperties(input: {
 }
 
 function buildPropertySchema(input: {
+  preset: NotionSchemaPreset;
   property: NotionSchemaPresetProperty;
   database: NotionSchemaPresetDatabase;
   role: NotionDatabaseRole;
@@ -267,7 +278,13 @@ function buildPropertySchema(input: {
     };
   }
   if (property.type === "relation") {
-    return { relation: buildRelationSchema(property, input.createdByRole) };
+    return {
+      relation: buildRelationSchema(
+        input.preset,
+        property,
+        input.createdByRole,
+      ),
+    };
   }
   return {
     rollup: buildRollupSchema(
@@ -279,11 +296,16 @@ function buildPropertySchema(input: {
 }
 
 function buildRelationSchema(
+  preset: NotionSchemaPreset,
   property: NotionSchemaPresetProperty,
   createdByRole: ReadonlyMap<NotionDatabaseRole, CreatedDatabaseContext>,
 ): JsonObject {
   if (!property.relation) {
-    throw new Error(`${property.key} relation target이 없습니다.`);
+    throw new Error(formatLocaleText(
+      undefined,
+      "notionManagedSchema.error.relationTargetMissing",
+      { semanticKey: property.key },
+    ));
   }
   const target = requireCreatedDatabase(
     createdByRole,
@@ -301,7 +323,7 @@ function buildRelationSchema(
         ...(source?.id ? { synced_property_id: source.id } : {}),
         synced_property_name:
           source?.name ??
-          presetPropertyName(property.relation.sourceProperty),
+          presetPropertyName(preset, property.relation.sourceProperty),
       },
     };
   }
@@ -319,7 +341,11 @@ function buildRollupSchema(
   createdByRole: ReadonlyMap<NotionDatabaseRole, CreatedDatabaseContext>,
 ): JsonObject {
   if (!property.rollup) {
-    throw new Error(`${property.key} rollup target이 없습니다.`);
+    throw new Error(formatLocaleText(
+      undefined,
+      "notionManagedSchema.error.rollupTargetMissing",
+      { semanticKey: property.key },
+    ));
   }
 
   const relation = resolveRollupRelation(
@@ -352,14 +378,14 @@ async function addTaskMeetingRelation(input: {
     (item) => item.key === "task.meeting",
   );
   if (!property) {
-    throw new Error("task.meeting preset이 없습니다.");
+    throw new Error(t(undefined, "notionManagedSchema.error.taskMeetingPresetMissing"));
   }
 
   await input.client.updateDataSource(input.task.dataSourceId, {
     properties: {
       [property.name]: buildTaskMeetingRelationSchema({
         meeting: input.meeting,
-        actionItemsName: presetPropertyName("meeting.actionItems"),
+        actionItemsName: presetPropertyName(input.preset, "meeting.actionItems"),
       }),
     },
   });
@@ -374,7 +400,7 @@ async function addTaskMeetingRelation(input: {
     meetingDataSource: await input.client.retrieveDataSource(
       input.meeting.dataSourceId,
     ),
-    expectedName: presetPropertyName("meeting.actionItems"),
+    expectedName: presetPropertyName(input.preset, "meeting.actionItems"),
   });
 
   return {
@@ -464,9 +490,14 @@ async function ensureMeetingActionItemsRelationName(input: {
     input.task.dataSourceId,
   );
   if (!relation) {
-    throw new Error(
-      `${input.meeting.role} Notion DB에서 ${input.task.role} relation을 찾지 못했습니다.`,
-    );
+    throw new Error(formatLocaleText(
+      undefined,
+      "notionManagedSchema.error.relationNotFound",
+      {
+        meetingRole: input.meeting.role,
+        taskRole: input.task.role,
+      },
+    ));
   }
   if (relation.name === input.expectedName) {
     return input.meetingDataSource;
@@ -501,14 +532,21 @@ function findRelationToDataSource(
   return null;
 }
 
-function presetPropertyName(semanticKey: NotionPropertySemanticKey): string {
-  for (const database of Object.values(KOREAN_NOTION_SCHEMA_PRESET.databases)) {
+function presetPropertyName(
+  preset: NotionSchemaPreset,
+  semanticKey: NotionPropertySemanticKey,
+): string {
+  for (const database of Object.values(preset.databases)) {
     const property = database.properties.find((item) => item.key === semanticKey);
     if (property) {
       return property.name;
     }
   }
-  throw new Error(`${semanticKey} preset property를 찾지 못했습니다.`);
+  throw new Error(formatLocaleText(
+    undefined,
+    "notionManagedSchema.error.presetPropertyMissing",
+    { semanticKey },
+  ));
 }
 
 function extractCreatedProperties(
@@ -520,13 +558,19 @@ function extractCreatedProperties(
   for (const presetProperty of database.properties) {
     const actual = actualByName.get(presetProperty.name);
     if (!actual) {
-      throw new Error(
-        `Notion data source 응답에서 ${presetProperty.name} 속성을 찾지 못했습니다.`,
-      );
+      throw new Error(formatLocaleText(
+        undefined,
+        "notionManagedSchema.error.dataSourcePropertyMissing",
+        { propertyName: presetProperty.name },
+      ));
     }
     const actualType = readOptionalString(actual, "type");
     if (!actualType) {
-      throw new Error(`${presetProperty.name} 속성 type을 찾지 못했습니다.`);
+      throw new Error(formatLocaleText(
+        undefined,
+        "notionManagedSchema.error.propertyTypeMissing",
+        { propertyName: presetProperty.name },
+      ));
     }
     properties.set(presetProperty.key, {
       semanticKey: presetProperty.key,
@@ -553,7 +597,11 @@ function resolveRollupRelation(
     (property) => property.key === rollup.relationProperty,
   );
   if (!presetRelation) {
-    throw new Error(`${rollup.relationProperty} rollup relation을 찾지 못했습니다.`);
+    throw new Error(formatLocaleText(
+      undefined,
+      "notionManagedSchema.error.rollupRelationMissing",
+      { semanticKey: rollup.relationProperty },
+    ));
   }
   return {
     semanticKey: presetRelation.key,
@@ -581,7 +629,11 @@ async function retrieveFirstDataSourceId(
   const database = await client.retrieveDatabase(databaseId);
   const dataSourceId = readFirstDataSourceId(database);
   if (!dataSourceId) {
-    throw new Error(`Notion database ${databaseId}에서 data source id를 찾지 못했습니다.`);
+    throw new Error(formatLocaleText(
+      undefined,
+      "notionManagedSchema.error.dataSourceIdMissing",
+      { databaseId },
+    ));
   }
   return dataSourceId;
 }
@@ -672,7 +724,11 @@ function requireCreatedDatabase(
 ): CreatedDatabaseContext {
   const created = createdByRole.get(role);
   if (!created) {
-    throw new Error(`${role} Notion DB가 아직 생성되지 않았습니다.`);
+    throw new Error(formatLocaleText(
+      undefined,
+      "notionManagedSchema.error.databaseNotCreated",
+      { role },
+    ));
   }
   return created;
 }
@@ -683,16 +739,20 @@ function requireCreatedProperty(
 ): CreatedProperty {
   const property = context.propertiesBySemanticKey.get(semanticKey);
   if (!property) {
-    throw new Error(`${context.role}.${semanticKey} Notion 속성을 찾지 못했습니다.`);
+    throw new Error(formatLocaleText(
+      undefined,
+      "notionManagedSchema.error.createdPropertyMissing",
+      {
+        role: context.role,
+        semanticKey,
+      },
+    ));
   }
   return property;
 }
 
 function getCreatablePreset(locale: NotionLocale): NotionSchemaPreset {
-  if (locale !== "ko") {
-    throw new Error("Phase 3에서는 한국어 Notion schema preset만 생성할 수 있습니다.");
-  }
-  return KOREAN_NOTION_SCHEMA_PRESET;
+  return notionSchemaPresetForLocale(locale);
 }
 
 function semanticKeyToDatabaseRole(
@@ -721,7 +781,11 @@ function requirePresetPropertyType(value: string): NotionSchemaPresetPropertyTyp
   ) {
     return value;
   }
-  throw new Error(`지원하지 않는 Notion property type입니다: ${value}`);
+  throw new Error(formatLocaleText(
+    undefined,
+    "notionManagedSchema.error.unsupportedPropertyType",
+    { type: value },
+  ));
 }
 
 function richText(content: string): Array<{ type: "text"; text: { content: string } }> {
@@ -739,7 +803,11 @@ function readRequiredString(
 ): string {
   const result = readOptionalString(value, key);
   if (!result) {
-    throw new Error(`Notion 응답에서 ${label}를 찾지 못했습니다.`);
+    throw new Error(formatLocaleText(
+      undefined,
+      "notionManagedSchema.error.responseStringMissing",
+      { label },
+    ));
   }
   return result;
 }

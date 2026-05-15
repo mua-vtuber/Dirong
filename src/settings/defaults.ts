@@ -25,7 +25,7 @@ export const SUPPORTED_STT_SAFE_FORMATS = ["webm", "wav"] as const;
 export type SttSafeFormat = (typeof SUPPORTED_STT_SAFE_FORMATS)[number];
 
 export const DEFAULT_MEETING_NOTES_LANGUAGE: DirongLocale = "ko";
-export const CREATABLE_NOTION_SCHEMA_LOCALES = ["ko"] as const;
+export const CREATABLE_NOTION_SCHEMA_LOCALES = ["ko", "en"] as const;
 export type CreatableNotionSchemaLocale =
   (typeof CREATABLE_NOTION_SCHEMA_LOCALES)[number];
 export const SUPPORTED_CLAUDE_SETUP_MODELS = ["haiku", "sonnet", "opus"] as const;

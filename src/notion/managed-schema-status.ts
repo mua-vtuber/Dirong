@@ -1,4 +1,6 @@
 import { summarizeSafeError } from "../errors.js";
+import { formatLocaleText } from "../i18n/catalog.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 import type { NotionClient } from "./client.js";
 import { readDataSourceProperties } from "./data-source-readers.js";
 import {
@@ -8,6 +10,7 @@ import {
 } from "./managed-schema-diff.js";
 import {
   NOTION_DATABASE_ROLES,
+  notionSchemaPresetForLocale,
   type NotionDatabaseRole,
 } from "./schema-presets.js";
 import {
@@ -53,6 +56,7 @@ export class ManagedNotionSchemaStatusService {
       registryStore: NotionRegistryStore;
       projectId?: string;
       now?: () => Date;
+      locale?: DirongLocale;
     },
   ) {}
 
@@ -91,7 +95,11 @@ export class ManagedNotionSchemaStatusService {
     registry: ManagedNotionRegistrySnapshot;
     managedDatabases: readonly NotionManagedDatabase[];
   }): Promise<ManagedNotionSchemaRoleStatus> {
-    const registry = requireRegistryDatabase(input.registry, input.role);
+    const registry = requireRegistryDatabase(
+      input.registry,
+      input.role,
+      this.input.locale,
+    );
     const managedDatabase =
       input.managedDatabases.find((database) => database.role === input.role) ?? null;
     if (!managedDatabase) {
@@ -121,6 +129,8 @@ export class ManagedNotionSchemaStatusService {
           this.input.projectId,
         ),
         managedDatabases: input.managedDatabases,
+        preset: notionSchemaPresetForLocale(managedDatabase.locale),
+        locale: this.input.locale,
       });
       return {
         role: input.role,
@@ -158,10 +168,15 @@ export class ManagedNotionSchemaStatusService {
 function requireRegistryDatabase(
   registry: ManagedNotionRegistrySnapshot,
   role: NotionDatabaseRole,
+  locale?: DirongLocale,
 ): ManagedNotionRegistryDatabaseSnapshot {
   const database = registry.databases.find((item) => item.role === role);
   if (!database) {
-    throw new Error(`${role} registry snapshot을 찾지 못했습니다.`);
+    throw new Error(formatLocaleText(
+      locale,
+      "notionDashboardService.managedSchemaDiff.error.registrySnapshotMissing",
+      { role },
+    ));
   }
   return database;
 }

@@ -5,6 +5,7 @@ import {
   isDirongLocale,
   type DirongLocale,
 } from "../../settings/local-settings-store.js";
+import { t, type LocaleKey } from "../../i18n/catalog.js";
 
 export type MeetingNotesMarkdownRenderOptions = {
   maxLineLength?: number;
@@ -61,57 +62,38 @@ type MarkdownText = {
   sourceLabel: string;
 };
 
-const MARKDOWN_TEXT: Record<DirongLocale, MarkdownText> = {
-  ko: {
-    draftTitle: "회의록 초안",
-    summaryHeading: "요약",
-    topicsHeading: "주요 주제",
-    decisionsHeading: "결정 사항",
-    actionItemsHeading: "할 일 목록",
-    unresolvedHeading: "미해결/불확실한 항목",
-    noiseHeading: "잡담/노이즈 처리",
-    sourceTimelineHeading: "출처 타임라인",
-    empty: "없음",
-    decided: "확정",
-    tentative: "잠정",
-    ownerLabel: "담당",
-    dueLabel: "기한",
-    unspecified: "미지정",
-    unresolvedLabel: "미해결",
-    uncertainLabel: "불확실",
-    reasonLabel: "이유",
-    removedChatterPrefix: "제거/압축: ",
-    keptBecausePrefix: "보존 이유: ",
-    keptBecauseHeading: "보존 이유:",
-    sourceLabel: "출처",
-  },
-  en: {
-    draftTitle: "Meeting notes draft",
-    summaryHeading: "Summary",
-    topicsHeading: "Key Topics",
-    decisionsHeading: "Decisions",
-    actionItemsHeading: "Action Items",
-    unresolvedHeading: "Unresolved / Uncertain Items",
-    noiseHeading: "Chatter / Noise Handling",
-    sourceTimelineHeading: "Source Timeline",
-    empty: "None",
-    decided: "Decided",
-    tentative: "Tentative",
-    ownerLabel: "Owner",
-    dueLabel: "Due",
-    unspecified: "Unspecified",
-    unresolvedLabel: "Unresolved",
-    uncertainLabel: "Uncertain",
-    reasonLabel: "reason",
-    removedChatterPrefix: "Removed/compressed: ",
-    keptBecausePrefix: "Kept because: ",
-    keptBecauseHeading: "Kept because:",
-    sourceLabel: "Source",
-  },
+const MARKDOWN_TEXT_KEYS: Record<keyof MarkdownText, LocaleKey> = {
+  draftTitle: "meetingNotesMarkdown.draftTitle",
+  summaryHeading: "meetingNotesMarkdown.summaryHeading",
+  topicsHeading: "meetingNotesMarkdown.topicsHeading",
+  decisionsHeading: "meetingNotesMarkdown.decisionsHeading",
+  actionItemsHeading: "meetingNotesMarkdown.actionItemsHeading",
+  unresolvedHeading: "meetingNotesMarkdown.unresolvedHeading",
+  noiseHeading: "meetingNotesMarkdown.noiseHeading",
+  sourceTimelineHeading: "meetingNotesMarkdown.sourceTimelineHeading",
+  empty: "meetingNotesMarkdown.empty",
+  decided: "meetingNotesMarkdown.decided",
+  tentative: "meetingNotesMarkdown.tentative",
+  ownerLabel: "meetingNotesMarkdown.ownerLabel",
+  dueLabel: "meetingNotesMarkdown.dueLabel",
+  unspecified: "meetingNotesMarkdown.unspecified",
+  unresolvedLabel: "meetingNotesMarkdown.unresolvedLabel",
+  uncertainLabel: "meetingNotesMarkdown.uncertainLabel",
+  reasonLabel: "meetingNotesMarkdown.reasonLabel",
+  removedChatterPrefix: "meetingNotesMarkdown.removedChatterPrefix",
+  keptBecausePrefix: "meetingNotesMarkdown.keptBecausePrefix",
+  keptBecauseHeading: "meetingNotesMarkdown.keptBecauseHeading",
+  sourceLabel: "meetingNotesMarkdown.sourceLabel",
 };
 
 function markdownText(locale: unknown): MarkdownText {
-  return MARKDOWN_TEXT[isDirongLocale(locale) ? locale : DEFAULT_DIRONG_LOCALE];
+  const resolvedLocale = isDirongLocale(locale) ? locale : DEFAULT_DIRONG_LOCALE;
+  return Object.fromEntries(
+    Object.entries(MARKDOWN_TEXT_KEYS).map(([key, localeKey]) => [
+      key,
+      t(resolvedLocale, localeKey),
+    ]),
+  ) as MarkdownText;
 }
 
 function appendSummary(

@@ -38,6 +38,29 @@ test("runHealthCheck reports product Discord config without process env fallback
   }
 });
 
+test("runHealthCheck localizes user-facing check messages", async () => {
+  const report = await runHealthCheck({
+    config: makeConfig({
+      discordBotToken: "",
+      discordClientId: "",
+      guildIds: [],
+    }),
+    locale: "en",
+  });
+
+  const botToken = report.checks.find(
+    (check) => check.name === "Discord bot token",
+  );
+  assert.equal(botToken?.message, "Not configured yet.");
+  assert.equal(
+    botToken?.action,
+    "Save the value in the dashboard setup wizard.",
+  );
+
+  const node = report.checks.find((check) => check.name === "Node.js");
+  assert.match(node?.message ?? "", /^Node\.js v?\d+\.\d+\.\d+ is available$/);
+});
+
 function makeConfig(
   overrides: Partial<Pick<
     Phase1Config,

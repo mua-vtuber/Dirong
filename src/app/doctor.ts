@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { printCliError } from "../cli/error-output.js";
 import { redactSensitiveText, summarizeSafeError } from "../errors.js";
 import { runHealthCheck, type HealthCheck } from "../health.js";
+import { formatLocaleText, t } from "../i18n/catalog.js";
 import { createNotionClient } from "../notion/client.js";
 import {
   readManagedNotionRegistrySnapshot,
@@ -21,6 +22,7 @@ import {
   loadProductRuntimeSettings,
 } from "../settings/product-settings.js";
 import type { SttSettings } from "../settings/app-settings.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 import type { NotionRuntimeSettings } from "../notion/settings.js";
 import {
   assertPhase3SttProviderReady,
@@ -70,10 +72,17 @@ type NotionManagedSchemaCheckRecord = {
 try {
   const options = parseDoctorOptions(process.argv.slice(2));
   const productRuntime = loadProductRuntimeSettings();
+  const locale = productRuntime.setupStatus.getLocale();
   const config = productRuntime.config;
-  const health = await runHealthCheck({ config });
-  const appHealthChecks = adaptHealthChecksForRecordingSttDoctor(health.checks);
-  const sttChecks = await runSttReadinessChecks(productRuntime.appSettings.stt);
+  const health = await runHealthCheck({ config, locale });
+  const appHealthChecks = adaptHealthChecksForRecordingSttDoctor(
+    health.checks,
+    locale,
+  );
+  const sttChecks = await runSttReadinessChecks(
+    productRuntime.appSettings.stt,
+    locale,
+  );
   const dbSummary = readDbSummary(config.dbPath, config.dbBusyTimeoutMs);
   const notionRegistry = readNotionRegistryDiagnostics(
     config.dbPath,
@@ -84,35 +93,36 @@ try {
         config.dbPath,
         config.dbBusyTimeoutMs,
         productRuntime.appSettings.notion,
+        locale,
       )
     : [];
 
-  console.log("디롱이 Recording + STT doctor 결과");
-  console.log(`생성 시각: ${health.generatedAt}`);
+  console.log(t(locale, "doctor.title"));
+  console.log(`${t(locale, "doctor.generatedAtLabel")}: ${health.generatedAt}`);
   console.log(`Node.js: ${health.nodeVersion}`);
-  console.log(`플랫폼: ${health.platform} ${health.arch}`);
+  console.log(`${t(locale, "doctor.platformLabel")}: ${health.platform} ${health.arch}`);
   console.log(`SQLite DB: ${config.dbPath}`);
   console.log(`Dashboard bind: ${config.dashboardHost}:${config.dashboardPort}`);
   console.log("");
 
-  printChecks("기본 실행 환경", appHealthChecks);
-  printChecks("STT provider", sttChecks);
-  printDbSummary(dbSummary);
-  printNotionRegistryDiagnostics(notionRegistry);
+  printChecks(t(locale, "doctor.baseEnvironmentTitle"), appHealthChecks, locale);
+  printChecks("STT provider", sttChecks, locale);
+  printDbSummary(dbSummary, locale);
+  printNotionRegistryDiagnostics(notionRegistry, locale);
   if (options.notionRemote) {
-    printChecks("Notion remote managed schema", notionRemoteChecks);
+    printChecks("Notion remote managed schema", notionRemoteChecks, locale);
   }
 
   console.log("");
-  console.log("이 doctor는 read-only입니다. DB repair가 필요하면 npm run repair를 실행해 주세요.");
-  console.log("Discord 토큰과 API key 값은 출력하지 않았습니다.");
+  console.log(t(locale, "doctor.readOnlyNotice"));
+  console.log(t(locale, "doctor.secretsHiddenNotice"));
 
   const failed = [...appHealthChecks, ...sttChecks, ...notionRemoteChecks].filter(
     (check) => check.status === "fail",
   );
   if (failed.length > 0) {
     console.log("");
-    console.log("실패한 항목이 있습니다. 위 조치 안내를 먼저 확인해 주세요.");
+    console.log(t(locale, "doctor.failureNotice"));
     process.exit(1);
   }
 } catch (error) {
@@ -128,6 +138,7 @@ function parseDoctorOptions(args: string[]): DoctorOptions {
 
 function adaptHealthChecksForRecordingSttDoctor(
   checks: HealthCheck[],
+  locale: DirongLocale,
 ): HealthCheck[] {
   return checks.map((check) => {
     if (check.name !== "Discord voice channel ID") {
@@ -137,17 +148,17 @@ function adaptHealthChecksForRecordingSttDoctor(
     if (check.status === "ok") {
       return {
         ...check,
-        name: "Discord voice channel ID (optional)",
-        message: "설정됨(값은 출력하지 않음). 일반 녹음에는 필요하지 않습니다.",
+        name: t(locale, "doctor.discordVoiceOptionalName"),
+        message: t(locale, "doctor.discordVoiceConfiguredOptional"),
         action: undefined,
       };
     }
 
     return {
       ...check,
-      name: "Discord voice channel ID (optional)",
+      name: t(locale, "doctor.discordVoiceOptionalName"),
       status: "ok",
-      message: "일반 녹음에는 필요하지 않습니다. /dirong start는 사용자가 들어간 음성 채널을 사용합니다.",
+      message: t(locale, "doctor.discordVoiceNotNeeded"),
       action: undefined,
     };
   });
@@ -155,6 +166,7 @@ function adaptHealthChecksForRecordingSttDoctor(
 
 async function runSttReadinessChecks(
   sttSettings: SttSettings,
+  locale: DirongLocale,
 ): Promise<HealthCheck[]> {
   const { provider, settings } = createPhase3SttProvider(sttSettings);
 
@@ -163,22 +175,22 @@ async function runSttReadinessChecks(
       {
         name: "STT provider",
         status: "ok",
-        message: "OpenAI STT provider 선택됨",
+        message: t(locale, "doctor.stt.openAiSelected"),
       },
       {
         name: "OpenAI API key",
         status: settings.openai.apiKey ? "ok" : "fail",
         message: settings.openai.apiKey
-          ? "OpenAI API key 저장됨(값은 출력하지 않음)"
-          : "OpenAI API key가 저장되지 않았습니다. OpenAI API 호출은 하지 않았습니다.",
+          ? t(locale, "doctor.stt.openAiKeyStored")
+          : t(locale, "doctor.stt.openAiKeyMissing"),
         action: settings.openai.apiKey
           ? undefined
-          : "설정 마법사에서 OpenAI API key를 저장하거나 local-whisper provider를 사용해 주세요.",
+          : t(locale, "doctor.stt.openAiKeyAction"),
       },
     ];
   }
 
-  console.log("local-whisper 모델 로딩 검사는 시간이 걸릴 수 있습니다...");
+  console.log(t(locale, "doctor.stt.localWhisperLoading"));
   try {
     assertPhase3SttProviderReady({ settings, dryRun: false });
     await provider.preflight?.();
@@ -186,12 +198,16 @@ async function runSttReadinessChecks(
       {
         name: "STT provider",
         status: "ok",
-        message: "local-whisper provider 선택됨",
+        message: t(locale, "doctor.stt.localWhisperSelected"),
       },
       {
         name: "local-whisper readiness",
         status: "ok",
-        message: `${provider.modelName} 모델을 ${settings.localWhisper.device}/${settings.localWhisper.computeType} 설정으로 로드할 수 있습니다.`,
+        message: formatLocaleText(locale, "doctor.stt.localWhisperReady", {
+          model: provider.modelName,
+          device: settings.localWhisper.device,
+          computeType: settings.localWhisper.computeType,
+        }),
       },
     ];
   } catch (error) {
@@ -200,13 +216,13 @@ async function runSttReadinessChecks(
       {
         name: "STT provider",
         status: "ok",
-        message: "local-whisper provider 선택됨",
+        message: t(locale, "doctor.stt.localWhisperSelected"),
       },
       {
         name: "local-whisper readiness",
         status: "fail",
         message,
-        action: "모델 경로와 Python 환경을 확인해 주세요. Windows에서는 먼저 cpu/int8 설정을 사용해 주세요.",
+        action: t(locale, "doctor.stt.localWhisperAction"),
       },
     ];
   }
@@ -216,6 +232,7 @@ async function runNotionRemoteChecks(
   dbPath: string,
   busyTimeoutMs: number,
   notionSettings: NotionRuntimeSettings,
+  locale: DirongLocale,
 ): Promise<HealthCheck[]> {
   const diagnostics = readNotionRegistryDiagnostics(dbPath, busyTimeoutMs);
   if (!diagnostics.exists) {
@@ -223,7 +240,7 @@ async function runNotionRemoteChecks(
       {
         name: "managed registry",
         status: "fail",
-        message: "SQLite DB가 없어 Notion managed DB를 확인할 수 없습니다.",
+        message: t(locale, "doctor.notion.registryNoDb"),
       },
     ];
   }
@@ -232,7 +249,9 @@ async function runNotionRemoteChecks(
       {
         name: "managed registry",
         status: "fail",
-        message: `Notion registry table이 없습니다: ${diagnostics.missingTables.join(", ")}`,
+        message: formatLocaleText(locale, "doctor.notion.registryMissingTables", {
+          tables: diagnostics.missingTables.join(", "),
+        }),
       },
     ];
   }
@@ -242,7 +261,7 @@ async function runNotionRemoteChecks(
       {
         name: "Notion API key",
         status: "fail",
-        message: "Notion 연결 토큰이 저장되지 않아 remote check를 실행하지 않았습니다.",
+        message: t(locale, "doctor.notion.tokenMissingRemote"),
       },
     ];
   }
@@ -260,14 +279,14 @@ async function runNotionRemoteChecks(
       }),
     });
     const snapshot = await service.checkAll();
-    return managedSchemaSnapshotToHealthChecks(snapshot);
+    return managedSchemaSnapshotToHealthChecks(snapshot, locale);
   } catch (error) {
     return [
       {
         name: "Notion remote check",
         status: "fail",
         message: summarizeSafeError(error),
-        action: "네트워크, Notion token, parent page 공유 권한을 확인해 주세요.",
+        action: t(locale, "doctor.notion.remoteCheckAction"),
       },
     ];
   } finally {
@@ -275,13 +294,17 @@ async function runNotionRemoteChecks(
   }
 }
 
-function printChecks(title: string, checks: HealthCheck[]): void {
+function printChecks(
+  title: string,
+  checks: HealthCheck[],
+  locale?: DirongLocale,
+): void {
   console.log(`[${title}]`);
   for (const check of checks) {
     const icon = check.status === "ok" ? "[OK]" : check.status === "fail" ? "[FAIL]" : "[WARN]";
     console.log(`${icon} ${check.name}: ${check.message}`);
     if (check.action) {
-      console.log(`     조치: ${check.action}`);
+      console.log(`     ${t(locale, "doctor.actionPrefix")}: ${check.action}`);
     }
   }
   console.log("");
@@ -380,20 +403,23 @@ function readLatestNotionManagedSchemaCheckRecord(
 
 function printNotionRegistryDiagnostics(
   diagnostics: NotionRegistryDiagnostics,
+  locale: DirongLocale,
 ): void {
-  console.log("[Notion managed registry]");
+  console.log(`[${t(locale, "doctor.notion.registryTitle")}]`);
   if (!diagnostics.exists) {
-    console.log("[WARN] SQLite DB가 없어 managed registry를 확인할 수 없습니다.");
-    console.log("     remote check는 --notion-remote 옵션을 줄 때만 Notion API를 호출합니다.");
+    console.log(`[WARN] ${t(locale, "doctor.notion.registryNoDbPrint")}`);
+    console.log(`     ${t(locale, "doctor.notion.remoteOnlyHint")}`);
     console.log("");
     return;
   }
   if (!diagnostics.available) {
     console.log(
-      `[WARN] managed registry table 없음: ${diagnostics.missingTables.join(", ")}`,
+      `[WARN] ${formatLocaleText(locale, "doctor.notion.registryMissingTablesPrint", {
+        tables: diagnostics.missingTables.join(", "),
+      })}`,
     );
-    console.log("     setup wizard에서 Notion managed DB를 생성하면 registry가 저장됩니다.");
-    console.log("     remote check는 --notion-remote 옵션을 줄 때만 Notion API를 호출합니다.");
+    console.log(`     ${t(locale, "doctor.notion.registrySetupHint")}`);
+    console.log(`     ${t(locale, "doctor.notion.remoteOnlyHint")}`);
     console.log("");
     return;
   }
@@ -432,9 +458,9 @@ function printNotionRegistryDiagnostics(
       console.log(`     ${record.summary}`);
     }
   } else {
-    console.log("[OK] latest managed schema check record: local 기록 없음");
+    console.log(`[OK] ${t(locale, "doctor.notion.latestCheckNoRecord")}`);
   }
-  console.log("     remote check는 --notion-remote 옵션을 줄 때만 Notion API를 호출합니다.");
+  console.log(`     ${t(locale, "doctor.notion.remoteOnlyHint")}`);
   console.log("");
 }
 
@@ -479,26 +505,44 @@ function readDbSummary(dbPath: string, busyTimeoutMs: number): DbSummary {
   }
 }
 
-function printDbSummary(summary: DbSummary): void {
-  console.log("[SQLite 상태]");
+function printDbSummary(summary: DbSummary, locale: DirongLocale): void {
+  console.log(`[${t(locale, "doctor.sqlite.title")}]`);
   if (!summary.exists) {
-    console.log("[WARN] 아직 세션 DB가 없습니다. /dirong start로 첫 녹음을 시작하면 생성됩니다.");
+    console.log(`[WARN] ${t(locale, "doctor.sqlite.noDb")}`);
     console.log("");
     return;
   }
 
-  console.log(`[OK] sessions: ${summary.sessions}개`);
-  console.log(`[OK] active/reconnecting/stopping sessions: ${summary.activeSessions}개`);
+  console.log(
+    `[OK] ${formatLocaleText(locale, "doctor.sqlite.sessions", {
+      count: summary.sessions,
+    })}`,
+  );
+  console.log(
+    `[OK] ${formatLocaleText(locale, "doctor.sqlite.activeSessions", {
+      count: summary.activeSessions,
+    })}`,
+  );
   console.log(
     `[OK] STT jobs: queued=${summary.queuedJobs}, processing=${summary.processingJobs}, done=${summary.doneJobs}, failed=${summary.failedJobs}`,
   );
-  console.log(`[OK] transcript segments: ${summary.transcriptSegments}개, no_speech=${summary.noSpeechSegments}개`);
-  console.log(`[${summary.openRepairItems > 0 ? "WARN" : "OK"}] open repair items: ${summary.openRepairItems}개`);
+  console.log(
+    `[OK] ${formatLocaleText(locale, "doctor.sqlite.transcriptSegments", {
+      count: summary.transcriptSegments,
+      noSpeechCount: summary.noSpeechSegments,
+    })}`,
+  );
+  console.log(
+    `[${summary.openRepairItems > 0 ? "WARN" : "OK"}] ${formatLocaleText(locale, "doctor.sqlite.openRepairItems", {
+      count: summary.openRepairItems,
+    })}`,
+  );
   console.log("");
 }
 
 function managedSchemaSnapshotToHealthChecks(
   snapshot: ManagedNotionSchemaStatusSnapshot,
+  locale: DirongLocale,
 ): HealthCheck[] {
   const checks: HealthCheck[] = [
     {
@@ -508,7 +552,7 @@ function managedSchemaSnapshotToHealthChecks(
       action:
         snapshot.status === "healthy"
           ? undefined
-          : "DB 설정 화면에서 복구 계획을 확인해 주세요.",
+          : t(locale, "doctor.notion.managedSchemaAction"),
     },
   ];
 
@@ -528,7 +572,7 @@ function managedSchemaSnapshotToHealthChecks(
       action:
         database.remote.status === "healthy"
           ? undefined
-          : "Notion 권한과 필수 필드/관계 상태를 확인해 주세요.",
+          : t(locale, "doctor.notion.dataSourceAction"),
     });
   }
 

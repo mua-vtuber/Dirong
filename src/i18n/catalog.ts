@@ -351,6 +351,12 @@ export const ko = {
       stopped: {
         message: "STT 자동 실행 중지됨",
       },
+      statusText: {
+        title: "STT 자동화",
+        description: "설명",
+        nextAction: "STT 조치",
+        batch: "STT batch",
+      },
     },
     aiReadiness: {
       idle: {
@@ -435,6 +441,52 @@ export const ko = {
       stopped: {
         message: "AI cleanup 자동 실행 중지됨",
       },
+      retry: {
+        disabledMessage: "AI 회의록 자동화가 꺼져 있어 재시도할 수 없습니다.",
+        disabledAction: "AI 설정을 완료한 뒤 다시 시도해 주세요.",
+        missingMessage: "재시도할 실패 job을 찾지 못했습니다.",
+        missingAction: "대시보드를 새로고침한 뒤 최신 실패 job에서 다시 시도해 주세요.",
+        queuedMessage: "회의록 생성을 다시 시도합니다.",
+      },
+      statusText: {
+        automation: "AI cleanup 자동화",
+        provider: "AI cleanup provider",
+        session: "AI cleanup 세션",
+        stt: "AI cleanup STT",
+        progress: "AI cleanup 진행",
+        warning: "AI cleanup 주의",
+        sttLeaseRepair: "AI cleanup STT lease 복구: {count}개",
+        action: "AI cleanup 조치",
+      },
+    },
+    aiCleanupRunner: {
+      sessionNotFound: "AI cleanup 대상 세션을 찾지 못했습니다: {sessionId}",
+      sessionNotFinalized:
+        "Phase 4 AI cleanup은 finalized 세션만 처리합니다. 현재 세션 상태: {status}",
+      preparingInput: "AI cleanup 입력 준비 중",
+      claimingJob: "AI cleanup job 확인 중",
+      alreadyDone: "이미 회의록 초안이 있습니다.",
+      blocked: "회의록 생성 보류",
+      notClaimed: "AI cleanup job을 아직 실행할 수 없습니다.",
+      notClaimedError:
+        "AI cleanup job을 claim하지 못했습니다. 이미 처리 중이거나 재시도 시간이 아직 오지 않았습니다.",
+      writingPromptArtifacts: "AI cleanup prompt artifact 저장 중",
+      artifactWriteFailed: "AI cleanup artifact 저장 실패",
+      startingClaude: "Claude stream-json 요청 시작",
+      claudeRequestFailed: "Claude stream-json 요청 실패",
+      writingRawArtifacts: "Claude raw output artifact 저장 중",
+      emptyOutput: "Claude output이 비어 있습니다.",
+      parsingJson: "회의록 JSON 파싱 중",
+      parsingJsonFailed: "회의록 JSON 파싱 실패",
+      validatingSchema: "회의록 schema 검증 중",
+      repairingSchema: "회의록 schema repair 요청 중",
+      repairingSchemaFailed: "회의록 schema repair 요청 실패",
+      writingRepairRawArtifacts: "Claude repair raw output artifact 저장 중",
+      repairFailed: "회의록 schema repair 실패",
+      validatingRepairSchema: "repair 결과 schema 검증 중",
+      repairValidationFailed: "repair 결과 schema 검증 실패",
+      renderingDraft: "회의록 draft 저장 중",
+      completed: "회의록 초안 생성 완료",
     },
     notionAutomation: {
       disabled: {
@@ -476,6 +528,24 @@ export const ko = {
       stopped: {
         message: "Notion 자동 업로드 중지됨",
       },
+      target: {
+        missingAction:
+          "설정 화면에서 managed Notion DB를 생성하거나 업로드 대상을 다시 연결해 주세요.",
+        invalidAction:
+          "Notion 데이터베이스 또는 data source URL을 다시 복사해 붙여넣어 주세요.",
+        clientMissingAction:
+          "설정 마법사에 저장한 Notion 연결 토큰을 확인해 주세요.",
+        multipleDataSourcesAction:
+          "Notion database에 data source가 여러 개이면 업로드할 data source URL을 직접 복사해 주세요.",
+        dataSourceMissingAction:
+          "Notion data source URL을 다시 복사해 붙여넣어 주세요.",
+      },
+      statusText: {
+        title: "Notion 자동 업로드",
+        description: "설명",
+        nextAction: "Notion 조치",
+        leaseRepair: "Notion lease 복구: {count}개",
+      },
     },
     aloneFinalize: {
       disabled: {
@@ -510,7 +580,397 @@ export const ko = {
       stopped: {
         message: "혼자 남음 자동 종료 중지됨",
       },
+      skippedReason: {
+        sessionNotFound: {
+          message: "혼자 남음 자동 종료 건너뜀: 세션을 찾지 못했습니다.",
+          action: "녹음 상태와 dashboard를 확인해 주세요.",
+        },
+        memberCountUnknown: {
+          message: "혼자 남음 자동 종료 건너뜀: 음성 채널 인원을 정확히 확인하지 못했습니다.",
+          action: "녹음은 계속됩니다. dashboard와 Discord 채널 상태를 확인해 주세요.",
+        },
+        sessionStatus: {
+          message: "혼자 남음 자동 종료 건너뜀: 세션 상태가 {status}입니다.",
+        },
+      },
+      producerStopDisplayName: "디롱이 자동 종료",
+      statusText: {
+        title: "녹음 자동 종료",
+        description: "설명",
+        nextAction: "녹음 자동 종료 조치",
+        session: "혼자 남음 세션: {sessionId}",
+        countdown: "자동 종료까지: {seconds}초",
+      },
     },
+  },
+  health: {
+    node: {
+      available: "Node.js {version} 사용 가능",
+      unsupported: "Node.js {version}은 낮습니다. 22.12.0 이상이 필요합니다.",
+      installAction: "Node.js 22.12.0 이상 LTS 버전을 설치한 뒤 다시 실행해 주세요.",
+    },
+    dependency: {
+      detected: "{name} 감지됨",
+      npmInstallAction: "npm install을 다시 실행해 주세요.",
+      opusMissing: "Opus 라이브러리를 찾지 못했습니다.",
+      ffmpegAvailable: "{source} FFmpeg 사용 가능",
+      ffmpegMissing: "FFmpeg 실행 파일을 찾지 못했습니다.",
+      daveMissing:
+        "@snazzah/davey를 직접 찾지 못했습니다. @discordjs/voice 내장 의존성으로 처리될 수 있습니다.",
+      nodeCrcDetected: "node-crc 감지됨",
+      nodeCrcMissing: "OGG/Opus 파일 작성에 필요한 node-crc를 찾지 못했습니다.",
+      aesAvailable: "Node crypto aes-256-gcm 사용 가능",
+      aesUnavailable:
+        "Node crypto aes-256-gcm 미감지. 대체 암호화 라이브러리가 필요할 수 있습니다.",
+    },
+    config: {
+      present: "설정됨(값은 출력하지 않음)",
+      missing: "아직 설정되지 않았습니다.",
+      action: "대시보드 설정 마법사에서 값을 저장해 주세요.",
+    },
+  },
+  notionClientError: {
+    invalidJson: {
+      message: "Notion API 응답을 JSON으로 해석하지 못했습니다.",
+      action: "잠시 후 다시 시도해 주세요. 계속 실패하면 Notion 상태와 네트워크를 확인해 주세요.",
+    },
+    network: {
+      message: "Notion API에 연결하지 못했습니다.",
+      action: "네트워크 연결을 확인한 뒤 다시 시도해 주세요.",
+    },
+    timeout: {
+      message: "Notion API 요청 시간이 초과되었습니다.",
+      action: "네트워크 상태를 확인하거나 NOTION_REQUEST_TIMEOUT_MS 값을 늘린 뒤 다시 시도해 주세요.",
+    },
+    auth: {
+      message: "Notion 인증 또는 공유 권한이 부족합니다.",
+      action:
+        "Notion integration token이 올바른지, 대상 데이터베이스에서 Add connections로 Dirong integration을 공유했는지 확인해 주세요.",
+    },
+    notFound: {
+      message: "Notion target에 접근하지 못했습니다.",
+      action: "Notion URL이 올바른지 확인하고 대상 데이터베이스에 Dirong integration을 공유해 주세요.",
+    },
+    schemaMismatch: {
+      message: "Notion 요청이 데이터베이스 schema와 맞지 않습니다.",
+      action: "Dirong에 필요한 Notion 속성 이름과 타입을 확인한 뒤 연결 테스트를 다시 실행해 주세요.",
+    },
+    rateLimited: {
+      message: "Notion API 사용량 제한으로 잠시 대기합니다.",
+      action: "잠시 후 자동 재시도됩니다.",
+    },
+    server: {
+      message: "Notion API 서버 오류가 발생했습니다.",
+      action: "잠시 후 다시 시도해 주세요.",
+    },
+    unknown: {
+      message: "Notion API 오류가 발생했습니다. HTTP {status}{code}",
+      action: "오류 내용을 확인한 뒤 다시 시도해 주세요.",
+    },
+  },
+  sessionPurge: {
+    cli: {
+      unknownOption: "알 수 없는 session purge 옵션입니다: {flag}",
+      selectorRequired:
+        "--session, --missing-audio, --all, --expired-text-artifacts 중 정확히 하나가 필요합니다.",
+      sessionValueRequired: "--session 값이 필요합니다.",
+    },
+    backup: {
+      failureLine1: "SQLite backup 생성에 실패했습니다.",
+      failureLine2: "session purge를 적용하지 않고 중단합니다.",
+      failureLine3: "backup이 실패했으므로 DB 상태는 변경하지 않았습니다.",
+    },
+    expiredTextArtifactsTitle: "디롱이 expired text artifact retention 결과",
+    sessionPurgeTitle: "디롱이 session purge 결과",
+    fileDeletionPlanTitle: "파일 삭제 계획",
+    targetSessionsTitle: "대상 세션",
+    dryRunHint: "실제 삭제하려면 같은 명령에 --confirm을 붙여 실행하세요.",
+    expiredTextArtifactsDone: "기간이 만료된 텍스트/초안 artifact 파일을 삭제했습니다.",
+    sessionPurgeDone:
+      "session 관련 행과 계획된 로컬 파일을 삭제했습니다. Notion Property Rules는 보존했습니다.",
+    none: "없음",
+    fileDeletionFailed: "파일 삭제 실패",
+  },
+  recordingProducer: {
+    alreadyRecording: "이미 녹음 중인 세션이 있습니다: {sessionId}",
+    stageUnsupported: "Stage 채널은 현재 Dirong 녹음 앱에서 아직 지원하지 않습니다.",
+    criticalHealthLastError: "Node/Opus/FFmpeg 필수 의존성 health check 실패",
+    criticalHealthFailure: "필수 의존성 health check 실패. npm run doctor를 확인해 주세요.",
+    noActiveSession: "진행 중인 녹음 세션이 없습니다.",
+    chunkFinalizeTimeout: "종료 중 chunk finalize가 제한 시간 안에 끝나지 않았습니다.",
+    fatalErrors: "voice fatal error {count}회 기록됨",
+    softRolloverAction: "다음 silence에서 닫고 hard cap을 backstop으로 유지합니다.",
+    sessionDirectoryNameFailed: "새 session directory 이름을 만들지 못했습니다.",
+  },
+  notionPageProperties: {
+    draftTitle: "회의록 초안",
+    unknown: "알 수 없음",
+    uploadPending: "Notion 업로드 대기 중",
+    taskTitle: "작업",
+    taskStatusTodo: "할 일",
+    noEvidence: "근거 없음",
+    participantEmptyWarning: "빈 참여자 이름은 Notion Participants 속성에서 제외했습니다.",
+    participantsCappedWarning: "Notion Participants 속성은 최대 100명까지만 기록했습니다.",
+    meetingTimeUnknownEnd: "미정",
+  },
+  notionWriter: {
+    apiKeyMissingAction: "Notion 업로드를 켜려면 설정 마법사에서 Notion 연결 토큰을 저장해 주세요.",
+    clientMissingAction: "Notion API key 설정을 확인해 주세요.",
+    draftMissingAction: "Phase 4 AI cleanup을 먼저 완료한 뒤 다시 시도해 주세요.",
+    unresolvedProjectAction:
+      "프로젝트가 애매한 legacy session은 default project로 자동 업로드하지 않습니다.",
+    projectMismatchAction: "프로젝트를 전환한 뒤 해당 프로젝트의 회의록만 업로드해 주세요.",
+    duplicateDraftAction: "Notion 데이터베이스에서 같은 Draft ID를 가진 page를 하나만 남긴 뒤 다시 시도해 주세요.",
+    duplicateSessionAction:
+      "Notion 데이터베이스에서 같은 Session ID를 가진 page를 하나만 남긴 뒤 다시 시도해 주세요.",
+    pageIdMissing: "Notion page id가 응답에 없습니다.",
+    actionItem: {
+      duplicateSourceActionId:
+        "{sourceActionId}: 같은 Dirong 할 일 ID를 가진 할 일 페이지가 여러 개라 업데이트를 건너뜁니다.",
+      syncFailed: "{sourceActionId}: 할 일 페이지 동기화 중 오류가 발생했습니다 ({error}).",
+      unsupportedWorkerMatch:
+        "{sourceActionId}: 작업자 매칭 속성 타입을 지원하지 않아 담당자 relation을 비웠습니다.",
+      duplicateRemoteWorker:
+        "{sourceActionId}: 작업자 \"{ownerName}\"와 일치하는 Notion page가 여러 개라 담당자 relation을 비웠습니다.",
+      duplicateCachedWorker:
+        "{sourceActionId}: 작업자 \"{ownerName}\"와 일치하는 roster 캐시 항목이 여러 개라 담당자 relation을 비웠습니다.",
+      duplicateRoleWorker:
+        "{sourceActionId}: 역할 \"{ownerName}\"와 일치하는 작업자가 여러 명이라 담당자 relation을 비웠습니다.",
+      cachedWorkerMissing:
+        "{sourceActionId}: 작업자 또는 역할 \"{ownerName}\"와 일치하는 roster 캐시 항목을 찾지 못해 담당자 relation을 비웠습니다.",
+      remoteWorkerMissing:
+        "{sourceActionId}: 작업자 \"{ownerName}\"를 Notion 작업자 DB에서 찾지 못해 담당자 relation을 비웠습니다.",
+    },
+  },
+  notionManagedSchema: {
+    error: {
+      invalidPreset: "Notion schema preset이 유효하지 않습니다: {errors}",
+      invalidParentPageUrl: "Notion 부모 page URL이 유효하지 않습니다: {reason}",
+      relationTargetMissing: "{semanticKey} relation target이 없습니다.",
+      rollupTargetMissing: "{semanticKey} rollup target이 없습니다.",
+      taskMeetingPresetMissing: "task.meeting preset이 없습니다.",
+      relationNotFound: "{meetingRole} Notion DB에서 {taskRole} relation을 찾지 못했습니다.",
+      presetPropertyMissing: "{semanticKey} preset property를 찾지 못했습니다.",
+      dataSourcePropertyMissing: "Notion data source 응답에서 {propertyName} 속성을 찾지 못했습니다.",
+      propertyTypeMissing: "{propertyName} 속성 type을 찾지 못했습니다.",
+      rollupRelationMissing: "{semanticKey} rollup relation을 찾지 못했습니다.",
+      dataSourceIdMissing: "Notion database {databaseId}에서 data source id를 찾지 못했습니다.",
+      databaseNotCreated: "{role} Notion DB가 아직 생성되지 않았습니다.",
+      createdPropertyMissing: "{role}.{semanticKey} Notion 속성을 찾지 못했습니다.",
+      unsupportedPropertyType: "지원하지 않는 Notion property type입니다: {type}",
+      responseStringMissing: "Notion 응답에서 {label}를 찾지 못했습니다.",
+    },
+  },
+  notionDashboardService: {
+    managedSchema: {
+      checkRequiresToken: "Notion token이 설정된 뒤 managed DB 상태를 확인할 수 있습니다.",
+      clientMissing: "Notion client를 만들 수 없습니다. token 설정을 확인해 주세요.",
+      repairPlanAction: "복구 계획을 확인한 뒤 적용할 항목을 선택해 주세요.",
+      repairConfirmRequired: "managed schema repair에는 confirm=true가 필요합니다.",
+      repairRequiresToken: "Notion token이 설정된 뒤 managed DB를 복구할 수 있습니다.",
+      status: {
+        healthy: "Managed Notion schema가 마지막 확인 기준으로 정상입니다.",
+        needsRepair: "Managed Notion schema에 자동 복구 가능한 항목이 있습니다.",
+        manualRequired: "Managed Notion schema에 수동 확인이 필요한 항목이 있습니다.",
+        failed: "Managed Notion schema 확인 중 오류가 발생했습니다.",
+        unchecked: "Managed Notion schema 확인 결과가 아직 없습니다.",
+      },
+    },
+    managedSchemaRepair: {
+      blockedNoOperations: "자동 복구할 수 없는 managed schema 항목이 있습니다.",
+      noOperations: "적용할 managed schema 복구 작업이 없습니다.",
+      unresolvedAfterRepair: "managed schema 복구 후에도 {count}개 항목이 남아 있습니다.",
+      unresolvedAction:
+        "{items} 항목이 Notion 응답에서 확인되지 않았습니다. DB 설정 화면에서 상태를 다시 확인해 주세요.",
+      applied: "managed schema 복구 작업 {count}개를 적용했습니다.",
+      remainingAction: "남은 항목은 Notion에서 직접 확인하거나 다시 복구 계획을 확인해 주세요.",
+      reason: {
+        presetSemanticMissing: "preset에서 semantic key를 찾지 못했습니다.",
+        titleCreateUnsupported: "title property는 API로 새로 만들 수 없습니다.",
+        relationDependencyMissing: "relation/rollup dependency를 확인할 수 없습니다.",
+        statusOptionManual: "status option 보강은 Notion에서 직접 확인해야 합니다.",
+        unsafeChangeManual: "기존 property의 위험한 변경은 자동 처리하지 않습니다.",
+      },
+      operation: {
+        syncMapping: "{semanticKey} registry mapping을 remote property로 동기화",
+        createProperty: "{semanticKey} Notion property 생성",
+        renameProperty: "{semanticKey} Notion property 이름 복구",
+        appendOptions: "{semanticKey} Notion option 보강",
+      },
+      error: {
+        missingRegistry: "{role} managed Notion DB registry가 없습니다.",
+        missingPresetProperty: "{semanticKey} preset property를 찾지 못했습니다.",
+      },
+    },
+    managedSchemaDiff: {
+      issue: {
+        mappingMissing: "{semanticKey}: SQLite property mapping이 없습니다.",
+        remoteMissingTitleUnsupported: "{semanticKey}: Notion title 속성은 API로 복구할 수 없습니다.",
+        remoteMissing: "{semanticKey}: Notion property를 찾지 못했습니다.",
+        wrongType: "{semanticKey}: Notion property type이 다릅니다 ({actual} -> {expected}).",
+        nameDrift: "{semanticKey}: 연결된 Notion property 이름이 바뀌었습니다.",
+        idMismatchNameCandidate:
+          "{semanticKey}: registry의 property id와 일치하는 Notion property를 찾지 못했고 이름 후보만 찾았습니다.",
+        relationTargetMismatch: "{semanticKey}: relation 대상 DB/data source가 다릅니다.",
+        rollupTargetMismatch: "{semanticKey}: rollup relation/target property가 다릅니다.",
+        optionMissing: "{semanticKey}: Notion option이 부족합니다 ({options}).",
+        extra: "{propertyName}: Dirong managed registry에 없는 Notion property입니다. 자동 삭제하지 않습니다.",
+      },
+      uploadAction: {
+        missing: "Managed Notion DB에 필요한 semantic 속성을 확인해 주세요: {items}",
+        wrongType: "Managed Notion DB 속성 타입/관계를 확인해 주세요: {items}",
+        missingOptions: "Managed Notion DB 옵션을 확인해 주세요: {items}",
+        checkAgain: "DB 설정 화면에서 Notion 상태를 다시 확인하고 복구 계획을 적용해 주세요.",
+      },
+      error: {
+        registrySnapshotMissing: "{role} registry snapshot을 찾지 못했습니다.",
+      },
+    },
+    customProperties: {
+      schemaRequiresSetup: "Notion 설정이 완료된 뒤 속성 스키마를 불러올 수 있습니다.",
+      checkTokenAndManagedDb: "Notion token과 managed DB 설정을 확인해 주세요.",
+      clientMissing: "Notion client를 만들 수 없습니다.",
+      syncDone:
+        "Notion 속성 {discovered}개를 확인했고 사용자 속성 {custom}개를 관리 목록에 반영했습니다.",
+      connectionAction: "Notion 연결과 target 공유 상태를 확인해 주세요.",
+      rulesSaved: "Notion 사용자 속성 규칙 {saved}개를 저장하고 {deleted}개를 삭제했습니다.",
+      rulesIgnored: "{ignored}개 항목은 필수 속성이거나 이름이 비어 있어 건너뛰었습니다.",
+      emptyRules: "이 DB의 사용자 속성 규칙은 아직 없습니다.",
+      enabledRules: "사용자 속성 {rules}개 중 {enabled}개가 켜져 있습니다.",
+      missingManagedDb: "선택한 managed DB 연결 정보가 없습니다.",
+      createManagedDbAction: "Notion 설정에서 managed DB 세트를 먼저 생성해 주세요.",
+      checkTargetOrManagedDb: "Notion target URL 또는 managed DB 설정을 확인해 주세요.",
+      invalidTargetAction: "Notion 데이터베이스 또는 data source URL을 다시 복사해 붙여넣어 주세요.",
+    },
+    schema: {
+      blockedApply: "자동 적용할 수 없는 Notion schema 항목이 있습니다.",
+      noChanges: "Notion schema에 적용할 변경이 없습니다.",
+      setupRequired: "Notion 설정이 완료된 뒤 schema를 정리할 수 있습니다.",
+      setupAction: "설정 마법사에서 Notion 연결 토큰과 업로드 대상을 확인해 주세요.",
+      invalidTargetAction: "Notion 데이터베이스 또는 data source URL을 다시 복사해 붙여넣어 주세요.",
+      clientMissing: "Notion client를 만들 수 없습니다.",
+      tokenAction: "설정 마법사에 저장한 Notion 연결 토큰을 확인해 주세요.",
+      connectionAction: "Notion 연결과 target 공유 상태를 확인해 주세요.",
+      extraPreservedAction: "관리 외 속성은 삭제하지 않습니다. 필요 없다면 Notion에서 직접 삭제해 주세요.",
+      applyAction: "스키마 맞추기를 누르면 누락 속성과 이름 변경, select 옵션 보강을 자동 적용합니다.",
+      diffMessage:
+        "누락 {missing} / 이름변경 {renames} / 타입불일치 {wrongType} / 옵션누락 {missingOptions} / 관리외 {extra}",
+      applyMessage:
+        "생성 {create} / 이름변경 {rename} / 타입변경 {updateType} / 옵션보강 {updateOptions} / 삭제 {delete}",
+    },
+    schemaManager: {
+      titleCreateWarning: "Notion title 속성은 API로 새로 만들 수 없습니다.",
+      immutableOptionManual:
+        "{propertyName}: {propertyType} 옵션은 API로 정리할 수 없어 Notion에서 직접 추가해야 합니다.",
+      titleCreateBlocked: "{propertyName}: title 속성은 API로 새로 만들 수 없습니다.",
+      relationTargetRequired: "{propertyName}: relation 대상 DB/data source URL이 필요합니다.",
+      createMissingDisabled: "필요한 속성 만들기가 꺼져 있어 누락 속성은 그대로 둡니다.",
+      typeChangeUnsupported:
+        "{propertyName}: {actualType} -> {expectedType} 타입 변경은 자동 처리하지 않습니다.",
+      typeUpdateDisabled: "타입 변경이 꺼져 있어 타입이 다른 속성은 그대로 둡니다.",
+      statusOptionManual: "{propertyName}: status 옵션 {options}은 Notion에서 직접 추가해야 합니다.",
+      deleteExtraSkipped: "관리 외 속성 삭제는 확인이 없어 건너뛰었습니다.",
+      titleDeleteBlocked: "{propertyName}: title 속성은 삭제하지 않습니다.",
+    },
+    relationRules: {
+      pageUrlInvalid: "{property}: relation 대상 page URL을 읽지 못했습니다.",
+      targetUrlInvalid: "{property}: relation 대상 URL을 읽지 못했습니다.",
+      targetDbAccessFailed: "{property}: relation 대상 DB에 접근하지 못했습니다 ({error}).",
+    },
+  },
+  doctor: {
+    title: "디롱이 Recording + STT doctor 결과",
+    generatedAtLabel: "생성 시각",
+    platformLabel: "플랫폼",
+    baseEnvironmentTitle: "기본 실행 환경",
+    readOnlyNotice: "이 doctor는 read-only입니다. DB repair가 필요하면 npm run repair를 실행해 주세요.",
+    secretsHiddenNotice: "Discord 토큰과 API key 값은 출력하지 않았습니다.",
+    failureNotice: "실패한 항목이 있습니다. 위 조치 안내를 먼저 확인해 주세요.",
+    actionPrefix: "조치",
+    discordVoiceOptionalName: "Discord voice channel ID (optional)",
+    discordVoiceConfiguredOptional: "설정됨(값은 출력하지 않음). 일반 녹음에는 필요하지 않습니다.",
+    discordVoiceNotNeeded:
+      "일반 녹음에는 필요하지 않습니다. /dirong start는 사용자가 들어간 음성 채널을 사용합니다.",
+    stt: {
+      openAiSelected: "OpenAI STT provider 선택됨",
+      openAiKeyStored: "OpenAI API key 저장됨(값은 출력하지 않음)",
+      openAiKeyMissing: "OpenAI API key가 저장되지 않았습니다. OpenAI API 호출은 하지 않았습니다.",
+      openAiKeyAction: "설정 마법사에서 OpenAI API key를 저장하거나 local-whisper provider를 사용해 주세요.",
+      localWhisperLoading: "local-whisper 모델 로딩 검사는 시간이 걸릴 수 있습니다...",
+      localWhisperSelected: "local-whisper provider 선택됨",
+      localWhisperReady: "{model} 모델을 {device}/{computeType} 설정으로 로드할 수 있습니다.",
+      localWhisperAction: "모델 경로와 Python 환경을 확인해 주세요. Windows에서는 먼저 cpu/int8 설정을 사용해 주세요.",
+    },
+    notion: {
+      registryNoDb: "SQLite DB가 없어 Notion managed DB를 확인할 수 없습니다.",
+      registryMissingTables: "Notion registry table이 없습니다: {tables}",
+      tokenMissingRemote: "Notion 연결 토큰이 저장되지 않아 remote check를 실행하지 않았습니다.",
+      remoteCheckAction: "네트워크, Notion token, parent page 공유 권한을 확인해 주세요.",
+      registryTitle: "Notion managed registry",
+      registryNoDbPrint: "SQLite DB가 없어 managed registry를 확인할 수 없습니다.",
+      remoteOnlyHint: "remote check는 --notion-remote 옵션을 줄 때만 Notion API를 호출합니다.",
+      registryMissingTablesPrint: "managed registry table 없음: {tables}",
+      registrySetupHint: "setup wizard에서 Notion managed DB를 생성하면 registry가 저장됩니다.",
+      latestCheckNoRecord: "latest managed schema check record: local 기록 없음",
+      managedSchemaAction: "DB 설정 화면에서 복구 계획을 확인해 주세요.",
+      dataSourceAction: "Notion 권한과 필수 필드/관계 상태를 확인해 주세요.",
+    },
+    sqlite: {
+      title: "SQLite 상태",
+      noDb: "아직 세션 DB가 없습니다. /dirong start로 첫 녹음을 시작하면 생성됩니다.",
+      sessions: "sessions: {count}개",
+      activeSessions: "active/reconnecting/stopping sessions: {count}개",
+      transcriptSegments: "transcript segments: {count}개, no_speech={noSpeechCount}개",
+      openRepairItems: "open repair items: {count}개",
+    },
+  },
+  meetingNotesMarkdown: {
+    draftTitle: "회의록 초안",
+    summaryHeading: "요약",
+    topicsHeading: "주요 주제",
+    decisionsHeading: "결정 사항",
+    actionItemsHeading: "할 일 목록",
+    unresolvedHeading: "미해결/불확실한 항목",
+    noiseHeading: "잡담/노이즈 처리",
+    sourceTimelineHeading: "출처 타임라인",
+    empty: "없음",
+    decided: "확정",
+    tentative: "잠정",
+    ownerLabel: "담당",
+    dueLabel: "기한",
+    unspecified: "미지정",
+    unresolvedLabel: "미해결",
+    uncertainLabel: "불확실",
+    reasonLabel: "이유",
+    removedChatterPrefix: "제거/압축: ",
+    keptBecausePrefix: "보존 이유: ",
+    keptBecauseHeading: "보존 이유:",
+    sourceLabel: "출처",
+  },
+  notionBlocks: {
+    meetingInfoHeading: "회의 정보",
+    meetingTimeLabel: "회의 시간",
+    channelLabel: "채널",
+    participantsLabel: "참여자",
+    summaryHeading: "요약",
+    topicsHeading: "주요 논의",
+    decisionsHeading: "결정사항",
+    actionItemsHeading: "할 일 목록",
+    unresolvedHeading: "남은 질문",
+    uncertaintyHeading: "불확실한 내용",
+    noiseHeading: "노이즈 처리 메모",
+    timelineHeading: "타임라인",
+    dirongInfoHeading: "Dirong 정보",
+    empty: "없음",
+    decided: "확정",
+    tentative: "잠정",
+    ownerLabel: "담당",
+    dueLabel: "기한",
+    reasonLabel: "이유",
+    removedChatterLabel: "제거/압축",
+    keptBecauseLabel: "보존 이유",
+    unspecified: "미지정",
+    noContent: "내용 없음",
   },
   discordRuntime: {
     serverOnly: "Dirong은 Discord 서버 안에서만 사용할 수 있습니다.",
@@ -940,6 +1400,7 @@ export const ko = {
     },
     quick: {
       startRecording: "녹음 시작",
+      startRecordingHint: "/dirong start는 Discord에서 실행합니다.",
       refreshStatus: "상태 다시 확인",
     },
     projects: {
@@ -1049,10 +1510,10 @@ export const ko = {
         english: {
           title: "English",
           description:
-            "UI language can be saved, but managed Notion DB creation is limited to Korean in this version.",
+            "대시보드, 설정 위자드, Notion DB preset을 영어로 저장합니다.",
         },
         englishNotice:
-          "English를 선택하면 Notion schema locale도 en으로 저장됩니다. 단, 이번 버전의 managed Notion DB 자동 생성은 한국어 preset만 지원하므로 생성 단계에서 한국어로 전환하라는 안내가 표시됩니다.",
+          "English를 선택하면 Notion schema locale도 en으로 저장되어 managed Notion DB가 영어 이름으로 생성됩니다.",
       },
       discord: {
         title: "디스코드 봇을 연결합니다",
@@ -1208,7 +1669,7 @@ export const ko = {
         description:
           "사용자는 database id, data source id, property id를 입력하지 않습니다. Dirong이 생성 결과를 registry에 저장합니다.",
         unsupportedNotice:
-          "현재 앱 언어와 Notion schema locale은 {locale}입니다. managed Notion DB 자동 생성은 한국어 preset만 지원하므로, 생성하려면 언어 선택 단계에서 한국어로 바꿔 주세요.",
+          "현재 앱 언어와 Notion schema locale은 {locale}입니다. 이 locale의 managed Notion DB preset을 찾지 못했습니다.",
         readyNotice:
           "이 버튼은 노션 DB 관리 페이지 안에 회의록, 작업자, 할 일 목록 DB를 만들고 registry에 내부 mapping을 저장합니다.",
         openInNotion: "Notion에서 열기",
@@ -1400,6 +1861,8 @@ export const ko = {
         planReady: "자동 복구 작업 {count}개를 적용할 수 있습니다.",
         planEmpty: "자동 복구할 필수 필드가 없습니다.",
         planBlocked: "수동 확인이 필요한 항목이 있습니다.",
+        stalePlanMessage: "Managed schema repair plan이 최신 상태가 아닙니다.",
+        stalePlanAction: "Notion 상태를 다시 확인한 뒤 복구 계획을 다시 적용해 주세요.",
         operations: "적용 작업",
         blockedItems: "수동 확인",
         confirmRepair: "표시된 복구 계획을 Notion에 적용할까요?",
@@ -1870,6 +2333,17 @@ export const ko = {
         action: "Notion 설정을 확인해 주세요.",
       },
     },
+    userFacing: {
+      dashboardPortDefaultEndpoint: "설정된 dashboard 포트",
+      dashboardPortInUse:
+        "디롱이 dashboard 포트를 이미 사용 중입니다: {endpoint}\n\n확인할 것:\n1. 이미 실행 중인 Dirong 콘솔이 있으면 그 창에서 exit를 입력해 종료해 주세요.\n2. 다른 포트를 쓰려면 dashboard 설정에서 포트를 바꾼 뒤 다시 시작해 주세요.",
+      localWhisperPreflight:
+        "디롱이 local-whisper 준비에 실패했습니다.\n\n확인할 것:\n1. .venv-whisper가 만들어져 있고 faster-whisper가 설치되어 있는지 확인해 주세요.\n2. 설정 마법사에 저장한 local-whisper 모델 경로가 실제 모델 폴더인지 확인해 주세요.\n3. Windows에서는 기본값인 cpu/int8 설정을 먼저 사용해 주세요.",
+      sqliteBackup:
+        "디롱이 SQLite backup 생성에 실패했습니다.\n\n확인할 것:\n1. 녹음 중이면 잠시 후 다시 시도해 주세요.\n2. data 폴더를 다른 프로그램이 잠그고 있지 않은지 확인해 주세요.\n3. 디스크 여유 공간이 충분한지 확인해 주세요.\n\nbackup이 실패했으므로 STT 처리는 시작하지 않았습니다.",
+      sttPreparation:
+        "디롱이 STT 준비 중 문제가 생겼습니다.\n\n확인할 것:\n1. local-whisper 설정과 Python 환경을 확인해 주세요.\n2. 모델 경로와 CPU/int8 설정을 먼저 확인해 주세요.",
+    },
   },
   action: {
     request: {
@@ -2237,6 +2711,12 @@ export const en = {
       stopped: {
         message: "STT automation stopped",
       },
+      statusText: {
+        title: "STT automation",
+        description: "Description",
+        nextAction: "STT action",
+        batch: "STT batch",
+      },
     },
     aiReadiness: {
       idle: {
@@ -2321,6 +2801,52 @@ export const en = {
       stopped: {
         message: "AI cleanup automation stopped",
       },
+      retry: {
+        disabledMessage: "AI meeting-note automation is disabled, so retry cannot start.",
+        disabledAction: "Finish AI setup, then try again.",
+        missingMessage: "Could not find a failed job to retry.",
+        missingAction: "Refresh the dashboard and retry from the latest failed job.",
+        queuedMessage: "Retrying meeting-note generation.",
+      },
+      statusText: {
+        automation: "AI cleanup automation",
+        provider: "AI cleanup provider",
+        session: "AI cleanup session",
+        stt: "AI cleanup STT",
+        progress: "AI cleanup progress",
+        warning: "AI cleanup warning",
+        sttLeaseRepair: "AI cleanup STT leases repaired: {count}",
+        action: "AI cleanup action",
+      },
+    },
+    aiCleanupRunner: {
+      sessionNotFound: "Could not find the AI cleanup target session: {sessionId}",
+      sessionNotFinalized:
+        "Phase 4 AI cleanup only processes finalized sessions. Current session status: {status}",
+      preparingInput: "Preparing AI cleanup input",
+      claimingJob: "Checking the AI cleanup job",
+      alreadyDone: "A meeting-note draft already exists.",
+      blocked: "Meeting-note generation blocked",
+      notClaimed: "The AI cleanup job cannot run yet.",
+      notClaimedError:
+        "Could not claim the AI cleanup job. It is already processing or its retry time has not arrived yet.",
+      writingPromptArtifacts: "Writing AI cleanup prompt artifacts",
+      artifactWriteFailed: "Failed to write AI cleanup artifacts",
+      startingClaude: "Starting Claude stream-json request",
+      claudeRequestFailed: "Claude stream-json request failed",
+      writingRawArtifacts: "Writing Claude raw output artifacts",
+      emptyOutput: "Claude output is empty.",
+      parsingJson: "Parsing meeting-note JSON",
+      parsingJsonFailed: "Failed to parse meeting-note JSON",
+      validatingSchema: "Validating meeting-note schema",
+      repairingSchema: "Requesting meeting-note schema repair",
+      repairingSchemaFailed: "Meeting-note schema repair request failed",
+      writingRepairRawArtifacts: "Writing Claude repair raw output artifacts",
+      repairFailed: "Meeting-note schema repair failed",
+      validatingRepairSchema: "Validating repaired schema",
+      repairValidationFailed: "Repaired schema validation failed",
+      renderingDraft: "Saving meeting-note draft",
+      completed: "Meeting-note draft created",
     },
     notionAutomation: {
       disabled: {
@@ -2362,6 +2888,24 @@ export const en = {
       stopped: {
         message: "Notion auto-upload stopped",
       },
+      target: {
+        missingAction:
+          "Create managed Notion DBs in Settings or reconnect the upload target.",
+        invalidAction:
+          "Copy and paste the Notion database or data source URL again.",
+        clientMissingAction:
+          "Check the Notion connection token saved in the setup wizard.",
+        multipleDataSourcesAction:
+          "If the Notion database has multiple data sources, copy the data source URL you want to upload to.",
+        dataSourceMissingAction:
+          "Copy and paste the Notion data source URL again.",
+      },
+      statusText: {
+        title: "Notion auto-upload status",
+        description: "Description",
+        nextAction: "Notion action",
+        leaseRepair: "Notion leases repaired: {count}",
+      },
     },
     aloneFinalize: {
       disabled: {
@@ -2396,7 +2940,399 @@ export const en = {
       stopped: {
         message: "Automatic alone stop stopped",
       },
+      skippedReason: {
+        sessionNotFound: {
+          message: "Automatic alone stop skipped: session was not found.",
+          action: "Check the recording state and dashboard.",
+        },
+        memberCountUnknown: {
+          message: "Automatic alone stop skipped: voice channel members could not be counted accurately.",
+          action: "Recording continues. Check the dashboard and Discord channel state.",
+        },
+        sessionStatus: {
+          message: "Automatic alone stop skipped: session status is {status}.",
+        },
+      },
+      producerStopDisplayName: "Dirong auto stop",
+      statusText: {
+        title: "Recording auto stop",
+        description: "Description",
+        nextAction: "Recording auto-stop action",
+        session: "Alone session: {sessionId}",
+        countdown: "Auto stop in: {seconds}s",
+      },
     },
+  },
+  health: {
+    node: {
+      available: "Node.js {version} is available",
+      unsupported: "Node.js {version} is too old. Version 22.12.0 or newer is required.",
+      installAction: "Install Node.js 22.12.0 or newer LTS, then run Dirong again.",
+    },
+    dependency: {
+      detected: "{name} detected",
+      npmInstallAction: "Run npm install again.",
+      opusMissing: "Could not find an Opus library.",
+      ffmpegAvailable: "{source} FFmpeg is available",
+      ffmpegMissing: "Could not find the FFmpeg executable.",
+      daveMissing:
+        "Could not find @snazzah/davey directly. It may be provided through @discordjs/voice.",
+      nodeCrcDetected: "node-crc detected",
+      nodeCrcMissing: "Could not find node-crc, which is required for writing OGG/Opus files.",
+      aesAvailable: "Node crypto aes-256-gcm is available",
+      aesUnavailable:
+        "Node crypto aes-256-gcm was not detected. A fallback encryption library may be required.",
+    },
+    config: {
+      present: "Configured (value is not printed)",
+      missing: "Not configured yet.",
+      action: "Save the value in the dashboard setup wizard.",
+    },
+  },
+  notionClientError: {
+    invalidJson: {
+      message: "Could not parse the Notion API response as JSON.",
+      action: "Try again later. If it keeps failing, check Notion status and the network.",
+    },
+    network: {
+      message: "Could not connect to the Notion API.",
+      action: "Check the network connection and try again.",
+    },
+    timeout: {
+      message: "The Notion API request timed out.",
+      action: "Check the network state or increase NOTION_REQUEST_TIMEOUT_MS, then try again.",
+    },
+    auth: {
+      message: "Notion authentication or sharing permission is missing.",
+      action:
+        "Check that the Notion integration token is correct and that the target database is shared with the Dirong integration through Add connections.",
+    },
+    notFound: {
+      message: "Could not access the Notion target.",
+      action: "Check that the Notion URL is correct and share the target database with the Dirong integration.",
+    },
+    schemaMismatch: {
+      message: "The Notion request does not match the database schema.",
+      action: "Check the Notion property names and types required by Dirong, then run the connection test again.",
+    },
+    rateLimited: {
+      message: "Notion API rate limit reached; waiting before retry.",
+      action: "Dirong will retry automatically after a short delay.",
+    },
+    server: {
+      message: "The Notion API server returned an error.",
+      action: "Try again later.",
+    },
+    unknown: {
+      message: "Notion API error. HTTP {status}{code}",
+      action: "Review the error details and try again.",
+    },
+  },
+  sessionPurge: {
+    cli: {
+      unknownOption: "Unknown session purge option: {flag}",
+      selectorRequired:
+        "Exactly one of --session, --missing-audio, --all, or --expired-text-artifacts is required.",
+      sessionValueRequired: "--session value is required.",
+    },
+    backup: {
+      failureLine1: "Failed to create the SQLite backup.",
+      failureLine2: "Session purge was not applied and has been stopped.",
+      failureLine3: "Because backup failed, the database was not changed.",
+    },
+    expiredTextArtifactsTitle: "Dirong expired text artifact retention results",
+    sessionPurgeTitle: "Dirong session purge results",
+    fileDeletionPlanTitle: "File deletion plan",
+    targetSessionsTitle: "Target sessions",
+    dryRunHint: "To delete for real, run the same command with --confirm.",
+    expiredTextArtifactsDone: "Expired text/draft artifact files were deleted.",
+    sessionPurgeDone:
+      "Session rows and planned local files were deleted. Notion Property Rules were preserved.",
+    none: "None",
+    fileDeletionFailed: "File deletion failed",
+  },
+  recordingProducer: {
+    alreadyRecording: "A recording session is already active: {sessionId}",
+    stageUnsupported: "Stage channels are not supported by the current Dirong recording app.",
+    criticalHealthLastError: "Node/Opus/FFmpeg required dependency health check failed",
+    criticalHealthFailure: "Required dependency health check failed. Check npm run doctor.",
+    noActiveSession: "There is no active recording session.",
+    chunkFinalizeTimeout: "Chunk finalization did not finish before the shutdown timeout.",
+    fatalErrors: "voice fatal error recorded {count} time(s)",
+    softRolloverAction: "Close on the next silence and keep the hard cap as a backstop.",
+    sessionDirectoryNameFailed: "Could not create a new session directory name.",
+  },
+  notionPageProperties: {
+    draftTitle: "Meeting notes draft",
+    unknown: "Unknown",
+    uploadPending: "Notion upload pending",
+    taskTitle: "Task",
+    taskStatusTodo: "To do",
+    noEvidence: "No evidence",
+    participantEmptyWarning: "Blank participant names were excluded from the Notion Participants property.",
+    participantsCappedWarning: "Only the first 100 participants were written to the Notion Participants property.",
+    meetingTimeUnknownEnd: "unknown",
+  },
+  notionWriter: {
+    apiKeyMissingAction: "Save a Notion connection token in the setup wizard before turning on Notion upload.",
+    clientMissingAction: "Check the Notion API key setting.",
+    draftMissingAction: "Complete Phase 4 AI cleanup first, then try again.",
+    unresolvedProjectAction:
+      "Legacy sessions with ambiguous project ownership are not automatically uploaded to the default project.",
+    projectMismatchAction: "Switch projects, then upload only the meeting notes for that project.",
+    duplicateDraftAction: "Leave only one page with the same Draft ID in the Notion database, then try again.",
+    duplicateSessionAction:
+      "Leave only one page with the same Session ID in the Notion database, then try again.",
+    pageIdMissing: "The Notion response does not include a page ID.",
+    actionItem: {
+      duplicateSourceActionId:
+        "{sourceActionId}: Multiple task pages have the same Dirong action item ID, so the update was skipped.",
+      syncFailed: "{sourceActionId}: An error occurred while syncing the task page ({error}).",
+      unsupportedWorkerMatch:
+        "{sourceActionId}: The worker matching property type is not supported, so the owner relation was cleared.",
+      duplicateRemoteWorker:
+        "{sourceActionId}: Multiple Notion pages match worker \"{ownerName}\", so the owner relation was cleared.",
+      duplicateCachedWorker:
+        "{sourceActionId}: Multiple roster cache entries match worker \"{ownerName}\", so the owner relation was cleared.",
+      duplicateRoleWorker:
+        "{sourceActionId}: Multiple workers match role \"{ownerName}\", so the owner relation was cleared.",
+      cachedWorkerMissing:
+        "{sourceActionId}: No roster cache entry matched worker or role \"{ownerName}\", so the owner relation was cleared.",
+      remoteWorkerMissing:
+        "{sourceActionId}: Worker \"{ownerName}\" was not found in the Notion member DB, so the owner relation was cleared.",
+    },
+  },
+  notionManagedSchema: {
+    error: {
+      invalidPreset: "The Notion schema preset is invalid: {errors}",
+      invalidParentPageUrl: "The Notion parent page URL is invalid: {reason}",
+      relationTargetMissing: "{semanticKey} relation target is missing.",
+      rollupTargetMissing: "{semanticKey} rollup target is missing.",
+      taskMeetingPresetMissing: "task.meeting preset is missing.",
+      relationNotFound: "Could not find the {taskRole} relation in the {meetingRole} Notion DB.",
+      presetPropertyMissing: "{semanticKey} preset property was not found.",
+      dataSourcePropertyMissing: "The Notion data source response does not include the {propertyName} property.",
+      propertyTypeMissing: "The {propertyName} property type is missing.",
+      rollupRelationMissing: "{semanticKey} rollup relation was not found.",
+      dataSourceIdMissing: "Could not find a data source ID in Notion database {databaseId}.",
+      databaseNotCreated: "{role} Notion DB has not been created yet.",
+      createdPropertyMissing: "{role}.{semanticKey} Notion property was not found.",
+      unsupportedPropertyType: "Unsupported Notion property type: {type}",
+      responseStringMissing: "The Notion response does not include {label}.",
+    },
+  },
+  notionDashboardService: {
+    managedSchema: {
+      checkRequiresToken: "Set a Notion token before checking managed DB status.",
+      clientMissing: "Dirong could not create a Notion client. Check the token setting.",
+      repairPlanAction: "Review the repair plan, then choose which items to apply.",
+      repairConfirmRequired: "Managed schema repair requires confirm=true.",
+      repairRequiresToken: "Set a Notion token before repairing managed DBs.",
+      status: {
+        healthy: "Managed Notion schema is healthy based on the latest check.",
+        needsRepair: "Managed Notion schema has items Dirong can repair automatically.",
+        manualRequired: "Managed Notion schema has items that need manual review.",
+        failed: "An error occurred while checking the managed Notion schema.",
+        unchecked: "Managed Notion schema has not been checked yet.",
+      },
+    },
+    managedSchemaRepair: {
+      blockedNoOperations: "Some managed schema items cannot be repaired automatically.",
+      noOperations: "There are no managed schema repair operations to apply.",
+      unresolvedAfterRepair: "{count} items remain after managed schema repair.",
+      unresolvedAction:
+        "{items} were not confirmed in the Notion response. Check the status again on the DB settings screen.",
+      applied: "Applied {count} managed schema repair operations.",
+      remainingAction: "Review the remaining items in Notion, or check the repair plan again.",
+      reason: {
+        presetSemanticMissing: "The semantic key was not found in the preset.",
+        titleCreateUnsupported: "Title properties cannot be created through the API.",
+        relationDependencyMissing: "The relation/rollup dependency could not be verified.",
+        statusOptionManual: "Status options must be reviewed directly in Notion.",
+        unsafeChangeManual: "Risky changes to existing properties are not applied automatically.",
+      },
+      operation: {
+        syncMapping: "Sync {semanticKey} registry mapping to the remote property",
+        createProperty: "Create {semanticKey} Notion property",
+        renameProperty: "Repair {semanticKey} Notion property name",
+        appendOptions: "Add {semanticKey} Notion options",
+      },
+      error: {
+        missingRegistry: "{role} managed Notion DB registry does not exist.",
+        missingPresetProperty: "{semanticKey} preset property was not found.",
+      },
+    },
+    managedSchemaDiff: {
+      issue: {
+        mappingMissing: "{semanticKey}: SQLite property mapping is missing.",
+        remoteMissingTitleUnsupported: "{semanticKey}: Notion title properties cannot be repaired through the API.",
+        remoteMissing: "{semanticKey}: Notion property was not found.",
+        wrongType: "{semanticKey}: Notion property type is different ({actual} -> {expected}).",
+        nameDrift: "{semanticKey}: The linked Notion property name changed.",
+        idMismatchNameCandidate:
+          "{semanticKey}: No Notion property matched the registry property ID; only a name candidate was found.",
+        relationTargetMismatch: "{semanticKey}: Relation target DB/data source is different.",
+        rollupTargetMismatch: "{semanticKey}: Rollup relation/target property is different.",
+        optionMissing: "{semanticKey}: Notion options are missing ({options}).",
+        extra: "{propertyName}: This Notion property is not in Dirong's managed registry. It will not be deleted automatically.",
+      },
+      uploadAction: {
+        missing: "Check the semantic properties required by the managed Notion DB: {items}",
+        wrongType: "Check managed Notion DB property types/relations: {items}",
+        missingOptions: "Check managed Notion DB options: {items}",
+        checkAgain: "Check Notion status again on the DB settings screen, then apply the repair plan.",
+      },
+      error: {
+        registrySnapshotMissing: "{role} registry snapshot was not found.",
+      },
+    },
+    customProperties: {
+      schemaRequiresSetup: "Complete Notion setup before loading the property schema.",
+      checkTokenAndManagedDb: "Check the Notion token and managed DB setup.",
+      clientMissing: "Dirong could not create a Notion client.",
+      syncDone:
+        "Checked {discovered} Notion properties and synced {custom} custom properties into the managed list.",
+      connectionAction: "Check the Notion connection and target sharing.",
+      rulesSaved: "Saved {saved} Notion custom property rules and deleted {deleted}.",
+      rulesIgnored: "Skipped {ignored} items because they are required properties or have empty names.",
+      emptyRules: "This DB does not have custom property rules yet.",
+      enabledRules: "{enabled} of {rules} custom properties are enabled.",
+      missingManagedDb: "No managed DB connection info exists for the selected DB.",
+      createManagedDbAction: "Create the managed DB set from Notion settings first.",
+      checkTargetOrManagedDb: "Check the Notion target URL or managed DB setup.",
+      invalidTargetAction: "Copy and paste the Notion database or data source URL again.",
+    },
+    schema: {
+      blockedApply: "Some Notion schema items cannot be applied automatically.",
+      noChanges: "There are no changes to apply to the Notion schema.",
+      setupRequired: "Complete Notion setup before cleaning up the schema.",
+      setupAction: "Check the Notion connection token and upload target in the setup wizard.",
+      invalidTargetAction: "Copy and paste the Notion database or data source URL again.",
+      clientMissing: "Dirong could not create a Notion client.",
+      tokenAction: "Check the Notion connection token saved in the setup wizard.",
+      connectionAction: "Check the Notion connection and target sharing.",
+      extraPreservedAction:
+        "Unmanaged properties are not deleted. Delete them directly in Notion if you no longer need them.",
+      applyAction:
+        "Click Align schema to automatically add missing properties, apply renames, and fill select options.",
+      diffMessage:
+        "Missing {missing} / Renamed {renames} / Type mismatch {wrongType} / Missing options {missingOptions} / Unmanaged {extra}",
+      applyMessage:
+        "Create {create} / Rename {rename} / Type changes {updateType} / Add options {updateOptions} / Delete {delete}",
+    },
+    schemaManager: {
+      titleCreateWarning: "Notion title properties cannot be created through the API.",
+      immutableOptionManual:
+        "{propertyName}: {propertyType} options cannot be cleaned up through the API and must be added directly in Notion.",
+      titleCreateBlocked: "{propertyName}: Title properties cannot be created through the API.",
+      relationTargetRequired: "{propertyName}: A relation target DB/data source URL is required.",
+      createMissingDisabled: "Creating required properties is turned off, so missing properties are left unchanged.",
+      typeChangeUnsupported:
+        "{propertyName}: {actualType} -> {expectedType} type changes are not applied automatically.",
+      typeUpdateDisabled: "Type updates are turned off, so mismatched properties are left unchanged.",
+      statusOptionManual: "{propertyName}: Status options {options} must be added directly in Notion.",
+      deleteExtraSkipped: "Unmanaged property deletion was skipped because it was not confirmed.",
+      titleDeleteBlocked: "{propertyName}: Title properties are not deleted.",
+    },
+    relationRules: {
+      pageUrlInvalid: "{property}: Could not read the relation target page URL.",
+      targetUrlInvalid: "{property}: Could not read the relation target URL.",
+      targetDbAccessFailed: "{property}: Could not access the relation target DB ({error}).",
+    },
+  },
+  doctor: {
+    title: "Dirong Recording + STT doctor results",
+    generatedAtLabel: "Created at",
+    platformLabel: "Platform",
+    baseEnvironmentTitle: "Base runtime environment",
+    readOnlyNotice: "This doctor is read-only. Run npm run repair if DB repair is needed.",
+    secretsHiddenNotice: "Discord tokens and API key values were not printed.",
+    failureNotice: "Some checks failed. Review the action guidance above first.",
+    actionPrefix: "Action",
+    discordVoiceOptionalName: "Discord voice channel ID (optional)",
+    discordVoiceConfiguredOptional: "Configured (value is not printed). It is not required for normal recording.",
+    discordVoiceNotNeeded:
+      "Not required for normal recording. /dirong start uses the voice channel joined by the user.",
+    stt: {
+      openAiSelected: "OpenAI STT provider selected",
+      openAiKeyStored: "OpenAI API key saved (value is not printed)",
+      openAiKeyMissing: "OpenAI API key is not saved. No OpenAI API call was made.",
+      openAiKeyAction: "Save the OpenAI API key in the setup wizard or use the local-whisper provider.",
+      localWhisperLoading: "The local-whisper model loading check may take a while...",
+      localWhisperSelected: "local-whisper provider selected",
+      localWhisperReady: "{model} can be loaded with {device}/{computeType}.",
+      localWhisperAction: "Check the model path and Python environment. On Windows, try cpu/int8 first.",
+    },
+    notion: {
+      registryNoDb: "Cannot check Notion managed DBs because the SQLite DB does not exist.",
+      registryMissingTables: "Notion registry tables are missing: {tables}",
+      tokenMissingRemote: "Remote check was not run because the Notion connection token is not saved.",
+      remoteCheckAction: "Check network access, the Notion token, and parent page sharing permissions.",
+      registryTitle: "Notion managed registry",
+      registryNoDbPrint: "Cannot check the managed registry because the SQLite DB does not exist.",
+      remoteOnlyHint: "remote checks call the Notion API only with --notion-remote.",
+      registryMissingTablesPrint: "managed registry tables missing: {tables}",
+      registrySetupHint: "The registry is saved after the setup wizard creates managed Notion DBs.",
+      latestCheckNoRecord: "latest managed schema check record: no local record",
+      managedSchemaAction: "Check the repair plan on the DB settings screen.",
+      dataSourceAction: "Check Notion permissions and required field/relation state.",
+    },
+    sqlite: {
+      title: "SQLite status",
+      noDb: "Session DB does not exist yet. It will be created when the first recording starts with /dirong start.",
+      sessions: "sessions: {count}",
+      activeSessions: "active/reconnecting/stopping sessions: {count}",
+      transcriptSegments: "transcript segments: {count}, no_speech={noSpeechCount}",
+      openRepairItems: "open repair items: {count}",
+    },
+  },
+  meetingNotesMarkdown: {
+    draftTitle: "Meeting notes draft",
+    summaryHeading: "Summary",
+    topicsHeading: "Key Topics",
+    decisionsHeading: "Decisions",
+    actionItemsHeading: "Action Items",
+    unresolvedHeading: "Unresolved / Uncertain Items",
+    noiseHeading: "Chatter / Noise Handling",
+    sourceTimelineHeading: "Source Timeline",
+    empty: "None",
+    decided: "Decided",
+    tentative: "Tentative",
+    ownerLabel: "Owner",
+    dueLabel: "Due",
+    unspecified: "Unspecified",
+    unresolvedLabel: "Unresolved",
+    uncertainLabel: "Uncertain",
+    reasonLabel: "reason",
+    removedChatterPrefix: "Removed/compressed: ",
+    keptBecausePrefix: "Kept because: ",
+    keptBecauseHeading: "Kept because:",
+    sourceLabel: "Source",
+  },
+  notionBlocks: {
+    meetingInfoHeading: "Meeting Info",
+    meetingTimeLabel: "Meeting time",
+    channelLabel: "Channel",
+    participantsLabel: "Participants",
+    summaryHeading: "Summary",
+    topicsHeading: "Key Discussion",
+    decisionsHeading: "Decisions",
+    actionItemsHeading: "Action Items",
+    unresolvedHeading: "Open Questions",
+    uncertaintyHeading: "Uncertain Content",
+    noiseHeading: "Noise Handling Notes",
+    timelineHeading: "Timeline",
+    dirongInfoHeading: "Dirong Info",
+    empty: "None",
+    decided: "Decided",
+    tentative: "Tentative",
+    ownerLabel: "Owner",
+    dueLabel: "Due",
+    reasonLabel: "reason",
+    removedChatterLabel: "Removed/compressed",
+    keptBecauseLabel: "Kept because",
+    unspecified: "Unspecified",
+    noContent: "No content",
   },
   discordRuntime: {
     serverOnly: "Dirong can only be used inside a Discord server.",
@@ -2828,6 +3764,7 @@ export const en = {
     },
     quick: {
       startRecording: "Start recording",
+      startRecordingHint: "Run /dirong start in Discord.",
       refreshStatus: "Check status again",
     },
     projects: {
@@ -2937,10 +3874,10 @@ export const en = {
         english: {
           title: "English",
           description:
-            "UI language can be saved, but managed Notion DB creation is limited to Korean in this version.",
+            "Save the dashboard, setup wizard, and Notion DB preset in English.",
         },
         englishNotice:
-          "If you choose English, the Notion schema locale is also saved as en. Managed Notion DB creation in this version only supports the Korean preset, so the creation step will ask you to switch back to Korean.",
+          "If you choose English, the Notion schema locale is also saved as en and managed Notion DBs are created with English names.",
       },
       discord: {
         title: "Connect a Discord bot",
@@ -3096,7 +4033,7 @@ export const en = {
         description:
           "You do not need to type database IDs, data source IDs, or property IDs. Dirong saves the created result in the registry.",
         unsupportedNotice:
-          "The current app language and Notion schema locale is {locale}. Managed Notion DB creation only supports the Korean preset, so switch to Korean in the language step before creating it.",
+          "The current app language and Notion schema locale is {locale}. No managed Notion DB preset was found for this locale.",
         readyNotice:
           "This button creates the Meeting, Member, and Action Item DBs inside the Notion DB management page and saves the internal mapping in the registry.",
         openInNotion: "Open in Notion",
@@ -3288,6 +4225,8 @@ export const en = {
         planReady: "{count} automatic repair operations can be applied.",
         planEmpty: "There are no required fields to repair automatically.",
         planBlocked: "Some items need manual review.",
+        stalePlanMessage: "The managed schema repair plan is no longer current.",
+        stalePlanAction: "Check Notion status again, then apply the new repair plan.",
         operations: "Operations to apply",
         blockedItems: "Manual review",
         confirmRepair: "Apply the displayed repair plan to Notion?",
@@ -3757,6 +4696,17 @@ export const en = {
         message: "Notion dashboard action source is not configured.",
         action: "Check Notion settings.",
       },
+    },
+    userFacing: {
+      dashboardPortDefaultEndpoint: "the configured dashboard port",
+      dashboardPortInUse:
+        "Dirong dashboard port is already in use: {endpoint}\n\nCheck these items:\n1. If another Dirong console is already running, type exit in that window to stop it.\n2. The product default port is 3095. Stop the other program using that port, then start Dirong again.",
+      localWhisperPreflight:
+        "Dirong could not prepare local-whisper.\n\nCheck these items:\n1. Make sure .venv-whisper exists and faster-whisper is installed.\n2. Make sure the local-whisper model path saved in the setup wizard points to a real model folder.\n3. On Windows, try the default cpu/int8 setting first.",
+      sqliteBackup:
+        "Dirong could not create the SQLite backup.\n\nCheck these items:\n1. If recording is running, wait a moment and try again.\n2. Make sure no other program is locking the data folder.\n3. Make sure there is enough free disk space.\n\nBecause the backup failed, STT processing was not started.",
+      sttPreparation:
+        "Dirong had a problem while preparing STT.\n\nCheck these items:\n1. Check local-whisper settings and the Python environment.\n2. Check the model path and CPU/int8 setting first.",
     },
   },
   action: {

@@ -16,6 +16,8 @@ import type {
   NotionPropertyNameKey,
 } from "./schema.js";
 import type { NotionPropertyNames } from "./settings.js";
+import { formatLocaleText, t } from "../i18n/catalog.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 
 export type NotionSchemaPropertySource = "required" | "custom";
 export type NotionSchemaManagedType =
@@ -162,7 +164,9 @@ export function buildNotionSchemaDiff(input: {
   properties: NotionDataSourceProperties;
   propertyNames: NotionPropertyNames;
   customRules: readonly NotionCustomPropertyRule[];
+  locale?: DirongLocale;
 }): NotionSchemaDiff {
+  const locale = input.locale ?? "ko";
   const actualProperties = listActualProperties(input.properties);
   const actualByName = new Map(actualProperties.map((item) => [item.name, item]));
   const actualByNormalizedName = new Map(
@@ -283,12 +287,17 @@ export function buildNotionSchemaDiff(input: {
     }));
 
   if (missing.some((item) => item.propertyType === "title")) {
-    warnings.push("Notion title 속성은 API로 새로 만들 수 없습니다.");
+    warnings.push(t(locale, "notionDashboardService.schemaManager.titleCreateWarning"));
   }
   for (const item of missingOptions.filter((entry) => !entry.canUpdate)) {
-    warnings.push(
-      `${item.propertyName}: ${item.propertyType} 옵션은 API로 정리할 수 없어 Notion에서 직접 추가해야 합니다.`,
-    );
+    warnings.push(formatLocaleText(
+      locale,
+      "notionDashboardService.schemaManager.immutableOptionManual",
+      {
+        propertyName: item.propertyName,
+        propertyType: item.propertyType,
+      },
+    ));
   }
 
   return {
@@ -310,6 +319,7 @@ export function buildNotionSchemaDiff(input: {
 export function buildNotionSchemaUpdatePlan(
   diff: NotionSchemaDiff,
   options: NotionSchemaApplyOptions,
+  locale: DirongLocale = "ko",
 ): NotionSchemaUpdatePlan {
   const properties: Record<string, unknown> = {};
   const operations = {
@@ -332,34 +342,51 @@ export function buildNotionSchemaUpdatePlan(
   if (options.createMissing) {
     for (const missing of diff.missing) {
       if (missing.propertyType === "title") {
-        blocked.push(`${missing.propertyName}: title 속성은 API로 새로 만들 수 없습니다.`);
+        blocked.push(formatLocaleText(
+          locale,
+          "notionDashboardService.schemaManager.titleCreateBlocked",
+          { propertyName: missing.propertyName },
+        ));
         continue;
       }
       if (missing.propertyType === "relation" && !missing.relationDataSourceId) {
-        blocked.push(
-          `${missing.propertyName}: relation 대상 DB/data source URL이 필요합니다.`,
-        );
+        blocked.push(formatLocaleText(
+          locale,
+          "notionDashboardService.schemaManager.relationTargetRequired",
+          { propertyName: missing.propertyName },
+        ));
         continue;
       }
       properties[missing.propertyName] = schemaForManagedProperty(missing);
       operations.create += 1;
     }
   } else if (diff.missing.length > 0) {
-    warnings.push("필요한 속성 만들기가 꺼져 있어 누락 속성은 그대로 둡니다.");
+    warnings.push(t(
+      locale,
+      "notionDashboardService.schemaManager.createMissingDisabled",
+    ));
   }
 
   if (options.updateTypes) {
     for (const item of diff.wrongType) {
       if (!item.canUpdate) {
-        blocked.push(
-          `${item.propertyName}: ${item.actualType} -> ${item.expectedType} 타입 변경은 자동 처리하지 않습니다.`,
-        );
+        blocked.push(formatLocaleText(
+          locale,
+          "notionDashboardService.schemaManager.typeChangeUnsupported",
+          {
+            propertyName: item.propertyName,
+            actualType: item.actualType,
+            expectedType: item.expectedType,
+          },
+        ));
         continue;
       }
       if (item.expectedManagedType === "relation" && !item.relationDataSourceId) {
-        blocked.push(
-          `${item.propertyName}: relation 대상 DB/data source URL이 필요합니다.`,
-        );
+        blocked.push(formatLocaleText(
+          locale,
+          "notionDashboardService.schemaManager.relationTargetRequired",
+          { propertyName: item.propertyName },
+        ));
         continue;
       }
       mergePropertyUpdate(
@@ -373,14 +400,19 @@ export function buildNotionSchemaUpdatePlan(
       operations.updateType += 1;
     }
   } else if (diff.wrongType.length > 0) {
-    warnings.push("타입 변경이 꺼져 있어 타입이 다른 속성은 그대로 둡니다.");
+    warnings.push(t(locale, "notionDashboardService.schemaManager.typeUpdateDisabled"));
   }
 
   for (const item of diff.missingOptions) {
     if (!item.canUpdate) {
-      blocked.push(
-        `${item.propertyName}: status 옵션 ${item.missingOptions.join(", ")}은 Notion에서 직접 추가해야 합니다.`,
-      );
+      blocked.push(formatLocaleText(
+        locale,
+        "notionDashboardService.schemaManager.statusOptionManual",
+        {
+          propertyName: item.propertyName,
+          options: item.missingOptions.join(", "),
+        },
+      ));
       continue;
     }
     mergePropertyUpdate(
@@ -400,11 +432,15 @@ export function buildNotionSchemaUpdatePlan(
 
   if (options.deleteExtra) {
     if (!options.confirmDeleteExtra) {
-      warnings.push("관리 외 속성 삭제는 확인이 없어 건너뛰었습니다.");
+      warnings.push(t(locale, "notionDashboardService.schemaManager.deleteExtraSkipped"));
     } else {
       for (const item of diff.extra) {
         if (!item.canDelete) {
-          blocked.push(`${item.propertyName}: title 속성은 삭제하지 않습니다.`);
+          blocked.push(formatLocaleText(
+            locale,
+            "notionDashboardService.schemaManager.titleDeleteBlocked",
+            { propertyName: item.propertyName },
+          ));
           continue;
         }
         properties[propertyPatchKey(item.propertyName, item.propertyId)] = null;

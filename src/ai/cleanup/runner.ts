@@ -4,6 +4,7 @@ import {
   type DirongLocale,
 } from "../../settings/local-settings-store.js";
 import { resolveAppLocale } from "../../i18n/app-locale.js";
+import { formatLocaleText, t } from "../../i18n/catalog.js";
 import type {
   AiCleanupFailureKind,
   AiCleanupJobRow,
@@ -135,13 +136,17 @@ async function runAiCleanupForSessionCore(
   if (!session) {
     throw new DirongError(
       "PHASE4_SESSION_NOT_FOUND",
-      `AI cleanup 대상 세션을 찾지 못했습니다: ${options.sessionId}`,
+      formatLocaleText(locale, "runtimeStatus.aiCleanupRunner.sessionNotFound", {
+        sessionId: options.sessionId,
+      }),
     );
   }
   if (session.status !== "finalized") {
     throw new DirongError(
       "PHASE4_SESSION_NOT_FINALIZED",
-      `Phase 4 AI cleanup은 finalized 세션만 처리합니다. 현재 세션 상태: ${session.status}`,
+      formatLocaleText(locale, "runtimeStatus.aiCleanupRunner.sessionNotFinalized", {
+        status: session.status,
+      }),
     );
   }
 
@@ -188,7 +193,7 @@ async function runAiCleanupForSessionCore(
 
   emitProgress({
     phase: "preparing_input",
-    message: "AI cleanup 입력 준비 중",
+    message: t(locale, "runtimeStatus.aiCleanupRunner.preparingInput"),
   });
 
   const baseResult = makeBaseResult(options, timelineInput, inputChars);
@@ -216,7 +221,7 @@ async function runAiCleanupForSessionCore(
   updateProgressContext({ jobId: artifactPaths.jobId });
   emitProgress({
     phase: "claiming_job",
-    message: "AI cleanup job 확인 중",
+    message: t(locale, "runtimeStatus.aiCleanupRunner.claimingJob"),
     jobId: artifactPaths.jobId,
   });
 
@@ -247,7 +252,7 @@ async function runAiCleanupForSessionCore(
   if (job.status === "done") {
     emitProgress({
       phase: "completed",
-      message: "이미 회의록 초안이 있습니다.",
+      message: t(locale, "runtimeStatus.aiCleanupRunner.alreadyDone"),
       jobId: job.id,
       attempt: job.attempts,
     });
@@ -269,7 +274,7 @@ async function runAiCleanupForSessionCore(
     });
     emitProgress({
       phase: "failed",
-      message: "회의록 생성 보류",
+      message: t(locale, "runtimeStatus.aiCleanupRunner.blocked"),
       jobId: job.id,
       attempt: job.attempts,
       warning: blockedReason.message,
@@ -293,7 +298,7 @@ async function runAiCleanupForSessionCore(
   if (!claimed) {
     emitProgress({
       phase: "failed",
-      message: "AI cleanup job을 아직 실행할 수 없습니다.",
+      message: t(locale, "runtimeStatus.aiCleanupRunner.notClaimed"),
       jobId: job.id,
       attempt: job.attempts,
     });
@@ -303,7 +308,7 @@ async function runAiCleanupForSessionCore(
       dbChanged: false,
       backupPaths,
       job: store.getAiCleanupJob(job.id),
-      error: "AI cleanup job을 claim하지 못했습니다. 이미 처리 중이거나 재시도 시간이 아직 오지 않았습니다.",
+      error: t(locale, "runtimeStatus.aiCleanupRunner.notClaimedError"),
     };
   }
   updateProgressContext({ jobId: claimed.id, attempt: claimed.attempts });
@@ -311,7 +316,7 @@ async function runAiCleanupForSessionCore(
   try {
     emitProgress({
       phase: "writing_prompt_artifacts",
-      message: "AI cleanup prompt artifact 저장 중",
+      message: t(locale, "runtimeStatus.aiCleanupRunner.writingPromptArtifacts"),
       jobId: claimed.id,
       attempt: claimed.attempts,
     });
@@ -329,7 +334,7 @@ async function runAiCleanupForSessionCore(
     });
     emitProgress({
       phase: "failed",
-      message: "AI cleanup artifact 저장 실패",
+      message: t(locale, "runtimeStatus.aiCleanupRunner.artifactWriteFailed"),
       jobId: claimed.id,
       attempt: claimed.attempts,
       warning: message,
@@ -351,7 +356,7 @@ async function runAiCleanupForSessionCore(
   try {
     emitProgress({
       phase: "starting_claude",
-      message: "Claude stream-json 요청 시작",
+      message: t(locale, "runtimeStatus.aiCleanupRunner.startingClaude"),
       jobId: claimed.id,
       attempt: claimed.attempts,
     });
@@ -378,7 +383,7 @@ async function runAiCleanupForSessionCore(
     });
     emitProgress({
       phase: "failed",
-      message: "Claude stream-json 요청 실패",
+      message: t(locale, "runtimeStatus.aiCleanupRunner.claudeRequestFailed"),
       jobId: claimed.id,
       attempt: claimed.attempts,
       warning: message,
@@ -388,7 +393,7 @@ async function runAiCleanupForSessionCore(
 
   emitProgress({
     phase: "writing_raw_artifacts",
-    message: "Claude raw output artifact 저장 중",
+    message: t(locale, "runtimeStatus.aiCleanupRunner.writingRawArtifacts"),
     jobId: claimed.id,
     attempt: claimed.attempts,
   });
@@ -414,7 +419,7 @@ async function runAiCleanupForSessionCore(
     });
     emitProgress({
       phase: "failed",
-      message: "Claude stream-json 요청 실패",
+      message: t(locale, "runtimeStatus.aiCleanupRunner.claudeRequestFailed"),
       jobId: claimed.id,
       attempt: claimed.attempts,
       warning: message,
@@ -431,7 +436,7 @@ async function runAiCleanupForSessionCore(
     });
     emitProgress({
       phase: "failed",
-      message: "Claude output이 비어 있습니다.",
+      message: t(locale, "runtimeStatus.aiCleanupRunner.emptyOutput"),
       jobId: claimed.id,
       attempt: claimed.attempts,
       warning: message,
@@ -443,7 +448,7 @@ async function runAiCleanupForSessionCore(
   try {
     emitProgress({
       phase: "parsing_json",
-      message: "회의록 JSON 파싱 중",
+      message: t(locale, "runtimeStatus.aiCleanupRunner.parsingJson"),
       jobId: claimed.id,
       attempt: claimed.attempts,
     });
@@ -457,7 +462,7 @@ async function runAiCleanupForSessionCore(
     });
     emitProgress({
       phase: "failed",
-      message: "회의록 JSON 파싱 실패",
+      message: t(locale, "runtimeStatus.aiCleanupRunner.parsingJsonFailed"),
       jobId: claimed.id,
       attempt: claimed.attempts,
       warning: message,
@@ -470,7 +475,7 @@ async function runAiCleanupForSessionCore(
   try {
     emitProgress({
       phase: "validating_schema",
-      message: "회의록 schema 검증 중",
+      message: t(locale, "runtimeStatus.aiCleanupRunner.validatingSchema"),
       jobId: claimed.id,
       attempt: claimed.attempts,
     });
@@ -497,7 +502,7 @@ async function runAiCleanupForSessionCore(
     };
     emitProgress({
       phase: "repairing_schema",
-      message: "회의록 schema repair 요청 중",
+      message: t(locale, "runtimeStatus.aiCleanupRunner.repairingSchema"),
       jobId: claimed.id,
       attempt: claimed.attempts,
       repairAttempt: true,
@@ -524,7 +529,7 @@ async function runAiCleanupForSessionCore(
       });
       emitProgress({
         phase: "failed",
-        message: "회의록 schema repair 요청 실패",
+        message: t(locale, "runtimeStatus.aiCleanupRunner.repairingSchemaFailed"),
         jobId: claimed.id,
         attempt: claimed.attempts,
         repairAttempt: true,
@@ -535,7 +540,7 @@ async function runAiCleanupForSessionCore(
 
     emitProgress({
       phase: "writing_raw_artifacts",
-      message: "Claude repair raw output artifact 저장 중",
+      message: t(locale, "runtimeStatus.aiCleanupRunner.writingRepairRawArtifacts"),
       jobId: claimed.id,
       attempt: claimed.attempts,
       repairAttempt: true,
@@ -562,7 +567,7 @@ async function runAiCleanupForSessionCore(
       });
       emitProgress({
         phase: "failed",
-        message: "회의록 schema repair 실패",
+        message: t(locale, "runtimeStatus.aiCleanupRunner.repairFailed"),
         jobId: claimed.id,
         attempt: claimed.attempts,
         repairAttempt: true,
@@ -574,7 +579,7 @@ async function runAiCleanupForSessionCore(
     try {
       emitProgress({
         phase: "validating_schema",
-        message: "repair 결과 schema 검증 중",
+        message: t(locale, "runtimeStatus.aiCleanupRunner.validatingRepairSchema"),
         jobId: claimed.id,
         attempt: claimed.attempts,
         repairAttempt: true,
@@ -599,7 +604,7 @@ async function runAiCleanupForSessionCore(
       });
       emitProgress({
         phase: "failed",
-        message: "repair 결과 schema 검증 실패",
+        message: t(locale, "runtimeStatus.aiCleanupRunner.repairValidationFailed"),
         jobId: claimed.id,
         attempt: claimed.attempts,
         repairAttempt: true,
@@ -611,7 +616,7 @@ async function runAiCleanupForSessionCore(
 
   emitProgress({
     phase: "rendering_draft",
-    message: "회의록 draft 저장 중",
+    message: t(locale, "runtimeStatus.aiCleanupRunner.renderingDraft"),
     jobId: claimed.id,
     attempt: claimed.attempts,
   });
@@ -641,7 +646,7 @@ async function runAiCleanupForSessionCore(
   });
   emitProgress({
     phase: "completed",
-    message: "회의록 초안 생성 완료",
+    message: t(locale, "runtimeStatus.aiCleanupRunner.completed"),
     jobId: claimed.id,
     attempt: claimed.attempts,
   });

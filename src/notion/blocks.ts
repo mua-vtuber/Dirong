@@ -4,6 +4,7 @@ import {
   isDirongLocale,
   type DirongLocale,
 } from "../settings/local-settings-store.js";
+import { t, type LocaleKey } from "../i18n/catalog.js";
 import { formatTranscriptTime } from "../transcript/time-format.js";
 import { sha256Canonical } from "./content-hash.js";
 import type { NotionDraftInput } from "./draft-input.js";
@@ -206,63 +207,40 @@ type NotionBlockText = {
   noContent: string;
 };
 
-const NOTION_BLOCK_TEXT: Record<DirongLocale, NotionBlockText> = {
-  ko: {
-    meetingInfoHeading: "회의 정보",
-    meetingTimeLabel: "회의 시간",
-    channelLabel: "채널",
-    participantsLabel: "참여자",
-    summaryHeading: "요약",
-    topicsHeading: "주요 논의",
-    decisionsHeading: "결정사항",
-    actionItemsHeading: "할 일 목록",
-    unresolvedHeading: "남은 질문",
-    uncertaintyHeading: "불확실한 내용",
-    noiseHeading: "노이즈 처리 메모",
-    timelineHeading: "타임라인",
-    dirongInfoHeading: "Dirong 정보",
-    empty: "없음",
-    decided: "확정",
-    tentative: "잠정",
-    ownerLabel: "담당",
-    dueLabel: "기한",
-    reasonLabel: "이유",
-    removedChatterLabel: "제거/압축",
-    keptBecauseLabel: "보존 이유",
-    unspecified: "미지정",
-    noContent: "내용 없음",
-  },
-  en: {
-    meetingInfoHeading: "Meeting Info",
-    meetingTimeLabel: "Meeting time",
-    channelLabel: "Channel",
-    participantsLabel: "Participants",
-    summaryHeading: "Summary",
-    topicsHeading: "Key Discussion",
-    decisionsHeading: "Decisions",
-    actionItemsHeading: "Action Items",
-    unresolvedHeading: "Open Questions",
-    uncertaintyHeading: "Uncertain Content",
-    noiseHeading: "Noise Handling Notes",
-    timelineHeading: "Timeline",
-    dirongInfoHeading: "Dirong Info",
-    empty: "None",
-    decided: "Decided",
-    tentative: "Tentative",
-    ownerLabel: "Owner",
-    dueLabel: "Due",
-    reasonLabel: "reason",
-    removedChatterLabel: "Removed/compressed",
-    keptBecauseLabel: "Kept because",
-    unspecified: "Unspecified",
-    noContent: "No content",
-  },
+const NOTION_BLOCK_TEXT_KEYS: Record<keyof NotionBlockText, LocaleKey> = {
+  meetingInfoHeading: "notionBlocks.meetingInfoHeading",
+  meetingTimeLabel: "notionBlocks.meetingTimeLabel",
+  channelLabel: "notionBlocks.channelLabel",
+  participantsLabel: "notionBlocks.participantsLabel",
+  summaryHeading: "notionBlocks.summaryHeading",
+  topicsHeading: "notionBlocks.topicsHeading",
+  decisionsHeading: "notionBlocks.decisionsHeading",
+  actionItemsHeading: "notionBlocks.actionItemsHeading",
+  unresolvedHeading: "notionBlocks.unresolvedHeading",
+  uncertaintyHeading: "notionBlocks.uncertaintyHeading",
+  noiseHeading: "notionBlocks.noiseHeading",
+  timelineHeading: "notionBlocks.timelineHeading",
+  dirongInfoHeading: "notionBlocks.dirongInfoHeading",
+  empty: "notionBlocks.empty",
+  decided: "notionBlocks.decided",
+  tentative: "notionBlocks.tentative",
+  ownerLabel: "notionBlocks.ownerLabel",
+  dueLabel: "notionBlocks.dueLabel",
+  reasonLabel: "notionBlocks.reasonLabel",
+  removedChatterLabel: "notionBlocks.removedChatterLabel",
+  keptBecauseLabel: "notionBlocks.keptBecauseLabel",
+  unspecified: "notionBlocks.unspecified",
+  noContent: "notionBlocks.noContent",
 };
 
 function notionBlockText(locale: unknown): NotionBlockText {
-  return NOTION_BLOCK_TEXT[
-    isDirongLocale(locale) ? locale : DEFAULT_DIRONG_LOCALE
-  ];
+  const resolvedLocale = isDirongLocale(locale) ? locale : DEFAULT_DIRONG_LOCALE;
+  return Object.fromEntries(
+    Object.entries(NOTION_BLOCK_TEXT_KEYS).map(([key, localeKey]) => [
+      key,
+      t(resolvedLocale, localeKey),
+    ]),
+  ) as NotionBlockText;
 }
 
 function pushSection(

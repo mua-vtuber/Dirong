@@ -137,3 +137,30 @@ test("Alone finalize reducer redacts failed technical details", () => {
     warnings: ["alone_finalize_failed"],
   });
 });
+
+test("Alone finalize reducer can create English snapshots", () => {
+  const initial = createInitialAloneFinalizeSnapshot(false, "en");
+
+  assert.equal(initial.message, "Automatic alone stop is turned off.");
+  assert.equal(initial.userAction, "Set DIRONG_ALONE_FINALIZE_ENABLED=true to opt in.");
+
+  const countdown = reduceAloneFinalizeSnapshot(
+    createInitialAloneFinalizeSnapshot(true, "en"),
+    {
+      type: "countdown_started",
+      checkedAt: "2026-05-06T00:00:00.000Z",
+      sessionId: "meeting_1",
+      voiceChannelId: "voice_1",
+      aloneSince: "2026-05-06T00:00:00.000Z",
+      finalizeAt: "2026-05-06T00:00:03.000Z",
+      remainingMs: 3000,
+    },
+    "en",
+  );
+
+  assert.equal(countdown.message, "Dirong is alone; recording will stop in 3s");
+  assert.equal(
+    countdown.userAction,
+    "If someone returns during the grace period, automatic stop is cancelled.",
+  );
+});

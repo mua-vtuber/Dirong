@@ -308,23 +308,29 @@ test("AloneFinalizeService skips when member count is uncertain", async () => {
 });
 
 test("formatAloneFinalizeForStatus renders countdown", () => {
+  const snapshot = {
+    enabled: true,
+    status: "countdown" as const,
+    checkedAt: "2026-05-06T00:00:00.000Z",
+    sessionId: "meeting_1",
+    voiceChannelId: "voice",
+    aloneSince: "2026-05-06T00:00:00.000Z",
+    finalizeAt: "2026-05-06T00:01:30.000Z",
+    remainingMs: 90000,
+    nonBotMemberCount: 0,
+    message: "혼자 남음 감지, 90초 후 자동 종료",
+    userAction: null,
+    technicalDetail: null,
+    warnings: [],
+  };
+
   assert.match(
-    formatAloneFinalizeForStatus({
-      enabled: true,
-      status: "countdown",
-      checkedAt: "2026-05-06T00:00:00.000Z",
-      sessionId: "meeting_1",
-      voiceChannelId: "voice",
-      aloneSince: "2026-05-06T00:00:00.000Z",
-      finalizeAt: "2026-05-06T00:01:30.000Z",
-      remainingMs: 90000,
-      nonBotMemberCount: 0,
-      message: "혼자 남음 감지, 90초 후 자동 종료",
-      userAction: null,
-      technicalDetail: null,
-      warnings: [],
-    }),
+    formatAloneFinalizeForStatus(snapshot),
     /자동 종료까지: 90초/,
+  );
+  assert.match(
+    formatAloneFinalizeForStatus(snapshot, "en"),
+    /Auto stop in: 90s/,
   );
 });
 

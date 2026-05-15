@@ -69,15 +69,20 @@ import {
   type ManagedSchemaRepairResult,
 } from "./managed-schema-repair.js";
 import {
-  KOREAN_NOTION_SCHEMA_PRESET,
   NOTION_DATABASE_ROLES,
+  notionSchemaPresetForLocale,
   type NotionDatabaseRole,
+  type NotionSchemaPreset,
 } from "./schema-presets.js";
-import { NotionRegistryStore } from "./registry-store.js";
+import {
+  DEFAULT_NOTION_WORKSPACE_SETTINGS_ID,
+  NotionRegistryStore,
+} from "./registry-store.js";
 import { NotionWriteStore } from "./write-store.js";
 import { SqlRunner } from "../storage/sql-runner.js";
 import type { DirongDatabase } from "../storage/sqlite.js";
-import { resolveAppLocale } from "../i18n/app-locale.js";
+import { resolveAppLocale, type AppLocaleResolver } from "../i18n/app-locale.js";
+import { formatLocaleText, t } from "../i18n/catalog.js";
 import type { DirongLocale } from "../settings/local-settings-store.js";
 
 export type NotionCustomPropertiesRoleSnapshot = {
@@ -203,6 +208,7 @@ export class NotionDashboardService {
       projectId?: string | null;
       getProjectId?: () => string | null | undefined;
       retention?: NotionUploadRetentionHandler;
+      localeResolver?: AppLocaleResolver;
     },
   ) {
     this.runner = new SqlRunner(input.database);
@@ -213,6 +219,10 @@ export class NotionDashboardService {
 
   private getSettings(): NotionRuntimeSettings {
     return this.input.getSettings?.() ?? this.input.settings;
+  }
+
+  private locale(locale?: DirongLocale): DirongLocale {
+    return resolveAppLocale({ locale, getLocale: this.input.localeResolver });
   }
 
   clearCachedManagedSchemaCheck(): void {
@@ -256,7 +266,7 @@ export class NotionDashboardService {
   }
 
   getSnapshot(locale?: DirongLocale): NotionDashboardSnapshot {
-    const resolvedLocale = resolveAppLocale({ locale });
+    const resolvedLocale = this.locale(locale);
     const settings = this.getSettings();
     const projectId = this.resolveProjectId();
     const managedRegistry = readManagedNotionRegistrySnapshot(this.registryStore, {
@@ -271,7 +281,10 @@ export class NotionDashboardService {
             projectId,
           })),
     );
-    const customProperties = this.getCustomPropertiesSnapshot(projectId);
+    const customProperties = this.getCustomPropertiesSnapshot(
+      projectId,
+      resolvedLocale,
+    );
     if (!settings.enabled) {
       const display = buildNotionDashboardDisplay(resolvedLocale, {
         status: "disabled",
@@ -360,24 +373,27 @@ export class NotionDashboardService {
   }
 
   async checkManagedSchema(): Promise<ManagedNotionSchemaStatusSnapshot> {
+    const locale = this.locale();
     const settings = this.getSettings();
     if (!settings.apiKey) {
-      throw new Error("Notion token이 설정된 뒤 managed DB 상태를 확인할 수 있습니다.");
+      throw new Error(t(locale, "notionDashboardService.managedSchema.checkRequiresToken"));
     }
-    const client = this.createClient(settings);
+    const client = this.createClient(settings, locale);
     if (!client) {
-      throw new Error("Notion client를 만들 수 없습니다. token 설정을 확인해 주세요.");
+      throw new Error(t(locale, "notionDashboardService.managedSchema.clientMissing"));
     }
     const service = new ManagedNotionSchemaStatusService({
       client,
       registryStore: this.registryStore,
       projectId: this.resolveProjectId(),
+      locale,
     });
     this.lastManagedSchemaCheck = await service.checkAll();
     return this.lastManagedSchemaCheck;
   }
 
   async checkManagedSchemaWithPlans(): Promise<NotionDashboardManagedSchemaCheckResult> {
+    const locale = this.locale();
     const snapshot = await this.checkManagedSchema();
     const projectId = this.resolveProjectId();
     const mappings = this.registryStore.listPropertyMappings(undefined, projectId);
@@ -391,6 +407,8 @@ export class NotionDashboardService {
               diff: database.remote.diff,
               mappings,
               managedDatabases,
+              preset: this.managedSchemaPresetForRole(database.role, projectId),
+              locale,
             })
           : emptyManagedSchemaRepairPlan(database.role),
       ]),
@@ -398,11 +416,11 @@ export class NotionDashboardService {
     return {
       ok: snapshot.status !== "failed",
       status: snapshot.status,
-      message: managedSchemaCheckMessage(snapshot.status),
+      message: managedSchemaCheckMessage(snapshot.status, locale),
       userAction:
         snapshot.status === "healthy"
           ? null
-          : "복구 계획을 확인한 뒤 적용할 항목을 선택해 주세요.",
+          : t(locale, "notionDashboardService.managedSchema.repairPlanAction"),
       snapshot,
       plans,
     };
@@ -411,16 +429,17 @@ export class NotionDashboardService {
   async repairManagedSchema(
     input: NotionDashboardManagedSchemaRepairInput,
   ): Promise<NotionDashboardManagedSchemaRepairResult> {
+    const locale = this.locale();
     if (!input.confirm) {
-      throw new Error("managed schema repair에는 confirm=true가 필요합니다.");
+      throw new Error(t(locale, "notionDashboardService.managedSchema.repairConfirmRequired"));
     }
     const settings = this.getSettings();
     if (!settings.apiKey) {
-      throw new Error("Notion token이 설정된 뒤 managed DB를 복구할 수 있습니다.");
+      throw new Error(t(locale, "notionDashboardService.managedSchema.repairRequiresToken"));
     }
-    const client = this.createClient(settings);
+    const client = this.createClient(settings, locale);
     if (!client) {
-      throw new Error("Notion client를 만들 수 없습니다. token 설정을 확인해 주세요.");
+      throw new Error(t(locale, "notionDashboardService.managedSchema.clientMissing"));
     }
 
     try {
@@ -431,6 +450,8 @@ export class NotionDashboardService {
         expectedPlanHash: input.expectedPlanHash,
         projectId: this.resolveProjectId(),
         operationIds: input.operations,
+        preset: this.managedSchemaPresetForRole(input.role, this.resolveProjectId()),
+        locale,
       });
       this.recordManagedSchemaRepairItem({
         role: input.role,
@@ -442,6 +463,7 @@ export class NotionDashboardService {
         client,
         registryStore: this.registryStore,
         projectId: this.resolveProjectId(),
+        locale,
       }).checkAll();
       return {
         ...result,
@@ -465,7 +487,7 @@ export class NotionDashboardService {
     action: NotionDashboardActionInput,
     locale?: DirongLocale,
   ): Promise<NotionDashboardActionResult> {
-    const resolvedLocale = resolveAppLocale({ locale });
+    const resolvedLocale = this.locale(locale);
     const selector = selectorFromAction(action);
     if (!selector) {
       const display = buildNotionUploadActionDisplay(resolvedLocale, {
@@ -489,7 +511,7 @@ export class NotionDashboardService {
     }
 
     const settings = this.getSettings();
-    const client = this.createClient(settings);
+    const client = this.createClient(settings, resolvedLocale);
     const projectId = this.resolveProjectId();
     const result = await runNotionUpload({
       settings,
@@ -508,6 +530,7 @@ export class NotionDashboardService {
         "meeting",
         projectId,
       ),
+      locale: resolvedLocale,
     });
     try {
       await applyRetentionAfterSuccessfulUpload(this.input.retention, result);
@@ -580,7 +603,7 @@ export class NotionDashboardService {
       };
     }
 
-    const client = this.createClient(settings);
+    const client = this.createClient(settings, this.locale());
     const projectId = this.resolveProjectId();
     if (!client) {
       return {
@@ -636,29 +659,31 @@ export class NotionDashboardService {
   async syncCustomProperties(input: {
     role: NotionDatabaseRole;
   }): Promise<NotionDashboardCustomPropertyActionResult> {
+    const locale = this.locale();
     const settings = this.getSettings();
     if (!settings.enabled || !settings.apiKey) {
       return this.customPropertyActionResult({
         ok: false,
         status: "not_configured",
-        message: "Notion 설정이 완료된 뒤 속성 스키마를 불러올 수 있습니다.",
-        userAction: "Notion token과 managed DB 설정을 확인해 주세요.",
-      });
+        message: t(locale, "notionDashboardService.customProperties.schemaRequiresSetup"),
+        userAction: t(locale, "notionDashboardService.customProperties.checkTokenAndManagedDb"),
+      }, locale);
     }
 
-    const client = this.createClient(settings);
+    const client = this.createClient(settings, locale);
     if (!client) {
       return this.customPropertyActionResult({
         ok: false,
         status: "not_configured",
-        message: "Notion client를 만들 수 없습니다.",
-        userAction: "Notion token과 managed DB 설정을 확인해 주세요.",
-      });
+        message: t(locale, "notionDashboardService.customProperties.clientMissing"),
+        userAction: t(locale, "notionDashboardService.customProperties.checkTokenAndManagedDb"),
+      }, locale);
     }
     const target = await this.loadCustomPropertyDataSource({
       client,
       settings,
       role: input.role,
+      locale,
     });
     if (!target.ok) {
       return this.customPropertyActionResult({
@@ -666,7 +691,7 @@ export class NotionDashboardService {
         status: "not_configured",
         message: target.message,
         userAction: target.userAction,
-      });
+      }, locale);
     }
 
     try {
@@ -683,9 +708,16 @@ export class NotionDashboardService {
       return this.customPropertyActionResult({
         ok: true,
         status: "done",
-        message: `Notion 속성 ${syncResult.discovered}개를 확인했고 사용자 속성 ${syncResult.custom}개를 관리 목록에 반영했습니다.`,
+        message: formatLocaleText(
+          locale,
+          "notionDashboardService.customProperties.syncDone",
+          {
+            discovered: syncResult.discovered,
+            custom: syncResult.custom,
+          },
+        ),
         userAction: null,
-      });
+      }, locale);
     } catch (error) {
       return this.customPropertyActionResult({
         ok: false,
@@ -694,8 +726,8 @@ export class NotionDashboardService {
         userAction:
           error instanceof NotionApiError
             ? error.userAction
-            : "Notion 연결과 target 공유 상태를 확인해 주세요.",
-      });
+            : t(locale, "notionDashboardService.customProperties.connectionAction"),
+      }, locale);
     }
   }
 
@@ -705,6 +737,7 @@ export class NotionDashboardService {
       rules: readonly NotionCustomPropertyRuleInput[];
     },
   ): NotionDashboardCustomPropertyActionResult {
+    const locale = this.locale();
     const result = this.propertyRuleStore.saveRules({
       projectId: this.resolveProjectId(),
       databaseRole: input.role,
@@ -718,25 +751,37 @@ export class NotionDashboardService {
     return this.customPropertyActionResult({
       ok: true,
       status: "done",
-      message: `Notion 사용자 속성 규칙 ${result.saved}개를 저장하고 ${result.deleted}개를 삭제했습니다.`,
+      message: formatLocaleText(
+        locale,
+        "notionDashboardService.customProperties.rulesSaved",
+        {
+          saved: result.saved,
+          deleted: result.deleted,
+        },
+      ),
       userAction:
         result.ignored > 0
-          ? `${result.ignored}개 항목은 필수 속성이거나 이름이 비어 있어 건너뛰었습니다.`
+          ? formatLocaleText(
+              locale,
+              "notionDashboardService.customProperties.rulesIgnored",
+              { ignored: result.ignored },
+            )
           : null,
       warnings: result.warnings,
-    });
+    }, locale);
   }
 
   async inspectSchema(): Promise<NotionDashboardSchemaActionResult> {
-    const context = await this.loadSchemaContext();
+    const locale = this.locale();
+    const context = await this.loadSchemaContext(locale);
     if (!context.ok) {
       return context.result;
     }
     return {
       ok: true,
       status: "done",
-      message: formatSchemaDiffMessage(context.diff),
-      userAction: schemaDiffUserAction(context.diff),
+      message: formatSchemaDiffMessage(context.diff, locale),
+      userAction: schemaDiffUserAction(context.diff, locale),
       warnings: context.diff.warnings,
       diff: context.diff,
       operations: null,
@@ -746,24 +791,25 @@ export class NotionDashboardService {
   async applySchema(
     options: NotionSchemaApplyOptions,
   ): Promise<NotionDashboardSchemaActionResult> {
-    const context = await this.loadSchemaContext();
+    const locale = this.locale();
+    const context = await this.loadSchemaContext(locale);
     if (!context.ok) {
       return context.result;
     }
 
-    const plan = buildNotionSchemaUpdatePlan(context.diff, options);
+    const plan = buildNotionSchemaUpdatePlan(context.diff, options, locale);
     if (!plan.body) {
       return {
         ok: plan.blocked.length === 0,
         status: plan.blocked.length > 0 ? "blocked" : "done",
         message:
           plan.blocked.length > 0
-            ? "자동 적용할 수 없는 Notion schema 항목이 있습니다."
-            : "Notion schema에 적용할 변경이 없습니다.",
+            ? t(locale, "notionDashboardService.schema.blockedApply")
+            : t(locale, "notionDashboardService.schema.noChanges"),
         userAction:
           plan.blocked.length > 0
             ? plan.blocked.join(" ")
-            : schemaDiffUserAction(context.diff),
+            : schemaDiffUserAction(context.diff, locale),
         warnings: [...plan.warnings, ...plan.blocked],
         diff: context.diff,
         operations: plan.operations,
@@ -793,18 +839,20 @@ export class NotionDashboardService {
               await resolveRelationRuleTargets(
                 context.client,
                 this.propertyRuleStore.listRules("meeting", this.resolveProjectId()),
+                locale,
               )
             ).rules,
+            locale,
           })
         : context.diff;
       return {
         ok: plan.blocked.length === 0,
         status: plan.blocked.length > 0 ? "partial" : "done",
-        message: formatSchemaApplyMessage(plan.operations),
+        message: formatSchemaApplyMessage(plan.operations, locale),
         userAction:
           plan.blocked.length > 0
             ? plan.blocked.join(" ")
-            : schemaDiffUserAction(after),
+            : schemaDiffUserAction(after, locale),
         warnings: [...plan.warnings, ...plan.blocked],
         diff: after,
         operations: plan.operations,
@@ -817,7 +865,7 @@ export class NotionDashboardService {
         userAction:
           error instanceof NotionApiError
             ? error.userAction
-            : "Notion 연결과 target 공유 상태를 확인해 주세요.",
+            : t(locale, "notionDashboardService.schema.connectionAction"),
         warnings: plan.warnings,
         diff: context.diff,
         operations: plan.operations,
@@ -831,21 +879,25 @@ export class NotionDashboardService {
     message: string;
     userAction: string | null;
     warnings?: string[];
-  }): NotionDashboardCustomPropertyActionResult {
+  }, locale = this.locale()): NotionDashboardCustomPropertyActionResult {
     return {
       ...input,
       warnings: input.warnings ?? [],
-      customProperties: this.getCustomPropertiesSnapshot(this.resolveProjectId()),
+      customProperties: this.getCustomPropertiesSnapshot(
+        this.resolveProjectId(),
+        locale,
+      ),
     };
   }
 
   private getCustomPropertiesSnapshot(
     projectId: string | undefined,
+    locale = this.locale(),
   ): NotionCustomPropertiesDashboardSnapshot {
     const roles = Object.fromEntries(
       NOTION_DATABASE_ROLES.map((role) => [
         role,
-        this.getCustomPropertiesRoleSnapshot(role, projectId),
+        this.getCustomPropertiesRoleSnapshot(role, projectId, locale),
       ]),
     ) as Record<NotionDatabaseRole, NotionCustomPropertiesRoleSnapshot>;
     return {
@@ -910,6 +962,7 @@ export class NotionDashboardService {
   private getCustomPropertiesRoleSnapshot(
     role: NotionDatabaseRole,
     projectId: string | undefined,
+    locale: DirongLocale,
   ): NotionCustomPropertiesRoleSnapshot {
     const rules = this.propertyRuleStore.listRules(role, projectId);
     const enabledCount = rules.filter(
@@ -930,8 +983,15 @@ export class NotionDashboardService {
       promptPreview,
       message:
         rules.length === 0
-          ? "이 DB의 사용자 속성 규칙은 아직 없습니다."
-          : `사용자 속성 ${rules.length}개 중 ${enabledCount}개가 켜져 있습니다.`,
+          ? t(locale, "notionDashboardService.customProperties.emptyRules")
+          : formatLocaleText(
+              locale,
+              "notionDashboardService.customProperties.enabledRules",
+              {
+                rules: rules.length,
+                enabled: enabledCount,
+              },
+            ),
       userAction: null,
     };
   }
@@ -951,16 +1011,32 @@ export class NotionDashboardService {
     for (const mapping of this.registryStore.listPropertyMappings(role, projectId)) {
       names.add(mapping.propertyName);
     }
-    for (const property of KOREAN_NOTION_SCHEMA_PRESET.databases[role].properties) {
+    for (const property of this.managedSchemaPresetForRole(role, projectId)
+      .databases[role].properties) {
       names.add(property.name);
     }
     return [...names];
+  }
+
+  private managedSchemaPresetForRole(
+    role: NotionDatabaseRole,
+    projectId = this.resolveProjectId(),
+  ): NotionSchemaPreset {
+    const managedDatabase = this.registryStore.getManagedDatabase(role, projectId);
+    const workspace = projectId === undefined
+      ? this.registryStore.getWorkspaceSettings()
+      : this.registryStore.getWorkspaceSettings(
+          DEFAULT_NOTION_WORKSPACE_SETTINGS_ID,
+          projectId,
+        );
+    return notionSchemaPresetForLocale(managedDatabase?.locale ?? workspace?.locale);
   }
 
   private async loadCustomPropertyDataSource(input: {
     client: NotionClient;
     settings: NotionRuntimeSettings;
     role: NotionDatabaseRole;
+    locale: DirongLocale;
   }): Promise<
     | { ok: true; dataSource: Record<string, unknown> }
     | { ok: false; message: string; userAction: string }
@@ -980,15 +1056,21 @@ export class NotionDashboardService {
     if (input.role !== "meeting") {
       return {
         ok: false,
-        message: "선택한 managed DB 연결 정보가 없습니다.",
-        userAction: "Notion 설정에서 managed DB 세트를 먼저 생성해 주세요.",
+        message: t(input.locale, "notionDashboardService.customProperties.missingManagedDb"),
+        userAction: t(
+          input.locale,
+          "notionDashboardService.customProperties.createManagedDbAction",
+        ),
       };
     }
     if (!input.settings.targetUrl) {
       return {
         ok: false,
         message: "Notion target URL is missing.",
-        userAction: "Notion target URL 또는 managed DB 설정을 확인해 주세요.",
+        userAction: t(
+          input.locale,
+          "notionDashboardService.customProperties.checkTargetOrManagedDb",
+        ),
       };
     }
     const parsedTarget = parseNotionTargetUrl(input.settings.targetUrl);
@@ -996,7 +1078,10 @@ export class NotionDashboardService {
       return {
         ok: false,
         message: "Notion target URL is invalid.",
-        userAction: "Notion 데이터베이스 또는 data source URL을 다시 복사해 붙여넣어 주세요.",
+        userAction: t(
+          input.locale,
+          "notionDashboardService.customProperties.invalidTargetAction",
+        ),
       };
     }
     return {
@@ -1005,7 +1090,7 @@ export class NotionDashboardService {
     };
   }
 
-  private async loadSchemaContext(): Promise<
+  private async loadSchemaContext(locale = this.locale()): Promise<
     | {
         ok: true;
         client: NotionClient;
@@ -1021,8 +1106,8 @@ export class NotionDashboardService {
         ok: false,
         result: schemaActionErrorResult({
           status: "not_configured",
-          message: "Notion 설정이 완료된 뒤 schema를 정리할 수 있습니다.",
-          userAction: "설정 마법사에서 Notion 연결 토큰과 업로드 대상을 확인해 주세요.",
+          message: t(locale, "notionDashboardService.schema.setupRequired"),
+          userAction: t(locale, "notionDashboardService.schema.setupAction"),
         }),
       };
     }
@@ -1034,19 +1119,19 @@ export class NotionDashboardService {
         result: schemaActionErrorResult({
           status: "not_configured",
           message: "Notion target URL is invalid.",
-          userAction: "Notion 데이터베이스 또는 data source URL을 다시 복사해 붙여넣어 주세요.",
+          userAction: t(locale, "notionDashboardService.schema.invalidTargetAction"),
         }),
       };
     }
 
-    const client = this.createClient(settings);
+    const client = this.createClient(settings, locale);
     if (!client) {
       return {
         ok: false,
         result: schemaActionErrorResult({
           status: "not_configured",
-          message: "Notion client를 만들 수 없습니다.",
-          userAction: "설정 마법사에 저장한 Notion 연결 토큰을 확인해 주세요.",
+          message: t(locale, "notionDashboardService.schema.clientMissing"),
+          userAction: t(locale, "notionDashboardService.schema.tokenAction"),
         }),
       };
     }
@@ -1056,11 +1141,13 @@ export class NotionDashboardService {
       const relationResolution = await resolveRelationRuleTargets(
         client,
         this.propertyRuleStore.listRules("meeting", this.resolveProjectId()),
+        locale,
       );
       const diff = buildNotionSchemaDiff({
         properties: readDataSourceProperties(target.dataSource),
         propertyNames: settings.propertyNames,
         customRules: relationResolution.rules,
+        locale,
       });
       if (relationResolution.warnings.length > 0) {
         diff.warnings.push(...relationResolution.warnings);
@@ -1075,13 +1162,16 @@ export class NotionDashboardService {
           userAction:
             error instanceof NotionApiError
               ? error.userAction
-              : "Notion 연결과 target 공유 상태를 확인해 주세요.",
+              : t(locale, "notionDashboardService.schema.connectionAction"),
         }),
       };
     }
   }
 
-  private createClient(settings: NotionRuntimeSettings): NotionClient | null {
+  private createClient(
+    settings: NotionRuntimeSettings,
+    locale = this.locale(),
+  ): NotionClient | null {
     if (this.input.notionClientFactory) {
       return this.input.notionClientFactory(settings);
     }
@@ -1091,6 +1181,7 @@ export class NotionDashboardService {
           apiVersion: settings.apiVersion,
           baseUrl: settings.baseUrl,
           requestTimeoutMs: settings.requestTimeoutMs,
+          locale,
         })
       : null;
   }
@@ -1103,6 +1194,7 @@ export class NotionDashboardService {
 async function resolveRelationRuleTargets(
   client: NotionClient,
   rules: readonly NotionCustomPropertyRule[],
+  locale: DirongLocale,
 ): Promise<{ rules: NotionCustomPropertyRule[]; warnings: string[] }> {
   const warnings: string[] = [];
   const resolved: NotionCustomPropertyRule[] = [];
@@ -1117,7 +1209,11 @@ async function resolveRelationRuleTargets(
       if (parsedPage.kind === "page_id") {
         nextRule = { ...nextRule, relationTargetPageId: parsedPage.id };
       } else {
-        warnings.push(`${rule.propertyName}: relation 대상 page URL을 읽지 못했습니다.`);
+        warnings.push(formatLocaleText(
+          locale,
+          "notionDashboardService.relationRules.pageUrlInvalid",
+          { property: rule.propertyName },
+        ));
       }
     }
     if (!rule.relationTargetUrl) {
@@ -1126,7 +1222,11 @@ async function resolveRelationRuleTargets(
     }
     const parsed = parseNotionTargetUrl(rule.relationTargetUrl);
     if (parsed.kind === "invalid") {
-      warnings.push(`${rule.propertyName}: relation 대상 URL을 읽지 못했습니다.`);
+      warnings.push(formatLocaleText(
+        locale,
+        "notionDashboardService.relationRules.targetUrlInvalid",
+        { property: rule.propertyName },
+      ));
       resolved.push(nextRule);
       continue;
     }
@@ -1134,9 +1234,14 @@ async function resolveRelationRuleTargets(
       const target = await resolveDataSourceTarget(client, parsed);
       resolved.push({ ...nextRule, relationDataSourceId: target.id });
     } catch (error) {
-      warnings.push(
-        `${rule.propertyName}: relation 대상 DB에 접근하지 못했습니다 (${error instanceof Error ? error.message : String(error)}).`,
-      );
+      warnings.push(formatLocaleText(
+        locale,
+        "notionDashboardService.relationRules.targetDbAccessFailed",
+        {
+          property: rule.propertyName,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      ));
       resolved.push(nextRule);
     }
   }
@@ -1236,30 +1341,33 @@ function emptyManagedSchemaRepairPlan(
   };
 }
 
-function managedSchemaCheckMessage(status: string): string {
+function managedSchemaCheckMessage(status: string, locale: DirongLocale): string {
   if (status === "healthy") {
-    return "Managed Notion schema가 마지막 확인 기준으로 정상입니다.";
+    return t(locale, "notionDashboardService.managedSchema.status.healthy");
   }
   if (status === "needs_repair") {
-    return "Managed Notion schema에 자동 복구 가능한 항목이 있습니다.";
+    return t(locale, "notionDashboardService.managedSchema.status.needsRepair");
   }
   if (status === "manual_required") {
-    return "Managed Notion schema에 수동 확인이 필요한 항목이 있습니다.";
+    return t(locale, "notionDashboardService.managedSchema.status.manualRequired");
   }
   if (status === "failed") {
-    return "Managed Notion schema 확인 중 오류가 발생했습니다.";
+    return t(locale, "notionDashboardService.managedSchema.status.failed");
   }
-  return "Managed Notion schema 확인 결과가 아직 없습니다.";
+  return t(locale, "notionDashboardService.managedSchema.status.unchecked");
 }
 
-function formatSchemaDiffMessage(diff: NotionSchemaDiff): string {
-  return [
-    `누락 ${diff.missing.length}`,
-    `이름변경 ${diff.renames.length}`,
-    `타입불일치 ${diff.wrongType.length}`,
-    `옵션누락 ${diff.missingOptions.length}`,
-    `관리외 ${diff.extra.length}`,
-  ].join(" / ");
+function formatSchemaDiffMessage(
+  diff: NotionSchemaDiff,
+  locale: DirongLocale,
+): string {
+  return formatLocaleText(locale, "notionDashboardService.schema.diffMessage", {
+    missing: diff.missing.length,
+    renames: diff.renames.length,
+    wrongType: diff.wrongType.length,
+    missingOptions: diff.missingOptions.length,
+    extra: diff.extra.length,
+  });
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -1270,17 +1378,21 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function formatSchemaApplyMessage(
   operations: NonNullable<NotionDashboardSchemaActionResult["operations"]>,
+  locale: DirongLocale,
 ): string {
-  return [
-    `생성 ${operations.create}`,
-    `이름변경 ${operations.rename}`,
-    `타입변경 ${operations.updateType}`,
-    `옵션보강 ${operations.updateOptions}`,
-    `삭제 ${operations.delete}`,
-  ].join(" / ");
+  return formatLocaleText(locale, "notionDashboardService.schema.applyMessage", {
+    create: operations.create,
+    rename: operations.rename,
+    updateType: operations.updateType,
+    updateOptions: operations.updateOptions,
+    delete: operations.delete,
+  });
 }
 
-function schemaDiffUserAction(diff: NotionSchemaDiff): string | null {
+function schemaDiffUserAction(
+  diff: NotionSchemaDiff,
+  locale: DirongLocale,
+): string | null {
   if (
     diff.missing.length === 0 &&
     diff.renames.length === 0 &&
@@ -1288,10 +1400,10 @@ function schemaDiffUserAction(diff: NotionSchemaDiff): string | null {
     diff.missingOptions.length === 0
   ) {
     return diff.extra.length > 0
-      ? "관리 외 속성은 삭제하지 않습니다. 필요 없다면 Notion에서 직접 삭제해 주세요."
+      ? t(locale, "notionDashboardService.schema.extraPreservedAction")
       : null;
   }
-  return "스키마 맞추기를 누르면 누락 속성과 이름 변경, select 옵션 보강을 자동 적용합니다.";
+  return t(locale, "notionDashboardService.schema.applyAction");
 }
 
 function formatProjectScope(projectId: string | undefined): string {

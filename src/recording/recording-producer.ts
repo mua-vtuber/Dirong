@@ -18,8 +18,14 @@ import {
 } from "@discordjs/voice";
 import * as prism from "prism-media";
 import type { Phase1Config } from "../config.js";
-import { safeErrorInfo, toKoreanErrorMessage } from "../errors.js";
+import { safeErrorInfo, toLocalizedErrorMessage } from "../errors.js";
 import { criticalHealthFailed, runHealthCheck } from "../health.js";
+import {
+  resolveAppLocale,
+  type AppLocaleResolver,
+} from "../i18n/app-locale.js";
+import { formatLocaleText, t } from "../i18n/catalog.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 import type {
   RecordingRuntimeState,
   SessionStatus,
@@ -79,6 +85,7 @@ export type RecordingStopResult = {
 
 export type RecordingProducerOptions = {
   runHealthCheck?: typeof runHealthCheck;
+  localeResolver?: AppLocaleResolver;
 };
 
 export class RecordingProducer {
@@ -124,19 +131,29 @@ export class RecordingProducer {
     startedByUserId: string;
     startedByDisplayName: string;
   }): Promise<{ sessionId: string; sessionDir: string }> {
+    const locale = this.locale();
     if (this.active) {
-      throw new Error(`이미 녹음 중인 세션이 있습니다: ${this.active.sessionId}`);
+      throw new Error(
+        formatLocaleText(locale, "recordingProducer.alreadyRecording", {
+          sessionId: this.active.sessionId,
+        }),
+      );
     }
 
     if (input.voiceChannel.type === ChannelType.GuildStageVoice) {
-      throw new Error("Stage 채널은 현재 Dirong 녹음 앱에서 아직 지원하지 않습니다.");
+      throw new Error(t(locale, "recordingProducer.stageUnsupported"));
     }
 
     const health = await (this.options.runHealthCheck ?? runHealthCheck)({
       config: this.config,
+      locale,
     });
     const sessionId = makeSessionId(new Date());
-    const sessionDir = await createUniqueSessionDir(this.config.dataDir, sessionId);
+    const sessionDir = await createUniqueSessionDir(
+      this.config.dataDir,
+      sessionId,
+      locale,
+    );
     const chunksDir = path.join(sessionDir, "chunks");
     const sttAudioDir = path.join(sessionDir, "stt-audio");
     mkdirSync(chunksDir, { recursive: true });
@@ -168,9 +185,9 @@ export class RecordingProducer {
         stoppedByUserId: "system",
         stoppedByDisplayName: "system",
         status: "failed",
-        lastError: "Node/Opus/FFmpeg 필수 의존성 health check 실패",
+        lastError: t(locale, "recordingProducer.criticalHealthLastError"),
       });
-      throw new Error("필수 의존성 health check 실패. npm run doctor를 확인해 주세요.");
+      throw new Error(t(locale, "recordingProducer.criticalHealthFailure"));
     }
 
     this.store.recordConnectionEvent({
@@ -241,7 +258,7 @@ export class RecordingProducer {
         stoppedByUserId: "system",
         stoppedByDisplayName: "system",
         status: "failed",
-        lastError: toKoreanErrorMessage(error),
+        lastError: toLocalizedErrorMessage(error, locale),
       });
       this.active = null;
       throw error;
@@ -267,7 +284,7 @@ export class RecordingProducer {
 
     const active = this.active;
     if (!active) {
-      throw new Error("진행 중인 녹음 세션이 없습니다.");
+      throw new Error(t(this.locale(), "recordingProducer.noActiveSession"));
     }
 
     this.stopPromise = this.stopActiveSession(active, input).finally(() => {
@@ -326,7 +343,10 @@ export class RecordingProducer {
             path: chunk.rawFinalPath,
             severity: "error",
             details: {
-              message: "종료 중 chunk finalize가 제한 시간 안에 끝나지 않았습니다.",
+              message: t(
+                this.locale(),
+                "recordingProducer.chunkFinalizeTimeout",
+              ),
             },
           });
         }
@@ -348,7 +368,9 @@ export class RecordingProducer {
       status,
       lastError:
         active.fatalErrors > 0
-          ? `voice fatal error ${active.fatalErrors}회 기록됨`
+          ? formatLocaleText(this.locale(), "recordingProducer.fatalErrors", {
+              count: active.fatalErrors,
+            })
           : null,
     });
     this.active = null;
@@ -460,7 +482,7 @@ export class RecordingProducer {
           chunkId,
           userId,
           softRolloverMs: this.config.softRolloverMs,
-          action: "다음 silence에서 닫고 hard cap을 backstop으로 유지합니다.",
+          action: t(this.locale(), "recordingProducer.softRolloverAction"),
         },
       });
     }, this.config.softRolloverMs);
@@ -571,6 +593,10 @@ export class RecordingProducer {
       });
     }
   }
+
+  private locale(): DirongLocale {
+    return resolveAppLocale({ getLocale: this.options.localeResolver });
+  }
 }
 
 function makeSessionId(date: Date): string {
@@ -592,6 +618,7 @@ function makeSessionId(date: Date): string {
 async function createUniqueSessionDir(
   dataDir: string,
   baseSessionId: string,
+  locale?: DirongLocale,
 ): Promise<string> {
   mkdirSync(dataDir, { recursive: true });
 
@@ -604,7 +631,7 @@ async function createUniqueSessionDir(
     }
   }
 
-  throw new Error("새 session directory 이름을 만들지 못했습니다.");
+  throw new Error(t(locale, "recordingProducer.sessionDirectoryNameFailed"));
 }
 
 async function waitForChunkPromises(

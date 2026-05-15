@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import type { JsonObject, NotionClient } from "./client.js";
+import { formatLocaleText, t } from "../i18n/catalog.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 import { readDataSourceProperties } from "./data-source-readers.js";
 import { managedSelectOptionSchema } from "./property-shape.js";
 import {
@@ -91,9 +93,11 @@ export async function applyManagedSchemaRepair(input: {
   operationIds?: readonly string[];
   nowIso?: string;
   preset?: NotionSchemaPreset;
+  locale?: DirongLocale;
 }): Promise<ManagedSchemaRepairResult> {
+  const locale = input.locale ?? "ko";
   const context = await loadRepairContext(input);
-  const plan = buildManagedSchemaRepairPlan(context);
+  const plan = buildManagedSchemaRepairPlan({ ...context, locale });
   if (plan.planHash !== input.expectedPlanHash) {
     throw new ManagedSchemaRepairStalePlanError(
       input.expectedPlanHash,
@@ -109,8 +113,8 @@ export async function applyManagedSchemaRepair(input: {
       status: selectedPlan.blocked.length > 0 ? "blocked" : "done",
       message:
         selectedPlan.blocked.length > 0
-          ? "자동 복구할 수 없는 managed schema 항목이 있습니다."
-          : "적용할 managed schema 복구 작업이 없습니다.",
+          ? t(locale, "notionDashboardService.managedSchemaRepair.blockedNoOperations")
+          : t(locale, "notionDashboardService.managedSchemaRepair.noOperations"),
       userAction:
         selectedPlan.blocked.length > 0
           ? selectedPlan.blocked.map((item) => item.reason).join(" ")
@@ -134,6 +138,7 @@ export async function applyManagedSchemaRepair(input: {
         client: input.client,
         managedDatabases: context.managedDatabases,
         preset: context.preset ?? KOREAN_NOTION_SCHEMA_PRESET,
+        locale,
       });
     }
   }
@@ -150,6 +155,7 @@ export async function applyManagedSchemaRepair(input: {
     ),
     managedDatabases: input.registryStore.listManagedDatabases(input.projectId),
     preset: input.preset,
+    locale,
   });
   const unresolvedSelectedIssues = unresolvedIssuesForOperations({
     diff: afterDiff,
@@ -168,12 +174,20 @@ export async function applyManagedSchemaRepair(input: {
     return {
       ok: false,
       status: "failed",
-      message: `managed schema 복구 후에도 ${unresolvedSelectedIssues.length}개 항목이 남아 있습니다.`,
-      userAction:
-        `${unresolvedSelectedIssues
-          .map((issue) => issue.propertyName)
-          .join(", ")} 항목이 Notion 응답에서 확인되지 않았습니다. ` +
-        "DB 설정 화면에서 상태를 다시 확인해 주세요.",
+      message: formatLocaleText(
+        locale,
+        "notionDashboardService.managedSchemaRepair.unresolvedAfterRepair",
+        { count: unresolvedSelectedIssues.length },
+      ),
+      userAction: formatLocaleText(
+        locale,
+        "notionDashboardService.managedSchemaRepair.unresolvedAction",
+        {
+          items: unresolvedSelectedIssues
+            .map((issue) => issue.propertyName)
+            .join(", "),
+        },
+      ),
       plan: selectedPlan,
       appliedOperationIds: selectedOperations.map((operation) => operation.id),
       registryUpdated: updatedMappings,
@@ -184,10 +198,14 @@ export async function applyManagedSchemaRepair(input: {
   return {
     ok: true,
     status: "done",
-    message: `managed schema 복구 작업 ${selectedOperations.length}개를 적용했습니다.`,
+    message: formatLocaleText(
+      locale,
+      "notionDashboardService.managedSchemaRepair.applied",
+      { count: selectedOperations.length },
+    ),
     userAction: afterDiff.status === "healthy"
       ? null
-      : "남은 항목은 Notion에서 직접 확인하거나 다시 복구 계획을 확인해 주세요.",
+      : t(locale, "notionDashboardService.managedSchemaRepair.remainingAction"),
     plan: selectedPlan,
     appliedOperationIds: selectedOperations.map((operation) => operation.id),
     registryUpdated: updatedMappings,
@@ -201,7 +219,9 @@ export function buildManagedSchemaRepairPlan(input: {
   mappings: readonly NotionPropertyMapping[];
   managedDatabases: readonly NotionManagedDatabase[];
   preset?: NotionSchemaPreset;
+  locale?: DirongLocale;
 }): ManagedSchemaRepairPlan {
+  const locale = input.locale ?? "ko";
   const preset = input.preset ?? KOREAN_NOTION_SCHEMA_PRESET;
   const mappingsByKey = new Map(
     input.mappings.map((mapping) => [mapping.semanticKey, mapping]),
@@ -226,7 +246,10 @@ export function buildManagedSchemaRepairPlan(input: {
     }
     const property = presetProperty(input.role, issue.semanticKey, preset);
     if (!property) {
-      blocked.push(blockedItem(issue, "preset에서 semantic key를 찾지 못했습니다."));
+      blocked.push(blockedItem(
+        issue,
+        t(locale, "notionDashboardService.managedSchemaRepair.reason.presetSemanticMissing"),
+      ));
       continue;
     }
 
@@ -247,7 +270,11 @@ export function buildManagedSchemaRepairPlan(input: {
           propertyName: resolved.propertyName,
           propertyId: resolved.propertyId,
           propertyType: resolved.propertyType,
-          description: `${issue.semanticKey} registry mapping을 remote property로 동기화`,
+          description: formatLocaleText(
+            locale,
+            "notionDashboardService.managedSchemaRepair.operation.syncMapping",
+            { semanticKey: issue.semanticKey },
+          ),
           patchKey: null,
           patch: null,
         });
@@ -258,7 +285,10 @@ export function buildManagedSchemaRepairPlan(input: {
 
     if (issue.code === "remote_missing") {
       if (property.type === "title") {
-        blocked.push(blockedItem(issue, "title property는 API로 새로 만들 수 없습니다."));
+        blocked.push(blockedItem(
+          issue,
+          t(locale, "notionDashboardService.managedSchemaRepair.reason.titleCreateUnsupported"),
+        ));
         continue;
       }
       const patch = schemaForProperty({
@@ -267,7 +297,10 @@ export function buildManagedSchemaRepairPlan(input: {
         managedDatabases: input.managedDatabases,
       });
       if (!patch) {
-        blocked.push(blockedItem(issue, "relation/rollup dependency를 확인할 수 없습니다."));
+        blocked.push(blockedItem(
+          issue,
+          t(locale, "notionDashboardService.managedSchemaRepair.reason.relationDependencyMissing"),
+        ));
         continue;
       }
       operations.push({
@@ -277,7 +310,11 @@ export function buildManagedSchemaRepairPlan(input: {
         propertyName: issue.propertyName || property.name,
         propertyId: null,
         propertyType: property.type,
-        description: `${issue.semanticKey} Notion property 생성`,
+        description: formatLocaleText(
+          locale,
+          "notionDashboardService.managedSchemaRepair.operation.createProperty",
+          { semanticKey: issue.semanticKey },
+        ),
         patchKey: isMeetingActionItemsProperty(input.role, property)
           ? null
           : issue.propertyName || property.name,
@@ -295,7 +332,11 @@ export function buildManagedSchemaRepairPlan(input: {
         propertyName: issue.expected ?? property.name,
         propertyId: issue.propertyId ?? null,
         propertyType: property.type,
-        description: `${issue.semanticKey} Notion property 이름 복구`,
+        description: formatLocaleText(
+          locale,
+          "notionDashboardService.managedSchemaRepair.operation.renameProperty",
+          { semanticKey: issue.semanticKey },
+        ),
         patchKey: issue.propertyId ?? issue.actual ?? issue.propertyName,
         patch: { name: issue.expected ?? property.name },
       });
@@ -305,7 +346,10 @@ export function buildManagedSchemaRepairPlan(input: {
 
     if (issue.code === "option_missing") {
       if (issue.actual === "status") {
-        blocked.push(blockedItem(issue, "status option 보강은 Notion에서 직접 확인해야 합니다."));
+        blocked.push(blockedItem(
+          issue,
+          t(locale, "notionDashboardService.managedSchemaRepair.reason.statusOptionManual"),
+        ));
         continue;
       }
       operations.push({
@@ -315,7 +359,11 @@ export function buildManagedSchemaRepairPlan(input: {
         propertyName: issue.propertyName,
         propertyId: issue.propertyId ?? null,
         propertyType: issue.actual ?? property.type,
-        description: `${issue.semanticKey} Notion option 보강`,
+        description: formatLocaleText(
+          locale,
+          "notionDashboardService.managedSchemaRepair.operation.appendOptions",
+          { semanticKey: issue.semanticKey },
+        ),
         patchKey: issue.propertyId ?? issue.propertyName,
         patch: {
           [issue.actual === "multi_select" ? "multi_select" : "select"]: {
@@ -330,7 +378,10 @@ export function buildManagedSchemaRepairPlan(input: {
       continue;
     }
 
-    blocked.push(blockedItem(issue, "기존 property의 위험한 변경은 자동 처리하지 않습니다."));
+    blocked.push(blockedItem(
+      issue,
+      t(locale, "notionDashboardService.managedSchemaRepair.reason.unsafeChangeManual"),
+    ));
   }
 
   return rebuildPlanForOperations(input.role, operations, {
@@ -345,6 +396,7 @@ async function loadRepairContext(input: {
   role: NotionDatabaseRole;
   projectId?: string;
   preset?: NotionSchemaPreset;
+  locale?: DirongLocale;
 }): Promise<{
   role: NotionDatabaseRole;
   managedDatabase: NotionManagedDatabase;
@@ -358,7 +410,11 @@ async function loadRepairContext(input: {
     input.projectId,
   );
   if (!managedDatabase) {
-    throw new Error(`${input.role} managed Notion DB registry가 없습니다.`);
+    throw new Error(formatLocaleText(
+      input.locale,
+      "notionDashboardService.managedSchemaRepair.error.missingRegistry",
+      { role: input.role },
+    ));
   }
   const managedDatabases = input.registryStore.listManagedDatabases(
     input.projectId,
@@ -376,6 +432,7 @@ async function loadRepairContext(input: {
     mappings,
     managedDatabases,
     preset: input.preset,
+    locale: input.locale,
   });
   return {
     role: input.role,
@@ -493,18 +550,21 @@ async function createMeetingActionItemsViaTaskRelation(input: {
   client: NotionClient;
   managedDatabases: readonly NotionManagedDatabase[];
   preset: NotionSchemaPreset;
+  locale: DirongLocale;
 }): Promise<void> {
-  const meeting = requiredManagedDatabase(input.managedDatabases, "meeting");
-  const task = requiredManagedDatabase(input.managedDatabases, "task");
+  const meeting = requiredManagedDatabase(input.managedDatabases, "meeting", input.locale);
+  const task = requiredManagedDatabase(input.managedDatabases, "task", input.locale);
   const taskMeeting = requiredPresetProperty(
     input.preset,
     "task",
     "task.meeting",
+    input.locale,
   );
   const meetingActionItems = requiredPresetProperty(
     input.preset,
     "meeting",
     "meeting.actionItems",
+    input.locale,
   );
 
   await input.client.updateDataSource(task.dataSourceId, {
@@ -561,10 +621,15 @@ function isMeetingActionItemsProperty(
 function requiredManagedDatabase(
   managedDatabases: readonly NotionManagedDatabase[],
   role: NotionDatabaseRole,
+  locale: DirongLocale,
 ): NotionManagedDatabase {
   const database = managedDatabases.find((item) => item.role === role);
   if (!database) {
-    throw new Error(`${role} managed Notion DB registry가 없습니다.`);
+    throw new Error(formatLocaleText(
+      locale,
+      "notionDashboardService.managedSchemaRepair.error.missingRegistry",
+      { role },
+    ));
   }
   return database;
 }
@@ -573,10 +638,15 @@ function requiredPresetProperty(
   preset: NotionSchemaPreset,
   role: NotionDatabaseRole,
   semanticKey: NotionPropertySemanticKey,
+  locale: DirongLocale,
 ): NotionSchemaPresetProperty {
   const property = presetProperty(role, semanticKey, preset);
   if (!property) {
-    throw new Error(`${semanticKey} preset property를 찾지 못했습니다.`);
+    throw new Error(formatLocaleText(
+      locale,
+      "notionDashboardService.managedSchemaRepair.error.missingPresetProperty",
+      { semanticKey },
+    ));
   }
   return property;
 }

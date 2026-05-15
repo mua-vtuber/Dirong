@@ -70,6 +70,36 @@ test("doctor prints local Notion managed registry summary without remote API", (
   }
 });
 
+test("doctor prints English output when app locale is English", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-doctor-en-"));
+  try {
+    const fixture = createDoctorFixture(dir, { locale: "en" });
+    createManagedNotionRegistryDb(fixture.paths.databasePath);
+    const doctorPath = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "doctor.js",
+    );
+
+    const result = spawnSync(process.execPath, ["--no-warnings", doctorPath], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      timeout: 5_000,
+      env: fixture.env,
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /Dirong Recording \+ STT doctor results/);
+    assert.match(result.stdout, /Created at:/);
+    assert.match(
+      result.stdout,
+      /remote checks call the Notion API only with --notion-remote/,
+    );
+    assert.match(result.stdout, /This doctor is read-only/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("doctor --notion-remote reports missing product token without env fallback", () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-doctor-notion-remote-"));
   try {
@@ -108,6 +138,7 @@ function createDoctorFixture(
   dir: string,
   options: {
     notionToken?: string;
+    locale?: "ko" | "en";
     envOverrides?: Record<string, string>;
   } = {},
 ): {
@@ -131,7 +162,7 @@ function createDoctorFixture(
 
   settingsStore.write({
     schemaVersion: 1,
-    app: { locale: "ko" },
+    app: { locale: options.locale ?? "ko" },
     discord: {},
     stt: {
       provider: "openai",

@@ -1,6 +1,7 @@
 import type { NotionDraftInput } from "./draft-input.js";
 import type { NotionPropertySemanticKey } from "./schema-presets.js";
 import type { NotionPropertyNames } from "./settings.js";
+import { t } from "../i18n/catalog.js";
 import {
   DEFAULT_DIRONG_LOCALE,
   isDirongLocale,
@@ -359,35 +360,28 @@ type NotionPagePropertyText = {
   meetingTimeUnknownEnd: string;
 };
 
-const NOTION_PAGE_PROPERTY_TEXT: Record<DirongLocale, NotionPagePropertyText> = {
-  ko: {
-    draftTitle: "회의록 초안",
-    unknown: "알 수 없음",
-    uploadPending: "Notion 업로드 대기 중",
-    taskTitle: "작업",
-    taskStatusTodo: "할 일",
-    noEvidence: "근거 없음",
-    participantEmptyWarning: "빈 참여자 이름은 Notion Participants 속성에서 제외했습니다.",
-    participantsCappedWarning: "Notion Participants 속성은 최대 100명까지만 기록했습니다.",
-    meetingTimeUnknownEnd: "미정",
-  },
-  en: {
-    draftTitle: "Meeting notes draft",
-    unknown: "Unknown",
-    uploadPending: "Notion upload pending",
-    taskTitle: "Task",
-    taskStatusTodo: "To do",
-    noEvidence: "No evidence",
-    participantEmptyWarning: "Blank participant names were excluded from the Notion Participants property.",
-    participantsCappedWarning: "Only the first 100 participants were written to the Notion Participants property.",
-    meetingTimeUnknownEnd: "unknown",
-  },
-};
-
 function notionPagePropertyText(locale: unknown): NotionPagePropertyText {
-  return NOTION_PAGE_PROPERTY_TEXT[
-    isDirongLocale(locale) ? locale : DEFAULT_DIRONG_LOCALE
-  ];
+  const resolvedLocale = isDirongLocale(locale) ? locale : DEFAULT_DIRONG_LOCALE;
+  return {
+    draftTitle: t(resolvedLocale, "notionPageProperties.draftTitle"),
+    unknown: t(resolvedLocale, "notionPageProperties.unknown"),
+    uploadPending: t(resolvedLocale, "notionPageProperties.uploadPending"),
+    taskTitle: t(resolvedLocale, "notionPageProperties.taskTitle"),
+    taskStatusTodo: t(resolvedLocale, "notionPageProperties.taskStatusTodo"),
+    noEvidence: t(resolvedLocale, "notionPageProperties.noEvidence"),
+    participantEmptyWarning: t(
+      resolvedLocale,
+      "notionPageProperties.participantEmptyWarning",
+    ),
+    participantsCappedWarning: t(
+      resolvedLocale,
+      "notionPageProperties.participantsCappedWarning",
+    ),
+    meetingTimeUnknownEnd: t(
+      resolvedLocale,
+      "notionPageProperties.meetingTimeUnknownEnd",
+    ),
+  };
 }
 
 function resolveNotionDraftLocale(

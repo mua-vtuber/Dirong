@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  ENGLISH_NOTION_SCHEMA_PRESET,
+  ENGLISH_NOTION_TASK_STATUS_OPTIONS,
   KOREAN_NOTION_SCHEMA_PRESET,
   NOTION_PROPERTY_SEMANTIC_KEYS,
   NOTION_TASK_STATUS_OPTIONS,
+  NOTION_SCHEMA_PRESETS,
   validateNotionSchemaPreset,
   type NotionPropertySemanticKey,
   type NotionSchemaPreset,
@@ -11,18 +14,25 @@ import {
 } from "./schema-presets.js";
 
 const KOREAN_PRESET: NotionSchemaPreset = KOREAN_NOTION_SCHEMA_PRESET;
+const ENGLISH_PRESET: NotionSchemaPreset = ENGLISH_NOTION_SCHEMA_PRESET;
 
-test("Korean Notion schema preset contains every required semantic key", () => {
-  const validation = validateNotionSchemaPreset(KOREAN_PRESET);
+test("Notion schema presets contain every required semantic key", () => {
+  const presets: NotionSchemaPreset[] = Object.values(NOTION_SCHEMA_PRESETS);
+  for (const preset of presets) {
+    const validation = validateNotionSchemaPreset(preset);
 
-  assert.equal(validation.ok, true);
+    assert.equal(validation.ok, true);
 
-  const keys = new Set(
-    Object.values(KOREAN_PRESET.databases).flatMap((database) =>
-      database.properties.map((property) => property.key),
-    ),
-  );
-  assert.deepEqual([...keys].sort(), [...NOTION_PROPERTY_SEMANTIC_KEYS].sort());
+    const keys = new Set(
+      Object.values(preset.databases).flatMap((database) =>
+        database.properties.map((property) => property.key),
+      ),
+    );
+    assert.deepEqual(
+      [...keys].sort(),
+      [...NOTION_PROPERTY_SEMANTIC_KEYS].sort(),
+    );
+  }
 });
 
 test("Korean Notion schema preset defines the managed DB names and relation shape", () => {
@@ -62,6 +72,20 @@ test("Korean Notion schema preset defines rollup targets logically", () => {
 
 test("Korean Notion schema preset locks task status options to the MVP values", () => {
   assert.deepEqual(findProperty("task.status").options, NOTION_TASK_STATUS_OPTIONS);
+});
+
+test("English Notion schema preset defines English DB names and task status options", () => {
+  assert.equal(ENGLISH_PRESET.databases.meeting.name, "Meeting Notes");
+  assert.equal(ENGLISH_PRESET.databases.member.name, "Members");
+  assert.equal(ENGLISH_PRESET.databases.task.name, "Action Items");
+  assert.deepEqual(
+    findProperty("task.status", ENGLISH_PRESET).options,
+    ENGLISH_NOTION_TASK_STATUS_OPTIONS,
+  );
+  assert.equal(
+    findProperty("meeting.memberRelation", ENGLISH_PRESET).name,
+    "Participant Relation",
+  );
 });
 
 test("validateNotionSchemaPreset rejects duplicate names inside one DB", () => {
@@ -155,8 +179,9 @@ test("validateNotionSchemaPreset rejects changed task status options", () => {
 
 function findProperty(
   key: NotionPropertySemanticKey,
+  preset: NotionSchemaPreset = KOREAN_PRESET,
 ): NotionSchemaPresetProperty {
-  const property = Object.values(KOREAN_PRESET.databases)
+  const property = Object.values(preset.databases)
     .flatMap((database) => database.properties)
     .find((item) => item.key === key);
   assert.ok(property);

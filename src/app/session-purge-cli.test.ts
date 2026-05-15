@@ -68,3 +68,18 @@ test("parseSessionPurgeArgs rejects missing, mixed, and unknown selectors", () =
   );
   assert.throws(() => parseSessionPurgeArgs(["--session"]), /--session 값/);
 });
+
+test("parseSessionPurgeArgs localizes validation errors", () => {
+  assert.throws(
+    () => parseSessionPurgeArgs([], "en"),
+    /Exactly one of --session, --missing-audio, --all, or --expired-text-artifacts is required/,
+  );
+  assert.throws(
+    () => parseSessionPurgeArgs(["--missing-audio", "--unexpected"], "en"),
+    /Unknown session purge option/,
+  );
+  assert.throws(
+    () => parseSessionPurgeArgs(["--session"], "en"),
+    /--session value is required/,
+  );
+});

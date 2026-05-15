@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { t } from "../i18n/catalog.js";
 import { ManagedSchemaRepairStalePlanError } from "../notion/managed-schema-repair.js";
 import type { NotionCustomPropertyRuleInput } from "../notion/property-rules.js";
 import type { NotionSchemaApplyOptions } from "../notion/schema-manager.js";
@@ -261,8 +262,8 @@ export async function handleNotionManagedSchemaRepair(
       sendJson(response, {
         ok: false,
         status: "stale_plan",
-        message: "Managed schema repair plan이 최신 상태가 아닙니다.",
-        userAction: "Notion 상태를 다시 확인한 뒤 복구 계획을 다시 적용해 주세요.",
+        message: t(locale, "dashboard.db.requiredFields.stalePlanMessage"),
+        userAction: t(locale, "dashboard.db.requiredFields.stalePlanAction"),
         expectedPlanHash: error.expectedPlanHash,
         actualPlanHash: error.actualPlanHash,
         snapshot: null,

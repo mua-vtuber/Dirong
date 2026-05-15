@@ -1,5 +1,7 @@
 import process from "node:process";
 import { printCliError } from "../cli/error-output.js";
+import { t } from "../i18n/catalog.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 import { loadProductRuntimeSettings } from "../settings/product-settings.js";
 import { backupDatabaseSnapshot } from "../storage/sqlite-backup.js";
 import { purgeSessions } from "../storage/session-purge.js";
@@ -19,16 +21,18 @@ import { DirongDatabase } from "../storage/sqlite.js";
 import { parseSessionPurgeArgs } from "./session-purge-cli.js";
 
 try {
-  const options = parseSessionPurgeArgs(process.argv.slice(2));
-  const config = loadProductRuntimeSettings().config;
+  const productRuntime = loadProductRuntimeSettings();
+  const locale = productRuntime.setupStatus.getLocale();
+  const options = parseSessionPurgeArgs(process.argv.slice(2), locale);
+  const config = productRuntime.config;
   const backupPaths =
     options.operation === "purge-sessions" && !options.dryRun && options.backup
       ? backupDatabaseSnapshot(config.dbPath, {
           busyTimeoutMs: config.dbBusyTimeoutMs,
           failureMessageLines: [
-            "SQLite backup 생성에 실패했습니다.",
-            "session purge를 적용하지 않고 중단합니다.",
-            "backup이 실패했으므로 DB 상태는 변경하지 않았습니다.",
+            t(locale, "sessionPurge.backup.failureLine1"),
+            t(locale, "sessionPurge.backup.failureLine2"),
+            t(locale, "sessionPurge.backup.failureLine3"),
           ],
         })
       : [];
@@ -44,19 +48,19 @@ try {
       const results = options.dryRun
         ? []
         : plans.map((plan) => executeRetentionDeletionPlan(plan));
-      assertNoFileRetentionFailures(results);
+      assertNoFileRetentionFailures(results, locale);
 
-      console.log("디롱이 expired text artifact retention 결과");
+      console.log(t(locale, "sessionPurge.expiredTextArtifactsTitle"));
       console.log(`mode: ${options.dryRun ? "dry-run" : "confirmed"}`);
       console.log(`data root: ${config.dataDir}`);
       console.log(`target sessions: ${plans.length}`);
-      console.log("파일 삭제 계획");
-      console.log(formatFileRetentionPlans(plans, results));
+      console.log(t(locale, "sessionPurge.fileDeletionPlanTitle"));
+      console.log(formatFileRetentionPlans(plans, results, locale));
       console.log("");
       console.log(
         options.dryRun
-          ? "실제 삭제하려면 같은 명령에 --confirm을 붙여 실행하세요."
-          : "기간이 만료된 텍스트/초안 artifact 파일을 삭제했습니다.",
+          ? t(locale, "sessionPurge.dryRunHint")
+          : t(locale, "sessionPurge.expiredTextArtifactsDone"),
       );
     } else {
       const result = purgeSessions({
@@ -66,7 +70,7 @@ try {
         dryRun: options.dryRun,
       });
 
-      console.log("디롱이 session purge 결과");
+      console.log(t(locale, "sessionPurge.sessionPurgeTitle"));
       console.log(`mode: ${options.dryRun ? "dry-run" : "confirmed"}`);
       console.log(`SQLite DB: ${config.dbPath}`);
       if (backupPaths.length > 0) {
@@ -75,21 +79,22 @@ try {
       console.log(`targets: ${result.candidates.length}`);
       console.log(formatCounts(result.counts));
       console.log("");
-      console.log("대상 세션");
-      console.log(formatCandidates(result.candidates));
+      console.log(t(locale, "sessionPurge.targetSessionsTitle"));
+      console.log(formatCandidates(result.candidates, locale));
       console.log("");
-      console.log("파일 삭제 계획");
+      console.log(t(locale, "sessionPurge.fileDeletionPlanTitle"));
       console.log(
         formatFileRetentionPlans(
           result.fileRetentionPlans,
           result.fileRetentionResults,
+          locale,
         ),
       );
       console.log("");
       console.log(
         options.dryRun
-          ? "실제 삭제하려면 같은 명령에 --confirm을 붙여 실행하세요."
-          : "session 관련 행과 계획된 로컬 파일을 삭제했습니다. Notion Property Rules는 보존했습니다.",
+          ? t(locale, "sessionPurge.dryRunHint")
+          : t(locale, "sessionPurge.sessionPurgeDone"),
       );
     }
   } finally {
@@ -117,9 +122,12 @@ function formatCounts(counts: SessionPurgeCounts): string {
   ].join(" / ");
 }
 
-function formatCandidates(candidates: readonly SessionPurgeCandidate[]): string {
+function formatCandidates(
+  candidates: readonly SessionPurgeCandidate[],
+  locale: DirongLocale,
+): string {
   if (candidates.length === 0) {
-    return "없음";
+    return t(locale, "sessionPurge.none");
   }
 
   return candidates
@@ -139,6 +147,7 @@ function formatCandidates(candidates: readonly SessionPurgeCandidate[]): string 
 
 function assertNoFileRetentionFailures(
   results: readonly RetentionDeletionExecutionResult[],
+  locale: DirongLocale,
 ): void {
   const failures = results.flatMap((result) =>
     result.results.filter((item) => item.status === "failed"),
@@ -146,16 +155,17 @@ function assertNoFileRetentionFailures(
   if (failures.length === 0) {
     return;
   }
-  throw new Error(formatFileRetentionFailures(failures));
+  throw new Error(formatFileRetentionFailures(failures, locale));
 }
 
 function formatFileRetentionFailures(
   failures: readonly RetentionDeletionOutcome[],
+  locale: DirongLocale,
 ): string {
   return failures
     .map((item) =>
       [
-        "파일 삭제 실패",
+        t(locale, "sessionPurge.fileDeletionFailed"),
         `session=${item.target.sessionId}`,
         `kind=${item.target.kind}`,
         `path=${item.target.resolvedPath ?? item.target.path}`,
@@ -168,10 +178,11 @@ function formatFileRetentionFailures(
 function formatFileRetentionPlans(
   plans: readonly RetentionDeletionPlan[],
   results: readonly RetentionDeletionExecutionResult[],
+  locale: DirongLocale,
 ): string {
   const targetCount = plans.reduce((sum, plan) => sum + plan.targets.length, 0);
   if (targetCount === 0) {
-    return "없음";
+    return t(locale, "sessionPurge.none");
   }
 
   const resultsBySession = new Map(

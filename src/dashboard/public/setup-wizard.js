@@ -435,15 +435,11 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
         '</button>' + setupNextButton(setup, 'notionParent') + '</div>';
     }
     function renderSetupNotionManaged(setup) {
-      const locale = setup.locale ?? setupDefaults(setup)?.dashboard?.locale;
-      const unsupported = locale !== 'ko';
-      const notice = unsupported
-        ? '<div class="setup-notice">' + setupWizardText('notionManaged.unsupportedNotice', { locale }) + '</div>'
-        : '<div class="setup-notice setup-ok">' + setupWizardText('notionManaged.readyNotice') + '</div>';
+      const notice = '<div class="setup-notice setup-ok">' + setupWizardText('notionManaged.readyNotice') + '</div>';
       return '<h3>' + setupWizardText('notionManaged.title') + '</h3>' +
         '<p class="setup-copy">' + setupWizardText('notionManaged.description') + '</p>' +
         notice +
-        '<div class="setup-actions"><button type="button"' + (unsupported ? ' disabled' : '') +
+        '<div class="setup-actions"><button type="button"' +
         ' onclick="setupCreateManagedDatabases()">' + setupWizardText('actions.createManagedDb') + '</button>' +
         setupNextButton(setup, 'notionManaged') + '</div>' +
         renderManagedRegistryDetails(setup.features?.notion?.managedRegistry, { compact: true }) +

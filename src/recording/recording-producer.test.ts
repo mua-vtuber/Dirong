@@ -76,6 +76,47 @@ test("recording start forwards projectId into created session", async () => {
   rmSync(dataDir, { recursive: true, force: true });
 });
 
+test("RecordingProducer localizes direct user-facing errors", async () => {
+  const dataDir = mkdtempSync(path.join(tmpdir(), "dirong-recording-locale-"));
+  const producer = new RecordingProducer(
+    { user: { id: "bot-user" } } as Client,
+    createConfig(dataDir),
+    createRecordingStoreSpy([]),
+    { localeResolver: () => "en" },
+  );
+
+  try {
+    await assert.rejects(
+      producer.start({
+        guild: {
+          id: "guild-active",
+          name: "Guild Active",
+          voiceAdapterCreator: {},
+        } as Guild,
+        voiceChannel: {
+          id: "stage-1",
+          name: "Stage 1",
+          type: ChannelType.GuildStageVoice,
+        } as VoiceBasedChannel,
+        projectId: "project-a",
+        textChannelId: "text-1",
+        startedByUserId: "user-1",
+        startedByDisplayName: "User One",
+      }),
+      /Stage channels are not supported/,
+    );
+    await assert.rejects(
+      producer.stop({
+        stoppedByUserId: "user-1",
+        stoppedByDisplayName: "User One",
+      }),
+      /There is no active recording session/,
+    );
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 function createRecordingStoreSpy(
   createdSessions: Array<Parameters<RecordingProducerStore["createSession"]>[0]>,
 ): RecordingProducerStore {

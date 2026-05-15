@@ -109,7 +109,7 @@ test("policy defaults are named constants", () => {
   assert.equal(LOCAL_ONLY_DASHBOARD_HOST, "127.0.0.1");
   assert.deepEqual(SUPPORTED_STT_SAFE_FORMATS, ["webm", "wav"]);
   assert.equal(DEFAULT_MEETING_NOTES_LANGUAGE, "ko");
-  assert.deepEqual(CREATABLE_NOTION_SCHEMA_LOCALES, ["ko"]);
+  assert.deepEqual(CREATABLE_NOTION_SCHEMA_LOCALES, ["ko", "en"]);
   assert.deepEqual(DEFAULT_SETUP_AI_SETTINGS, {
     provider: "claude",
     mode: "cli",

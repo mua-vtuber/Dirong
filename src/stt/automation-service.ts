@@ -67,9 +67,9 @@ export class SttAutomationService {
       model: options.provider.modelName,
       checkedAt: null,
       message: options.enabled
-        ? "STT 자동 실행 대기 중"
-        : "STT 자동 실행이 꺼져 있습니다.",
-      userAction: options.enabled ? null : "필요하면 수동 Phase 3 STT CLI를 실행해 주세요.",
+        ? this.messageForStatus("idle")
+        : this.messageForStatus("disabled"),
+      userAction: options.enabled ? null : this.userActionForStatus("disabled"),
       technicalDetail: null,
       lastRun: null,
     });
@@ -95,8 +95,8 @@ export class SttAutomationService {
       ...this.snapshot,
       status: "failed",
       checkedAt: new Date().toISOString(),
-      message: "STT 자동 실행 중 오류가 발생했습니다.",
-      userAction: "녹음 파일은 보존됩니다. STT 설정과 로그를 확인해 주세요.",
+      message: this.messageForStatus("failed"),
+      userAction: this.userActionForStatus("failed"),
       technicalDetail: summarizeSafeError(error),
     });
   }
@@ -106,7 +106,7 @@ export class SttAutomationService {
       ...this.snapshot,
       status: "stopped",
       checkedAt: new Date().toISOString(),
-      message: "STT 자동 실행 중지됨",
+      message: this.messageForStatus("stopped"),
       userAction: null,
     });
   }
@@ -124,8 +124,8 @@ export class SttAutomationService {
         ...this.snapshot,
         status: "disabled",
         checkedAt: new Date().toISOString(),
-        message: "STT 자동 실행이 꺼져 있습니다.",
-        userAction: "필요하면 수동 Phase 3 STT CLI를 실행해 주세요.",
+        message: this.messageForStatus("disabled"),
+        userAction: this.userActionForStatus("disabled"),
       });
       return this.getSnapshot();
     }
@@ -138,7 +138,7 @@ export class SttAutomationService {
       ...this.snapshot,
       status: "running",
       checkedAt: new Date().toISOString(),
-      message: "STT queued job 확인 중",
+      message: this.messageForStatus("running"),
       userAction: null,
       technicalDetail: null,
     });
@@ -165,10 +165,10 @@ export class SttAutomationService {
             ? "failed"
             : "done",
       checkedAt: new Date().toISOString(),
-      message: messageForResult(result),
+      message: messageForResult(result, this.resolveLocale()),
       userAction:
         failed > 0
-          ? "실패한 STT job은 dashboard와 로그를 확인해 주세요."
+          ? this.userActionForStatus("failed")
           : null,
       technicalDetail:
         failed > 0
@@ -182,6 +182,15 @@ export class SttAutomationService {
 
   private makeSnapshot(snapshot: SttAutomationSnapshot): SttAutomationSnapshot {
     return makeSnapshot(snapshot, this.resolveLocale());
+  }
+
+  private messageForStatus(status: SttAutomationStatus): string {
+    return t(this.resolveLocale(), sttAutomationMessageKey(status));
+  }
+
+  private userActionForStatus(status: SttAutomationStatus): string | null {
+    const key = sttAutomationUserActionKey(status);
+    return key ? t(this.resolveLocale(), key) : null;
   }
 
   private resolveLocale(): DirongLocale {
@@ -198,16 +207,22 @@ export function formatSttAutomationForStatus(
   const display = localized.display ?? buildSttAutomationDisplay(resolvedLocale, localized);
   const lines = [
     formatHumanStatusDisplayForText(display, {
-      title: "STT 자동화",
-      description: "설명",
-      nextAction: "STT 조치",
+      title: t(resolvedLocale, "runtimeStatus.sttAutomation.statusText.title"),
+      description: t(
+        resolvedLocale,
+        "runtimeStatus.sttAutomation.statusText.description",
+      ),
+      nextAction: t(
+        resolvedLocale,
+        "runtimeStatus.sttAutomation.statusText.nextAction",
+      ),
     }),
     `STT provider: ${snapshot.provider} / ${snapshot.model}`,
   ];
   if (snapshot.lastRun) {
     lines.push(
       [
-        "STT batch:",
+        `${t(resolvedLocale, "runtimeStatus.sttAutomation.statusText.batch")}:`,
         `examined:${snapshot.lastRun.examined}`,
         `done:${snapshot.lastRun.done}`,
         `missing:${snapshot.lastRun.missingAudio}`,
@@ -219,18 +234,18 @@ export function formatSttAutomationForStatus(
   return lines.join("\n");
 }
 
-function messageForResult(result: SttRunResult): string {
+function messageForResult(result: SttRunResult, locale: DirongLocale): string {
   if (result.examined === 0) {
-    return "STT 자동 실행 대기 중: queued job 없음";
+    return t(locale, "runtimeStatus.sttAutomation.idle.message");
   }
   const failed = result.failed + result.missingAudio;
   if (failed > 0 && result.done === 0) {
-    return "STT 처리 실패. 녹음 파일과 job 상태는 보존됩니다.";
+    return t(locale, "runtimeStatus.sttAutomation.failed.message");
   }
   if (result.remainingQueuedHint > 0) {
-    return "STT batch 처리 완료: 추가 queued job이 남아 있습니다.";
+    return t(locale, "runtimeStatus.sttAutomation.doneMore.message");
   }
-  return "STT batch 처리 완료";
+  return t(locale, "runtimeStatus.sttAutomation.done.message");
 }
 
 function summarizeFailedSamples(result: SttRunResult): string | null {

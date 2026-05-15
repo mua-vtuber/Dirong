@@ -1,4 +1,6 @@
 import { redactSensitiveText } from "../errors.js";
+import { formatLocaleText, t } from "../i18n/catalog.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 import { DEFAULT_NOTION_REQUEST_TIMEOUT_MS } from "./settings.js";
 
 export type JsonObject = Record<string, unknown>;
@@ -77,6 +79,7 @@ export type NotionClientOptions = {
   apiVersion: string;
   baseUrl: string;
   requestTimeoutMs?: number;
+  locale?: DirongLocale;
   fetchFn?: typeof fetch;
 };
 
@@ -309,16 +312,24 @@ class FetchNotionClient implements NotionClient {
       text = await response.text();
     } catch (error) {
       if (requestAbort.timedOut()) {
-        throw createTimeoutError(this.requestTimeoutMs, this.options.apiKey);
+        throw createTimeoutError(
+          this.requestTimeoutMs,
+          this.options.apiKey,
+          this.options.locale,
+        );
       }
-      throw createNetworkError(error, this.options.apiKey);
+      throw createNetworkError(error, this.options.apiKey, this.options.locale);
     } finally {
       requestAbort.cleanup();
     }
 
     const parsed = parseJsonResponse(text, this.options.apiKey);
     if (!parsed.ok) {
-      throw createInvalidJsonError(response.status, parsed.detail);
+      throw createInvalidJsonError(
+        response.status,
+        parsed.detail,
+        this.options.locale,
+      );
     }
 
     if (!response.ok) {
@@ -327,6 +338,7 @@ class FetchNotionClient implements NotionClient {
         body: parsed.value,
         retryAfterSeconds: parseRetryAfter(response.headers.get("retry-after")),
         apiKey: this.options.apiKey,
+        locale: this.options.locale,
       });
     }
 
@@ -374,6 +386,7 @@ export function classifyNotionHttpError(input: {
   body: unknown;
   retryAfterSeconds: number | null;
   apiKey: string;
+  locale?: DirongLocale;
 }): NotionApiError {
   const body = isRecord(input.body) ? input.body : {};
   const code = typeof body.code === "string" ? body.code : null;
@@ -383,7 +396,7 @@ export function classifyNotionHttpError(input: {
       : `Notion API HTTP ${input.status}`;
   const technicalDetail = redactWithApiKey(message, input.apiKey);
   const kind = classifyStatus(input.status, code);
-  const detail = buildErrorDetail(kind, input.status, code);
+  const detail = buildErrorDetail(kind, input.status, code, input.locale);
 
   return new NotionApiError(kind, detail.message, {
     status: input.status,
@@ -415,49 +428,56 @@ function parseJsonResponse(
 function createInvalidJsonError(
   status: number,
   technicalDetail: string,
+  locale?: DirongLocale,
 ): NotionApiError {
   return new NotionApiError(
     "invalid_json",
-    "Notion API 응답을 JSON으로 해석하지 못했습니다.",
+    t(locale, "notionClientError.invalidJson.message"),
     {
       status,
       code: null,
       retryAfterSeconds: null,
       retriable: status >= 500,
-      userAction:
-        "잠시 후 다시 시도해 주세요. 계속 실패하면 Notion 상태와 네트워크를 확인해 주세요.",
+      userAction: t(locale, "notionClientError.invalidJson.action"),
       technicalDetail,
     },
   );
 }
 
-function createNetworkError(error: unknown, apiKey: string): NotionApiError {
+function createNetworkError(
+  error: unknown,
+  apiKey: string,
+  locale?: DirongLocale,
+): NotionApiError {
   const message = error instanceof Error ? error.message : String(error);
   return new NotionApiError(
     "network",
-    "Notion API에 연결하지 못했습니다.",
+    t(locale, "notionClientError.network.message"),
     {
       status: null,
       code: null,
       retryAfterSeconds: null,
       retriable: true,
-      userAction: "네트워크 연결을 확인한 뒤 다시 시도해 주세요.",
+      userAction: t(locale, "notionClientError.network.action"),
       technicalDetail: redactWithApiKey(message, apiKey),
     },
   );
 }
 
-function createTimeoutError(timeoutMs: number, apiKey: string): NotionApiError {
+function createTimeoutError(
+  timeoutMs: number,
+  apiKey: string,
+  locale?: DirongLocale,
+): NotionApiError {
   return new NotionApiError(
     "timeout",
-    "Notion API 요청 시간이 초과되었습니다.",
+    t(locale, "notionClientError.timeout.message"),
     {
       status: null,
       code: null,
       retryAfterSeconds: null,
       retriable: true,
-      userAction:
-        "네트워크 상태를 확인하거나 NOTION_REQUEST_TIMEOUT_MS 값을 늘린 뒤 다시 시도해 주세요.",
+      userAction: t(locale, "notionClientError.timeout.action"),
       technicalDetail: redactWithApiKey(
         `Notion request timed out after ${timeoutMs}ms.`,
         apiKey,
@@ -495,50 +515,49 @@ function buildErrorDetail(
   kind: NotionApiErrorKind,
   status: number,
   code: string | null,
+  locale?: DirongLocale,
 ): { message: string; userAction: string; retriable: boolean } {
   if (kind === "auth") {
     return {
-      message: "Notion 인증 또는 공유 권한이 부족합니다.",
-      userAction:
-        "Notion integration token이 올바른지, 대상 데이터베이스에서 Add connections로 Dirong integration을 공유했는지 확인해 주세요.",
+      message: t(locale, "notionClientError.auth.message"),
+      userAction: t(locale, "notionClientError.auth.action"),
       retriable: false,
     };
   }
   if (kind === "not_found") {
     return {
-      message: "Notion target에 접근하지 못했습니다.",
-      userAction:
-        "Notion URL이 올바른지 확인하고 대상 데이터베이스에 Dirong integration을 공유해 주세요.",
+      message: t(locale, "notionClientError.notFound.message"),
+      userAction: t(locale, "notionClientError.notFound.action"),
       retriable: false,
     };
   }
   if (kind === "conflict" || kind === "validation") {
     return {
-      message: "Notion 요청이 데이터베이스 schema와 맞지 않습니다.",
-      userAction:
-        "Dirong에 필요한 Notion 속성 이름과 타입을 확인한 뒤 연결 테스트를 다시 실행해 주세요.",
+      message: t(locale, "notionClientError.schemaMismatch.message"),
+      userAction: t(locale, "notionClientError.schemaMismatch.action"),
       retriable: false,
     };
   }
   if (kind === "rate_limited") {
     return {
-      message: "Notion API 사용량 제한으로 잠시 대기합니다.",
-      userAction: "잠시 후 자동 재시도됩니다.",
+      message: t(locale, "notionClientError.rateLimited.message"),
+      userAction: t(locale, "notionClientError.rateLimited.action"),
       retriable: true,
     };
   }
   if (kind === "server") {
     return {
-      message: "Notion API 서버 오류가 발생했습니다.",
-      userAction: "잠시 후 다시 시도해 주세요.",
+      message: t(locale, "notionClientError.server.message"),
+      userAction: t(locale, "notionClientError.server.action"),
       retriable: true,
     };
   }
   return {
-    message: `Notion API 오류가 발생했습니다. HTTP ${status}${
-      code ? ` (${code})` : ""
-    }`,
-    userAction: "오류 내용을 확인한 뒤 다시 시도해 주세요.",
+    message: formatLocaleText(locale, "notionClientError.unknown.message", {
+      status,
+      code: code ? ` (${code})` : "",
+    }),
+    userAction: t(locale, "notionClientError.unknown.action"),
     retriable: false,
   };
 }

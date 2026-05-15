@@ -8,9 +8,13 @@ import {
   NOTION_MANAGED_SCHEMA_VERSION,
   type ManagedNotionSchemaCreationResult,
 } from "../notion/managed-schema.js";
-import { KOREAN_NOTION_SCHEMA_PRESET } from "../notion/schema-presets.js";
+import {
+  ENGLISH_NOTION_SCHEMA_PRESET,
+  KOREAN_NOTION_SCHEMA_PRESET,
+} from "../notion/schema-presets.js";
 import type {
   NotionDatabaseRole,
+  NotionLocale,
   NotionPropertySemanticKey,
   NotionSchemaPresetPropertyType,
 } from "../notion/schema-presets.js";
@@ -463,6 +467,109 @@ test("SetupWizardService verifies a Notion parent page and creates managed DBs t
   }
 });
 
+test("SetupWizardService creates managed DBs with the English schema locale", async () => {
+  const fixture = createFixture({
+    notionClientFactory: () => ({
+      retrievePage: async (pageId: string) => ({ id: pageId }),
+    } as unknown as NotionClient),
+    managedSchemaCreator: async (input) => {
+      assert.equal(input.locale, "en");
+      input.registryStore.saveManagedSchema({
+        workspaceSettings: {
+          locale: "en",
+          parentPageUrl,
+          parentPageId,
+        },
+        managedDatabases: [
+          managedDatabase(
+            "meeting",
+            "Meeting Notes",
+            "meeting-db-id",
+            "meeting-ds-id",
+            "en",
+          ),
+          managedDatabase("member", "Members", "member-db-id", "member-ds-id", "en"),
+          managedDatabase(
+            "task",
+            "Action Items",
+            "task-db-id",
+            "task-ds-id",
+            "en",
+          ),
+        ],
+        propertyMappings: allEnglishPropertyMappings(),
+        nowIso: "2026-05-10T00:00:00.000Z",
+      });
+      return {
+        locale: "en",
+        parentPageUrl,
+        parentPageId,
+        databases: {
+          meeting: {
+            role: "meeting",
+            name: "Meeting Notes",
+            databaseId: "meeting-db-id",
+            dataSourceId: "meeting-ds-id",
+            url: "https://notion.so/meeting",
+          },
+          member: {
+            role: "member",
+            name: "Members",
+            databaseId: "member-db-id",
+            dataSourceId: "member-ds-id",
+            url: "https://notion.so/member",
+          },
+          task: {
+            role: "task",
+            name: "Action Items",
+            databaseId: "task-db-id",
+            dataSourceId: "task-ds-id",
+            url: "https://notion.so/task",
+          },
+        },
+        propertyMappings: {
+          meeting: allEnglishPropertyMappings("meeting"),
+          member: allEnglishPropertyMappings("member"),
+          task: allEnglishPropertyMappings("task"),
+        },
+      } satisfies ManagedNotionSchemaCreationResult;
+    },
+  });
+  try {
+    fixture.settings.update((settings) => ({
+      ...settings,
+      app: {
+        ...settings.app,
+        locale: "en",
+      },
+    }));
+    fixture.service.saveNotionToken({ token: "notion-secret-raw-value" });
+    fixture.service.saveNotionParentPageUrl({ parentPageUrl });
+
+    const created = await fixture.service.createManagedDatabases();
+
+    assert.equal(created.ok, true);
+    assert.equal(created.setup.locale, "en");
+    assert.equal(created.setup.features.notion.managedRegistryReady, true);
+    assert.equal(
+      created.setup.features.notion.managedRegistry?.databases.find(
+        (database) => database.role === "meeting",
+      )?.expectedName,
+      "Meeting Notes",
+    );
+    assert.equal(
+      fixture.registryStore.getManagedDatabase("meeting")?.name,
+      "Meeting Notes",
+    );
+    assert.equal(
+      fixture.registryStore.getPropertyMapping("task", "task.status")?.propertyName,
+      "Status",
+    );
+  } finally {
+    fixture.close();
+  }
+});
+
 test("SetupWizardService stores project-scoped Discord and Notion setup values", async () => {
   const fixture = createFixture({ withProjectStore: true });
   try {
@@ -752,10 +859,11 @@ function managedDatabase(
   name: string,
   databaseId: string,
   dataSourceId: string,
+  locale: NotionLocale = "ko",
 ) {
   return {
     role,
-    locale: "ko" as const,
+    locale,
     databaseId,
     dataSourceId,
     url: `https://notion.so/${role}`,
@@ -777,6 +885,23 @@ function allKoreanPropertyMappings(
     : (["meeting", "member", "task"] as const);
   return roles.flatMap((role) =>
     KOREAN_NOTION_SCHEMA_PRESET.databases[role].properties.map((property) =>
+      mappingBase(role, property.key, property.name, property.type),
+    ),
+  );
+}
+
+function allEnglishPropertyMappings(): ReturnType<typeof mappingBase>[];
+function allEnglishPropertyMappings(
+  databaseRole: NotionDatabaseRole,
+): ReturnType<typeof mappingBase>[];
+function allEnglishPropertyMappings(
+  databaseRole?: NotionDatabaseRole,
+): ReturnType<typeof mappingBase>[] {
+  const roles = databaseRole
+    ? [databaseRole]
+    : (["meeting", "member", "task"] as const);
+  return roles.flatMap((role) =>
+    ENGLISH_NOTION_SCHEMA_PRESET.databases[role].properties.map((property) =>
       mappingBase(role, property.key, property.name, property.type),
     ),
   );

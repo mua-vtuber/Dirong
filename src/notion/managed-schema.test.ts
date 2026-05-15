@@ -14,7 +14,10 @@ import {
   NOTION_MANAGED_SCHEMA_VERSION,
 } from "./managed-schema.js";
 import { NotionRegistryStore } from "./registry-store.js";
-import { KOREAN_NOTION_SCHEMA_PRESET } from "./schema-presets.js";
+import {
+  ENGLISH_NOTION_SCHEMA_PRESET,
+  KOREAN_NOTION_SCHEMA_PRESET,
+} from "./schema-presets.js";
 import { SqlRunner } from "../storage/sql-runner.js";
 import { DirongDatabase } from "../storage/sqlite.js";
 
@@ -218,6 +221,73 @@ test("createManagedNotionSchema stores managed databases and semantic property m
     assert.deepEqual(
       fixture.store.listPropertyMappings("member").map((mapping) => mapping.semanticKey),
       KOREAN_NOTION_SCHEMA_PRESET.databases.member.properties.map(
+        (property) => property.key,
+      ),
+    );
+  } finally {
+    fixture.close();
+  }
+});
+
+test("createManagedNotionSchema supports the English managed DB preset", async () => {
+  const fixture = createFixture();
+  const client = new FakeNotionClient();
+  try {
+    await createManagedNotionSchema({
+      client,
+      registryStore: fixture.store,
+      parentPageUrl,
+      locale: "en",
+      nowIso,
+    });
+
+    assert.deepEqual(
+      client.calls
+        .filter((call) => call.method === "createDatabase")
+        .map((call) => readDatabaseTitle(call.body)),
+      ["Members", "Meeting Notes", "Action Items"],
+    );
+
+    const createBodies = client.calls
+      .filter((call) => call.method === "createDatabase")
+      .map((call) => requireRecord(call.body));
+    const meetingProperties = readInitialProperties(requireRecord(createBodies[1]));
+    assert.ok("Participant Relation" in meetingProperties);
+    assert.equal("Action Items" in meetingProperties, false);
+
+    const taskMeetingUpdate = client.calls
+      .filter((call) => call.method === "updateDataSource")
+      .find(
+        (call) =>
+          call.id === "task-ds" &&
+          "Meeting Notes" in requireRecord(requireRecord(call.body).properties),
+      );
+    assert.ok(taskMeetingUpdate);
+    const taskMeeting = requireRecord(
+      requireRecord(requireRecord(taskMeetingUpdate.body).properties)[
+        "Meeting Notes"
+      ],
+    );
+    assert.deepEqual(requireRecord(taskMeeting.relation), {
+      data_source_id: "meeting-ds",
+      type: "dual_property",
+      dual_property: {
+        synced_property_name: "Action Items",
+      },
+    });
+
+    assert.equal(fixture.store.getWorkspaceSettings()?.locale, "en");
+    assert.equal(
+      fixture.store.getManagedDatabase("meeting")?.name,
+      ENGLISH_NOTION_SCHEMA_PRESET.databases.meeting.name,
+    );
+    assert.equal(
+      fixture.store.getPropertyMapping("meeting", "meeting.title")?.propertyName,
+      "Meeting Notes",
+    );
+    assert.deepEqual(
+      fixture.store.listPropertyMappings("member").map((mapping) => mapping.semanticKey),
+      ENGLISH_NOTION_SCHEMA_PRESET.databases.member.properties.map(
         (property) => property.key,
       ),
     );
@@ -522,13 +592,13 @@ function readUpdateProperties(body: unknown): JsonObject {
 }
 
 function roleFromDatabaseTitle(title: string): "meeting" | "member" | "task" {
-  if (title === "회의록") {
+  if (title === "회의록" || title === "Meeting Notes") {
     return "meeting";
   }
-  if (title === "작업자") {
+  if (title === "작업자" || title === "Members") {
     return "member";
   }
-  if (title === "할 일 목록") {
+  if (title === "할 일 목록" || title === "Action Items") {
     return "task";
   }
   throw new Error(`unknown database title ${title}`);

@@ -1,6 +1,6 @@
 import {
   databaseRoleForSemanticKey,
-  KOREAN_NOTION_SCHEMA_PRESET,
+  notionSchemaPresetForLocale,
   NOTION_DATABASE_ROLES,
   NOTION_PROPERTY_SEMANTIC_KEYS,
   type NotionDatabaseRole,
@@ -66,6 +66,7 @@ export function readManagedNotionRegistrySnapshot(
   const propertyMappings = registry.propertyMappings;
   const databases = NOTION_DATABASE_ROLES.map((role) =>
     buildDatabaseSnapshot({
+      locale: workspace?.locale ?? null,
       role,
       managedDatabase: managedDatabases.find((database) => database.role === role) ?? null,
       mappings: propertyMappings.filter((mapping) => mapping.databaseRole === role),
@@ -87,7 +88,9 @@ export function readManagedNotionRegistrySnapshot(
     remoteCheck: options.remoteCheck ?? null,
     actionItemUpload: {
       status: "implemented",
-      message: "할 일 목록 DB가 준비되면 업로드 시 할 일 페이지를 생성하거나 갱신합니다.",
+      message: workspace?.locale === "en"
+        ? "When the Action Items DB is ready, uploads create or update action item pages."
+        : "할 일 목록 DB가 준비되면 업로드 시 할 일 페이지를 생성하거나 갱신합니다.",
     },
   };
 }
@@ -99,10 +102,14 @@ export function hasReadyManagedNotionRegistry(
 }
 
 function buildDatabaseSnapshot(input: {
+  locale: NotionLocale | null;
   role: NotionDatabaseRole;
   managedDatabase: NotionManagedDatabase | null;
   mappings: NotionPropertyMapping[];
 }): ManagedNotionRegistryDatabaseSnapshot {
+  const preset = notionSchemaPresetForLocale(
+    input.managedDatabase?.locale ?? input.locale,
+  );
   const requiredSemanticKeys = requiredSemanticKeysForRole(input.role);
   const mappedKeys = new Set(input.mappings.map((mapping) => mapping.semanticKey));
   const missingSemanticKeys = requiredSemanticKeys.filter(
@@ -111,7 +118,7 @@ function buildDatabaseSnapshot(input: {
 
   return {
     role: input.role,
-    expectedName: KOREAN_NOTION_SCHEMA_PRESET.databases[input.role].name,
+    expectedName: preset.databases[input.role].name,
     name: input.managedDatabase?.name ?? null,
     url: input.managedDatabase?.url ?? null,
     locale: input.managedDatabase?.locale ?? null,

@@ -124,7 +124,9 @@ const sttProviderSelection = createPhase3SttProvider(appSettings.stt);
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
 });
-const producer = new RecordingProducer(client, config, store);
+const producer = new RecordingProducer(client, config, store, {
+  localeResolver: resolveAppLocale,
+});
 const aloneFinalize = createAloneFinalizeService();
 const sttAutomation = createSttAutomationService(
   sttProviderSelection.provider,
@@ -163,6 +165,7 @@ const notionDashboard = new NotionDashboardService({
   config,
   workerId: `phase5-notion-dashboard-${process.pid}`,
   retention: notionUploadRetention,
+  localeResolver: resolveAppLocale,
 });
 const notionAutomation = createNotionAutomationService(notionSqlRunner);
 const activeProjectService = new ActiveProjectService({

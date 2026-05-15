@@ -2,6 +2,8 @@ import {
   type NotionClient,
   NotionApiError as NotionApiErrorClass,
 } from "./client.js";
+import { formatLocaleText, t } from "../i18n/catalog.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 import {
   appendRemainingBlocks,
   recoverRemoteBlocks,
@@ -66,6 +68,7 @@ export type RunNotionUploadOptions = {
   memberRosterStore?: NotionMemberRosterStore | null;
   customPropertyRules?: readonly NotionCustomPropertyRule[];
   signal?: AbortSignal;
+  locale?: DirongLocale;
 };
 
 export async function runNotionUpload(
@@ -73,6 +76,7 @@ export async function runNotionUpload(
 ): Promise<NotionUploadResult> {
   const nowIso = options.nowIso ?? new Date().toISOString();
   const baseResult = createBaseResult(options.dryRun);
+  const locale = options.locale ?? "ko";
 
   if (!options.settings.enabled) {
     return {
@@ -87,8 +91,7 @@ export async function runNotionUpload(
       ...baseResult,
       status: "not_configured",
       message: "Notion settings are incomplete.",
-      userAction:
-        "Notion 업로드를 켜려면 설정 마법사에서 Notion 연결 토큰을 저장해 주세요.",
+      userAction: t(locale, "notionWriter.apiKeyMissingAction"),
     };
   }
 
@@ -97,7 +100,7 @@ export async function runNotionUpload(
       ...baseResult,
       status: "not_configured",
       message: "Notion client is not available.",
-      userAction: "Notion API key 설정을 확인해 주세요.",
+      userAction: t(locale, "notionWriter.clientMissingAction"),
     };
   }
 
@@ -123,7 +126,7 @@ export async function runNotionUpload(
         targetId: target.id,
         targetName: target.name,
         message: "No valid meeting notes draft was found.",
-        userAction: "Phase 4 AI cleanup을 먼저 완료한 뒤 다시 시도해 주세요.",
+        userAction: t(locale, "notionWriter.draftMissingAction"),
       };
     }
 
@@ -136,8 +139,7 @@ export async function runNotionUpload(
         targetId: target.id,
         targetName: target.name,
         message: "Notion upload is blocked because the session project is unresolved.",
-        userAction:
-          "프로젝트가 애매한 legacy session은 default project로 자동 업로드하지 않습니다.",
+        userAction: t(locale, "notionWriter.unresolvedProjectAction"),
         technicalDetail: `session ${draftInput.session.id} has no project_id`,
       };
     }
@@ -156,8 +158,7 @@ export async function runNotionUpload(
         targetName: target.name,
         message:
           "Notion upload is blocked because the session project does not match the selected project.",
-        userAction:
-          "프로젝트를 전환한 뒤 해당 프로젝트의 회의록만 업로드해 주세요.",
+        userAction: t(locale, "notionWriter.projectMismatchAction"),
         technicalDetail:
           `session ${draftInput.session.id} project_id=${draftInput.session.project_id}, selected project=${options.projectId}`,
       };
@@ -409,7 +410,7 @@ async function ensurePage(input: {
   if (results.length > 1) {
     throw createWriterValidationError(
       "Multiple Notion pages have the same Draft ID.",
-      "Notion 데이터베이스에서 같은 Draft ID를 가진 page를 하나만 남긴 뒤 다시 시도해 주세요.",
+      t(input.draftInput.draftContent.language, "notionWriter.duplicateDraftAction"),
       "duplicate remote Draft ID",
     );
   }
@@ -435,7 +436,7 @@ async function ensurePage(input: {
   if (sessionResults.length > 1) {
     throw createWriterValidationError(
       "Multiple Notion pages have the same Session ID.",
-      "Notion 데이터베이스에서 같은 Session ID를 가진 page를 하나만 남긴 뒤 다시 시도해 주세요.",
+      t(input.draftInput.draftContent.language, "notionWriter.duplicateSessionAction"),
       "duplicate remote Session ID",
     );
   }
@@ -491,6 +492,7 @@ async function syncManagedActionItemPages(input: {
           : null,
         sourceActionId,
         memberRosterStore: input.memberRosterStore,
+        locale: input.draftInput.draftContent.language,
         signal: input.signal,
       });
       const properties = renderNotionTaskPageProperties({
@@ -509,9 +511,11 @@ async function syncManagedActionItemPages(input: {
         signal: input.signal,
       });
       if (existing.status === "ambiguous") {
-        warnings.push(
-          `${sourceActionId}: 같은 Dirong 할 일 ID를 가진 할 일 페이지가 여러 개라 업데이트를 건너뜁니다.`,
-        );
+        warnings.push(formatLocaleText(
+          input.draftInput.draftContent.language,
+          "notionWriter.actionItem.duplicateSourceActionId",
+          { sourceActionId },
+        ));
         continue;
       }
       if (existing.pageId) {
@@ -532,9 +536,14 @@ async function syncManagedActionItemPages(input: {
       if (input.signal?.aborted) {
         throw error;
       }
-      warnings.push(
-        `${sourceActionId}: 할 일 페이지 동기화 중 오류가 발생했습니다 (${error instanceof Error ? error.message : String(error)}).`,
-      );
+      warnings.push(formatLocaleText(
+        input.draftInput.draftContent.language,
+        "notionWriter.actionItem.syncFailed",
+        {
+          sourceActionId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      ));
     }
   }
 
@@ -579,6 +588,7 @@ async function resolveActionItemWorkerPage(input: {
   ownerName: string | null;
   sourceActionId: string;
   memberRosterStore: NotionMemberRosterStore | null;
+  locale: DirongLocale;
   signal?: AbortSignal;
 }): Promise<{ pageId: string | null; warnings: string[] }> {
   const ownerName = input.ownerName?.trim();
@@ -593,7 +603,11 @@ async function resolveActionItemWorkerPage(input: {
     return {
       pageId: null,
       warnings: [
-        `${input.sourceActionId}: 작업자 매칭 속성 타입을 지원하지 않아 담당자 relation을 비웠습니다.`,
+        formatLocaleText(
+          input.locale,
+          "notionWriter.actionItem.unsupportedWorkerMatch",
+          { sourceActionId: input.sourceActionId },
+        ),
       ],
     };
   }
@@ -610,7 +624,14 @@ async function resolveActionItemWorkerPage(input: {
     return {
       pageId: null,
       warnings: [
-        `${input.sourceActionId}: 작업자 "${ownerName}"와 일치하는 Notion page가 여러 개라 담당자 relation을 비웠습니다.`,
+        formatLocaleText(
+          input.locale,
+          "notionWriter.actionItem.duplicateRemoteWorker",
+          {
+            sourceActionId: input.sourceActionId,
+            ownerName,
+          },
+        ),
       ],
     };
   }
@@ -626,7 +647,14 @@ async function resolveActionItemWorkerPage(input: {
       return {
         pageId: null,
         warnings: [
-          `${input.sourceActionId}: 작업자 "${ownerName}"와 일치하는 roster 캐시 항목이 여러 개라 담당자 relation을 비웠습니다.`,
+          formatLocaleText(
+            input.locale,
+            "notionWriter.actionItem.duplicateCachedWorker",
+            {
+              sourceActionId: input.sourceActionId,
+              ownerName,
+            },
+          ),
         ],
       };
     }
@@ -642,21 +670,42 @@ async function resolveActionItemWorkerPage(input: {
       return {
         pageId: null,
         warnings: [
-          `${input.sourceActionId}: 역할 "${ownerName}"와 일치하는 작업자가 여러 명이라 담당자 relation을 비웠습니다.`,
+          formatLocaleText(
+            input.locale,
+            "notionWriter.actionItem.duplicateRoleWorker",
+            {
+              sourceActionId: input.sourceActionId,
+              ownerName,
+            },
+          ),
         ],
       };
     }
     return {
       pageId: null,
       warnings: [
-        `${input.sourceActionId}: 작업자 또는 역할 "${ownerName}"와 일치하는 roster 캐시 항목을 찾지 못해 담당자 relation을 비웠습니다.`,
+        formatLocaleText(
+          input.locale,
+          "notionWriter.actionItem.cachedWorkerMissing",
+          {
+            sourceActionId: input.sourceActionId,
+            ownerName,
+          },
+        ),
       ],
     };
   }
   return {
     pageId: null,
     warnings: [
-      `${input.sourceActionId}: 작업자 "${ownerName}"를 Notion 작업자 DB에서 찾지 못해 담당자 relation을 비웠습니다.`,
+      formatLocaleText(
+        input.locale,
+        "notionWriter.actionItem.remoteWorkerMissing",
+        {
+          sourceActionId: input.sourceActionId,
+          ownerName,
+        },
+      ),
     ],
   };
 }
@@ -673,7 +722,7 @@ function loadDraftInput(
 function readPageRef(value: unknown): { id: string; url: string | null } {
   const id = readId(value);
   if (!id) {
-    throw new Error("Notion page id가 응답에 없습니다.");
+    throw new Error(t(undefined, "notionWriter.pageIdMissing"));
   }
   return {
     id,

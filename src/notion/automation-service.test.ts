@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { NotionApiError, type NotionClient } from "./client.js";
 import {
+  formatNotionAutomationForStatus,
   type NotionAutomationSnapshot,
   NotionAutomationService,
 } from "./automation-service.js";
@@ -67,6 +68,40 @@ test("NotionAutomationService localizes runtime snapshot with app locale", async
   } finally {
     fixture.close();
   }
+});
+
+test("formatNotionAutomationForStatus localizes text labels", () => {
+  const snapshot: NotionAutomationSnapshot = {
+    enabled: true,
+    configured: true,
+    uploadMode: "automatic_after_ai_cleanup",
+    status: "idle",
+    checkedAt: "2026-05-06T00:00:00.000Z",
+    sessionId: "meeting_1",
+    draftId: "draft_1",
+    targetId: "target_1",
+    writeId: null,
+    pageUrl: null,
+    message: "Notion 자동 업로드 대기 중",
+    userAction: null,
+    technicalDetail: null,
+    lastRunStatus: null,
+    inFlightDraftIds: [],
+    repairedExpiredLeases: 2,
+  };
+
+  assert.match(
+    formatNotionAutomationForStatus(snapshot),
+    /Notion 자동 업로드/,
+  );
+  assert.match(
+    formatNotionAutomationForStatus(snapshot, "en"),
+    /Notion auto-upload status/,
+  );
+  assert.match(
+    formatNotionAutomationForStatus(snapshot, "en"),
+    /Notion leases repaired: 2/,
+  );
 });
 
 test("NotionAutomationService treats manual upload mode as automatic", async () => {

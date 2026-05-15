@@ -8,6 +8,7 @@ import { wrapAiCleanupProviderWithLifecycle } from "./provider-lifecycle.js";
 import {
   AiCleanupAutomationService,
   formatAiCleanupAutomationForStatus,
+  type AiCleanupAutomationSnapshot,
 } from "./automation-service.js";
 import type { AppLocaleResolver } from "../../i18n/app-locale.js";
 import { FakeAiCleanupProvider } from "./fake-provider.js";
@@ -540,46 +541,52 @@ test("AiCleanupAutomationService stop aborts an active provider run", async () =
 });
 
 test("formatAiCleanupAutomationForStatus renders concise non-developer status", () => {
-  assert.match(
-    formatAiCleanupAutomationForStatus({
-      enabled: true,
-      status: "waiting_for_stt",
-      provider: "claude-cli",
-      model: "haiku",
-      checkedAt: "2026-05-06T00:00:00.000Z",
+  const snapshot: AiCleanupAutomationSnapshot = {
+    enabled: true,
+    status: "waiting_for_stt" as const,
+    provider: "claude-cli",
+    model: "haiku",
+    checkedAt: "2026-05-06T00:00:00.000Z",
+    sessionId: "meeting_1",
+    message: "STT 완료 대기 중",
+    userAction: null,
+    technicalDetail: null,
+    stt: {
       sessionId: "meeting_1",
-      message: "STT 완료 대기 중",
-      userAction: null,
-      technicalDetail: null,
-      stt: {
-        sessionId: "meeting_1",
-        sessionStatus: "finalized",
-        openChunkCount: 0,
-        sttQueuedCount: 1,
-        sttProcessingCount: 0,
-        sttDoneCount: 0,
-        sttFailedCount: 0,
-        sttFailedMissingFileCount: 0,
-        sttOtherNonTerminalCount: 0,
-        chunksMissingSttJobCount: 0,
-        chunksWithTranscodeFailedCount: 0,
-        chunksMissingSttAudioCount: 0,
-        realTranscriptEntryCount: 0,
-        isTerminal: false,
-        canGenerateDraft: false,
-        shouldRecordEmptyTimelineBlock: false,
-        canInvokeRunner: false,
-        warnings: [],
-      },
-      job: null,
-      lastRunStatus: null,
-      inFlightSessionIds: [],
-      repairedExpiredJobs: { requeued: 0, failed: 0 },
-      repairedExpiredSttLeases: 0,
+      sessionStatus: "finalized",
+      openChunkCount: 0,
+      sttQueuedCount: 1,
+      sttProcessingCount: 0,
+      sttDoneCount: 0,
+      sttFailedCount: 0,
+      sttFailedMissingFileCount: 0,
+      sttOtherNonTerminalCount: 0,
+      chunksMissingSttJobCount: 0,
+      chunksWithTranscodeFailedCount: 0,
+      chunksMissingSttAudioCount: 0,
+      realTranscriptEntryCount: 0,
+      isTerminal: false,
+      canGenerateDraft: false,
+      shouldRecordEmptyTimelineBlock: false,
+      canInvokeRunner: false,
       warnings: [],
-      progress: null,
-    }),
+    },
+    job: null,
+    lastRunStatus: null,
+    inFlightSessionIds: [],
+    repairedExpiredJobs: { requeued: 0, failed: 0 },
+    repairedExpiredSttLeases: 0,
+    warnings: [],
+    progress: null,
+  };
+
+  assert.match(
+    formatAiCleanupAutomationForStatus(snapshot),
     /AI cleanup 자동화: STT 완료 대기 중/,
+  );
+  assert.match(
+    formatAiCleanupAutomationForStatus(snapshot, "en"),
+    /AI cleanup automation: Waiting for STT to finish/,
   );
 });
 

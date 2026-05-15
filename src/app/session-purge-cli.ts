@@ -4,6 +4,8 @@ import {
   requiredStringArg,
   type CliArgSpec,
 } from "../cli/arg-parser.js";
+import { formatLocaleText, t } from "../i18n/catalog.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 import type { SessionPurgeSelector } from "../storage/session-purge.js";
 
 export type SessionPurgeCliOptions = {
@@ -25,7 +27,10 @@ type MutableSessionPurgeCliOptions = {
   debug: boolean;
 };
 
-export function parseSessionPurgeArgs(args: string[]): SessionPurgeCliOptions {
+export function parseSessionPurgeArgs(
+  args: string[],
+  locale?: DirongLocale,
+): SessionPurgeCliOptions {
   const options = parseCliArgs(
     args,
     {
@@ -38,8 +43,9 @@ export function parseSessionPurgeArgs(args: string[]): SessionPurgeCliOptions {
       backup: true,
       debug: false,
     },
-    SESSION_PURGE_ARG_SPEC,
-    (flag) => `알 수 없는 session purge 옵션입니다: ${flag}`,
+    sessionPurgeArgSpec(locale),
+    (flag) =>
+      formatLocaleText(locale, "sessionPurge.cli.unknownOption", { flag }),
   );
 
   const selectorCount =
@@ -48,9 +54,7 @@ export function parseSessionPurgeArgs(args: string[]): SessionPurgeCliOptions {
     (options.all ? 1 : 0) +
     (options.expiredTextArtifacts ? 1 : 0);
   if (selectorCount !== 1) {
-    throw new Error(
-      "--session, --missing-audio, --all, --expired-text-artifacts 중 정확히 하나가 필요합니다.",
-    );
+    throw new Error(t(locale, "sessionPurge.cli.selectorRequired"));
   }
 
   const selector: SessionPurgeSelector = options.sessionIds.length > 0
@@ -70,18 +74,22 @@ export function parseSessionPurgeArgs(args: string[]): SessionPurgeCliOptions {
   };
 }
 
-const SESSION_PURGE_ARG_SPEC: Record<
-  string,
-  CliArgSpec<MutableSessionPurgeCliOptions>
-> = {
-  "--session": requiredStringArg("--session 값이 필요합니다.", (options, value) => {
-    options.sessionIds.push(value);
-  }),
-  "--missing-audio": booleanOptionArg("missingAudio", true),
-  "--all": booleanOptionArg("all", true),
-  "--expired-text-artifacts": booleanOptionArg("expiredTextArtifacts", true),
-  "--confirm": booleanOptionArg("confirm", true),
-  "--dry-run": booleanOptionArg("explicitDryRun", true),
-  "--no-backup": booleanOptionArg("backup", false),
-  "--debug": booleanOptionArg("debug", true),
-};
+function sessionPurgeArgSpec(
+  locale?: DirongLocale,
+): Record<string, CliArgSpec<MutableSessionPurgeCliOptions>> {
+  return {
+    "--session": requiredStringArg(
+      t(locale, "sessionPurge.cli.sessionValueRequired"),
+      (options, value) => {
+        options.sessionIds.push(value);
+      },
+    ),
+    "--missing-audio": booleanOptionArg("missingAudio", true),
+    "--all": booleanOptionArg("all", true),
+    "--expired-text-artifacts": booleanOptionArg("expiredTextArtifacts", true),
+    "--confirm": booleanOptionArg("confirm", true),
+    "--dry-run": booleanOptionArg("explicitDryRun", true),
+    "--no-backup": booleanOptionArg("backup", false),
+    "--debug": booleanOptionArg("debug", true),
+  };
+}

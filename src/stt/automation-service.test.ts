@@ -5,7 +5,11 @@ import path from "node:path";
 import test from "node:test";
 import { SessionStore } from "../storage/session-store.js";
 import { DirongDatabase } from "../storage/sqlite.js";
-import { SttAutomationService } from "./automation-service.js";
+import {
+  formatSttAutomationForStatus,
+  SttAutomationService,
+  type SttAutomationSnapshot,
+} from "./automation-service.js";
 import { FakeSttProvider } from "./provider.js";
 
 test("SttAutomationService processes queued STT jobs", async () => {
@@ -91,6 +95,40 @@ test("SttAutomationService localizes runtime snapshot with app locale", async ()
   } finally {
     fixture.close();
   }
+});
+
+test("formatSttAutomationForStatus localizes text labels", () => {
+  const snapshot: SttAutomationSnapshot = {
+    enabled: true,
+    status: "idle",
+    provider: "local-whisper",
+    model: "base",
+    checkedAt: "2026-05-06T00:00:00.000Z",
+    message: "STT 자동 실행 대기 중",
+    userAction: null,
+    technicalDetail: null,
+    lastRun: {
+      workerId: "stt-test",
+      dryRun: false,
+      limit: 1,
+      sessionId: null,
+      source: "real",
+      provider: "local-whisper",
+      model: "base",
+      language: null,
+      expiredLeasesReleased: 0,
+      examined: 0,
+      done: 0,
+      failed: 0,
+      missingAudio: 0,
+      remainingQueuedHint: 0,
+      samples: [],
+    },
+  };
+
+  assert.match(formatSttAutomationForStatus(snapshot), /STT 자동화/);
+  assert.match(formatSttAutomationForStatus(snapshot, "en"), /STT automation/);
+  assert.match(formatSttAutomationForStatus(snapshot, "en"), /STT batch:/);
 });
 
 function createQueuedSttFixture(): {

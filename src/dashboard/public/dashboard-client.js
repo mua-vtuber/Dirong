@@ -187,7 +187,8 @@
         '<span>' + i18n(key) + '</span></button>').join('');
       setHtml('sectionNav', nav);
       setHtml('quickActions',
-        '<button type="button" class="nav-button" title="/dirong start는 Discord에서 실행합니다" disabled>' +
+        '<button type="button" class="nav-button" title="' +
+        i18n('dashboard.quick.startRecordingHint') + '" disabled>' +
         '<span>' + i18n('dashboard.quick.startRecording') + '</span></button>' +
         '<button type="button" class="nav-button" onclick="refresh()"><span>' +
         i18n('dashboard.quick.refreshStatus') + '</span></button>'

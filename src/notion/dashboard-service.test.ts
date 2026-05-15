@@ -144,6 +144,50 @@ test("NotionDashboardService localizes manual upload action display", async () =
   }
 });
 
+test("NotionDashboardService localizes dashboard service action messages", async () => {
+  const fixture = createFixture();
+  try {
+    const service = new NotionDashboardService({
+      settings: notionSettings({
+        enabled: false,
+        apiKey: null,
+        targetUrl: null,
+      }),
+      database: fixture.database,
+      config: { sttLeaseMs: 60000 },
+      workerId: "notion-dashboard-test",
+      localeResolver: () => "en",
+    });
+
+    const snapshot = service.getSnapshot();
+    const customSync = await service.syncCustomProperties({ role: "meeting" });
+    const schemaInspect = await service.inspectSchema();
+
+    assert.equal(
+      snapshot.customProperties.message,
+      "This DB does not have custom property rules yet.",
+    );
+    assert.equal(
+      customSync.message,
+      "Complete Notion setup before loading the property schema.",
+    );
+    assert.equal(
+      customSync.userAction,
+      "Check the Notion token and managed DB setup.",
+    );
+    assert.equal(
+      schemaInspect.message,
+      "Complete Notion setup before cleaning up the schema.",
+    );
+    assert.equal(
+      schemaInspect.userAction,
+      "Check the Notion connection token and upload target in the setup wizard.",
+    );
+  } finally {
+    fixture.close();
+  }
+});
+
 test("NotionDashboardService syncs member roster by semantic mappings with pagination", async () => {
   const fixture = createFixture();
   try {

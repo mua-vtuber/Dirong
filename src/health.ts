@@ -5,6 +5,8 @@ import { generateDependencyReport } from "@discordjs/voice";
 import { resolveFfmpegPath } from "./media.js";
 import type { Phase1Config } from "./config.js";
 import { redactSensitiveText } from "./errors.js";
+import { formatLocaleText, t } from "./i18n/catalog.js";
+import type { DirongLocale } from "./settings/local-settings-store.js";
 
 const require = createRequire(import.meta.url);
 
@@ -47,11 +49,13 @@ export type HealthCheckOptions = {
     Phase1Config,
     "discordBotToken" | "discordClientId" | "guildIds"
   >;
+  locale?: DirongLocale;
 };
 
 export async function runHealthCheck(
   options: HealthCheckOptions = {},
 ): Promise<HealthReport> {
+  const locale = options.locale;
   const discordConfig = readDiscordConfigStatus(options.config);
   const ffmpeg = await resolveFfmpegPath();
   const opusLibrary = detectFirstPackage([
@@ -68,53 +72,63 @@ export async function runHealthCheck(
       name: "Node.js",
       status: nodeOk ? "ok" : "fail",
       message: nodeOk
-        ? `Node.js ${process.version} 사용 가능`
-        : `Node.js ${process.version}은 낮습니다. 22.12.0 이상이 필요합니다.`,
+        ? formatLocaleText(locale, "health.node.available", {
+            version: process.version,
+          })
+        : formatLocaleText(locale, "health.node.unsupported", {
+            version: process.version,
+          }),
       action: nodeOk
         ? undefined
-        : "Node.js 22.12.0 이상 LTS 버전을 설치한 뒤 다시 실행해 주세요.",
+        : t(locale, "health.node.installAction"),
     },
     {
       name: "Opus library",
       status: opusLibrary ? "ok" : "fail",
       message: opusLibrary
-        ? `${opusLibrary} 감지됨`
-        : "Opus 라이브러리를 찾지 못했습니다.",
-      action: opusLibrary ? undefined : "npm install을 다시 실행해 주세요.",
+        ? formatLocaleText(locale, "health.dependency.detected", {
+            name: opusLibrary,
+          })
+        : t(locale, "health.dependency.opusMissing"),
+      action: opusLibrary ? undefined : t(locale, "health.dependency.npmInstallAction"),
     },
     {
       name: "FFmpeg",
       status: ffmpeg.path ? "ok" : "fail",
       message: ffmpeg.path
-        ? `${ffmpeg.source} FFmpeg 사용 가능`
-        : "FFmpeg 실행 파일을 찾지 못했습니다.",
-      action: ffmpeg.path ? undefined : "npm install을 다시 실행해 주세요.",
+        ? formatLocaleText(locale, "health.dependency.ffmpegAvailable", {
+            source: ffmpeg.source,
+          })
+        : t(locale, "health.dependency.ffmpegMissing"),
+      action: ffmpeg.path ? undefined : t(locale, "health.dependency.npmInstallAction"),
     },
     {
       name: "DAVE library",
       status: daveLibrary ? "ok" : "warn",
       message: daveLibrary
-        ? `${daveLibrary} 감지됨`
-        : "@snazzah/davey를 직접 찾지 못했습니다. @discordjs/voice 내장 의존성으로 처리될 수 있습니다.",
+        ? formatLocaleText(locale, "health.dependency.detected", {
+            name: daveLibrary,
+          })
+        : t(locale, "health.dependency.daveMissing"),
     },
     {
       name: "OGG CRC helper",
       status: getPackageVersion("node-crc") ? "ok" : "fail",
       message: getPackageVersion("node-crc")
-        ? "node-crc 감지됨"
-        : "OGG/Opus 파일 작성에 필요한 node-crc를 찾지 못했습니다.",
+        ? t(locale, "health.dependency.nodeCrcDetected")
+        : t(locale, "health.dependency.nodeCrcMissing"),
       action: getPackageVersion("node-crc")
         ? undefined
-        : "npm install을 다시 실행해 주세요.",
+        : t(locale, "health.dependency.npmInstallAction"),
     },
     {
       name: "AES-256-GCM",
       status: aes256GcmAvailable ? "ok" : "warn",
       message: aes256GcmAvailable
-        ? "Node crypto aes-256-gcm 사용 가능"
-        : "Node crypto aes-256-gcm 미감지. 대체 암호화 라이브러리가 필요할 수 있습니다.",
+        ? t(locale, "health.dependency.aesAvailable")
+        : t(locale, "health.dependency.aesUnavailable"),
     },
-    ...discordConfigChecks(discordConfig),
+    ...discordConfigChecks(discordConfig, locale),
   ];
 
   return {
@@ -154,6 +168,7 @@ export function criticalHealthFailed(report: HealthReport): boolean {
 
 function discordConfigChecks(
   discordConfig: HealthReport["discordConfig"],
+  locale: DirongLocale | undefined,
 ): HealthCheck[] {
   const keys = [
     ["botToken", "Discord bot token"],
@@ -166,11 +181,11 @@ function discordConfigChecks(
     name,
     status: discordConfig[key] === "present" ? "ok" : "not_configured",
     message: discordConfig[key] === "present"
-      ? "설정됨(값은 출력하지 않음)"
-      : "아직 설정되지 않았습니다.",
+      ? t(locale, "health.config.present")
+      : t(locale, "health.config.missing"),
     action: discordConfig[key] === "present"
       ? undefined
-      : "대시보드 설정 마법사에서 값을 저장해 주세요.",
+      : t(locale, "health.config.action"),
   }));
 }
 

@@ -215,6 +215,55 @@ test("Notion client reports request timeouts as retryable typed errors", async (
   );
 });
 
+test("Notion client localizes user-facing errors with client locale", async () => {
+  await withFakeNotionServer(async ({ baseUrl }) => {
+    const client = createNotionClient({
+      apiKey,
+      apiVersion,
+      baseUrl: `${baseUrl}/403`,
+      locale: "en",
+    });
+
+    await assert.rejects(
+      client.retrieveDataSource("target"),
+      (error: unknown) => {
+        assert.equal(error instanceof NotionApiError, true);
+        const notionError = error as NotionApiError;
+        assert.equal(notionError.message, "Notion authentication or sharing permission is missing.");
+        assert.match(notionError.userAction, /Add connections/);
+        return true;
+      },
+    );
+  });
+
+  const timeoutClient = createNotionClient({
+    apiKey,
+    apiVersion,
+    baseUrl: "https://notion.example.test",
+    locale: "en",
+    requestTimeoutMs: 5,
+    fetchFn: async (_input, init) =>
+      await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => reject(init.signal?.reason),
+          { once: true },
+        );
+      }),
+  });
+
+  await assert.rejects(
+    timeoutClient.retrieveDataSource("target"),
+    (error: unknown) => {
+      assert.equal(error instanceof NotionApiError, true);
+      const notionError = error as NotionApiError;
+      assert.equal(notionError.message, "The Notion API request timed out.");
+      assert.match(notionError.userAction, /NOTION_REQUEST_TIMEOUT_MS/);
+      return true;
+    },
+  );
+});
+
 test("Notion client forwards caller abort signals to fetch", async () => {
   let observedSignal: AbortSignal | undefined;
   const client = createNotionClient({

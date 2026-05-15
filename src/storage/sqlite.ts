@@ -6,6 +6,7 @@ import {
   listPendingSchemaMigrationIds,
 } from "./migrations.js";
 import { SCHEMA_SQL } from "./schema.js";
+import { SqlRunner } from "./sql-runner.js";
 import { backupOpenDatabaseSnapshot } from "./sqlite-backup.js";
 
 export type SqlValue = null | number | bigint | string | NodeJS.ArrayBufferView;
@@ -48,7 +49,8 @@ export class DirongDatabase {
         }
         this.db.exec("PRAGMA journal_mode = WAL;");
         this.db.exec(SCHEMA_SQL);
-        applySchemaMigrations(this.db);
+        const sqlRunner = new SqlRunner(this);
+        applySchemaMigrations(sqlRunner);
       }
     } catch (error) {
       this.db.close();

@@ -11,6 +11,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { applySchemaMigrations } from "./migrations.js";
+import { SqlRunner } from "./sql-runner.js";
 import { DirongDatabase } from "./sqlite.js";
 
 const EXPECTED_MIGRATION_IDS = [
@@ -116,8 +117,8 @@ test("applySchemaMigrations is idempotent", () => {
   try {
     const database = new DirongDatabase(fixture.dbPath, 1000);
     try {
-      applySchemaMigrations(database.db);
-      applySchemaMigrations(database.db);
+      applySchemaMigrations(new SqlRunner(database));
+      applySchemaMigrations(new SqlRunner(database));
 
       assert.deepEqual(readMigrationIds(database.db), EXPECTED_MIGRATION_IDS);
     } finally {

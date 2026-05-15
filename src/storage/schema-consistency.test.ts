@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { applySchemaMigrations } from "./migrations.js";
 import { SCHEMA_SQL } from "./schema.js";
+import { SqlRunner } from "./sql-runner.js";
 
 const CRITICAL_NOTION_TABLES = [
   "dirong_projects",
@@ -27,10 +28,10 @@ test("fresh schema and migration-only schema keep critical Notion tables aligned
   const migrated = new DatabaseSync(path.join(fixture.dir, "migrated.sqlite"));
   try {
     fresh.exec(SCHEMA_SQL);
-    applySchemaMigrations(fresh);
+    applySchemaMigrations(SqlRunner.fromDatabaseSync(fresh));
 
     migrated.exec(PRE_NOTION_PREREQUISITE_SCHEMA_SQL);
-    applySchemaMigrations(migrated);
+    applySchemaMigrations(SqlRunner.fromDatabaseSync(migrated));
 
     assert.deepEqual(readSchemaShape(migrated), readSchemaShape(fresh));
     assert.deepEqual(readMigrationIds(migrated), readMigrationIds(fresh));

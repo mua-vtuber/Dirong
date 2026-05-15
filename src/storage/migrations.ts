@@ -5,6 +5,7 @@ import { NOTION_CUSTOM_PROPERTY_RULES_SCHEMA_SQL } from "./schema-fragments/noti
 import { NOTION_REGISTRY_SCHEMA_SQL } from "./schema-fragments/notion-007.js";
 import { NOTION_MEMBER_ROSTER_SCHEMA_SQL } from "./schema-fragments/notion-009.js";
 import { PROJECT_FOUNDATION_SCHEMA_SQL } from "./schema-fragments/projects-010.js";
+import { SqlRunner } from "./sql-runner.js";
 
 type SchemaMigration = {
   id: string;
@@ -78,7 +79,8 @@ export function listPendingSchemaMigrationIds(db: DatabaseSync): string[] {
     .map((migration) => migration.id);
 }
 
-export function applySchemaMigrations(db: DatabaseSync): void {
+export function applySchemaMigrations(sqlRunner: SqlRunner): void {
+  const db = sqlRunner.db;
   ensureMigrationTable(db);
 
   const pendingMigrationIds = new Set(listPendingSchemaMigrationIds(db));
@@ -87,17 +89,12 @@ export function applySchemaMigrations(db: DatabaseSync): void {
       continue;
     }
 
-    db.exec("BEGIN IMMEDIATE;");
-    try {
+    sqlRunner.transaction(() => {
       migration.apply(db);
       db.prepare(
         "INSERT INTO dirong_migrations (id, applied_at) VALUES (?, ?);",
       ).run(migration.id, new Date().toISOString());
-      db.exec("COMMIT;");
-    } catch (error) {
-      db.exec("ROLLBACK;");
-      throw error;
-    }
+    });
   }
 }
 

@@ -5,7 +5,7 @@
 See: .planning/PROJECT.md (updated 2026-05-15)
 
 **Core value:** A meeting host can run `/dirong start` in Discord and end up with a clean, validated, locally-owned meeting note (and an optional Notion page) without exporting any audio or transcript outside their machine.
-**Current focus:** Phase 2 — Persistent CLI & Recording Reliability. Discuss + plan complete; 6 tasks across 3 internal waves; awaiting `/gsd:execute-phase 2`.
+**Current focus:** Phase 2 — Persistent CLI & Recording Reliability. Wave 1 of 3 complete (T1+T2+T3 trio + T5, 4/6 tasks); pending Wave 2 (T4 boot repair) + Wave 3 (T6 verification gate).
 
 ## Current Position
 
@@ -59,13 +59,36 @@ Recent decisions affecting current work:
 - Init: 4-agent project research phase skipped — domain is well-known and `.planning/codebase/` already documents the actual stack.
 - Roadmap: Phases ordered by blast radius — Storage Foundation (Phase 1) precedes everything because STORE-01 splits the 136-edge `SessionStore` god node, which every later phase consumes via the new facades.
 
+### Wave 1 Outcomes (T1+T2+T3 trio + T5 — 2026-05-15/16)
+
+**Trio commits (worktree `worktree-agent-a8fe6ad1c808c26f1`, merged via `27a4d5b`):**
+- `3fc9b86` — T1 RELY-02: abort-listener reordering (line index of `addEventListener('abort')` < first `await this.killSession()` inside `generate()`)
+- `4f6e8b2` — T2 RELY-01: `trackedPids: Set<number>` + `reapTrackedPids()` + `onOrphanKillFailed?` callback + `process.on('exit')` wiring in `main.ts` + 4 new tests
+- `2a53f23` — T3 RELY-03: `forceKillIfStale(now, threshold)` on provider + service-owned `setInterval` (`Math.max(5_000, timeoutMs/4)`) with `.unref()` + 3 new tests
+
+**T5 commit (worktree `worktree-agent-a5c3ed8565f6ac754`, merged via `0fc6c0a`):**
+- `dd3a29a` — T5 RELY-05: 60s force-close branch covered by new integration test using `t.mock.timers`; **executor took plan A2 fallback** — extracted 35-line `executeForceCloseBranch` helper from `recording-producer.ts:319-356` (byte-equivalent refactor) because seeding a real `ActiveSession` through `producer.start(...)` would have required >100 lines of Discord voice stubs. The fallback is authorized in plan T5 `<behavior>`.
+
+**Plan-checker advisory dispositions:**
+- A5 RESOLVED: `recordConnectionEvent` accepts `sessionId: string | null` (both `SessionWriteStore` and `RepairRepository` surfaces). Structured-event path used directly in `main.ts`. **No `console.error` fallback, no Phase 3 POLY follow-up needed.**
+- A4 RESOLVED: T1 sub-test (b) — static-source ordering assertion adopted as canonical; deferred-promise harness skipped per plan-checker authorization.
+- A2 RESOLVED: T5 helper-extraction fallback taken (see above).
+
+**Executor deviations (auto-fixed, documented in SUMMARYs):**
+1. T3 also touched `src/ai/cleanup/provider-lifecycle.ts` (not in declared `<files>`) to forward `forceKillIfStale` through `wrapAiCleanupProviderWithLifecycle` — preserves runtime narrowing for non-CLI providers.
+2. T2 narrowed `createAiCleanupProvider` return type in `main.ts` from `AiCleanupProvider` to `ClaudeStreamJsonCliCleanupProvider` so `reapTrackedPids()` is reachable without a runtime cast.
+3. T1 reworded a comment containing literal `await this.killSession()` substring (false-match risk in the static-source line-index test).
+4. T5 worktree-path-safety incident: first 2 Edits hit the main repo via absolute path; reverted via `git checkout --` and re-applied via relative paths inside the worktree.
+5. T5 transient environmental: `@snazzah/davey-linux-x64-gnu` missing → resolved with `npm install --no-save @snazzah/davey-linux-x64-gnu` (same carry-forward from STATE.md commit `27152f9`).
+
+**Test count:** 517 (Phase 1 baseline) → 528 (Wave 1 complete) — 10 new trio tests + 1 new T5 test. All pass; 0 skipped. `npm run build && npm test` exit 0 (8.66s).
+
+**Pre-merge friction recovery (orchestrator playbook reused from Phase 1):** stash CRLF noise → merge trio worktree → merge T5 worktree → stash pop produced 4 UU conflicts on trio-touched files → `git checkout --ours` + add → `git reset HEAD` for stash-applied non-conflicted noise → drop stash.
+
 ### Pending Todos
 
-- **Phase 2 execution — ready.** `/gsd:execute-phase 2` will run T1 → T2 → T3 (Wave 1, sequential on `claude-persistent-cli-provider.{ts,test.ts}`) ∥ T5 (Wave 1, parallel, independent file set `recording-producer.test.ts`); then T4 (Wave 2, sequential after T2 — both touch `main.ts`); then T6 (Wave 3, final verification gate). 6 tasks total.
-- **Plan-checker advisories carried into execution** (non-blocking, executor handles inline):
-  - A5: verify `recordConnectionEvent` signature before T2/T4 edit (sessionId may be non-nullable → fall back to `console.error` and log a Phase 3 / POLY follow-up).
-  - A2: confirm `waitForChunkPromises` is `setTimeout`-driven before T5 commits to `t.mock.timers`; else use byte-equivalent helper-extraction fallback.
-  - A1: CRLF merge recovery sequence documented in plan's `<executor_advisories>` so each worktree merge replays the stash → checkout `--ours` → reset HEAD pattern proven in Phase 1 Waves 3/4.
+- **Wave 2 (T4) — boot repair polish.** `/gsd:execute-phase 2 --wave 2` modifies `src/app/main.ts`: replace `JSON.stringify(repairSummary, null, 2)` blob with literal `"startup repair: N items reconciled"` (indented detail when N>0) + wrap `runStartupRepair` in try/catch that logs `recordConnectionEvent({ kind: 'startup_repair_failed', error })` and continues boot (no `process.exit(1)` per D-08).
+- **Wave 3 (T6) — final verification gate.** `/gsd:execute-phase 2 --wave 3` runs all 5 ROADMAP success-criterion grep checks + `npm run build && npm test` and confirms no new test files were added (Wave 1+2 only extended existing test files).
 - **POLY follow-up (Phase 3):** update narrow ports (`RecordingProducerStore`, `DashboardStore`, `SttBatchStore`, `AiCleanupAutomationStore`) to accept facade-typed inputs, then delete `flattenStorageContext` + `FlatStorageStore` from `storage-context.ts`.
 - **Hygiene follow-up (deferred):** `dist/storage/job-retry-policy.test.js` is a pre-existing test file (commit `524ccf5`, pre-Phase-1) not enumerated in `package.json#scripts.test`. Out of scope for Phase 1/2; a future audit task should enumerate it or formally deprecate it.
 

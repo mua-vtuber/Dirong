@@ -10,7 +10,13 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { applySchemaMigrations } from "./migrations.js";
+import { applySchemaMigrations, SCHEMA_MIGRATIONS } from "./migrations.js";
+import {
+  createTmpDirongDatabase,
+  FaultInjectingDatabaseSync,
+  runMigrationTwiceAndDiffSchema,
+  snapshotSchema,
+} from "./migrations-test-helpers.js";
 import { SqlRunner } from "./sql-runner.js";
 import { DirongDatabase } from "./sqlite.js";
 
@@ -516,6 +522,124 @@ test("DirongDatabase hardens previously migrated ambiguous legacy Notion writes"
     fixture.close();
   }
 });
+
+// === STORE-03: per-migration idempotency self-test (CONTEXT.md Lock: extend, do not displace) ===
+//
+// For every entry in SCHEMA_MIGRATIONS, run the migration twice in a fresh
+// DirongDatabase and assert that the schema (PRAGMA table_info / index_list per
+// table) is byte-identical after the second apply. This catches future migrations
+// whose body is not idempotent at the schema level.
+//
+// We assert on SCHEMA only, not on row counts. Some migrations legitimately mutate
+// rows on every invocation (e.g. UPDATE statements without a "skip if already set"
+// guard) — that's a separate concern handled by the migration's own logic.
+//
+// Top-level `for` outside any `test(...)` is the documented node:test pattern for
+// generating parameterized cases — adding a new entry to SCHEMA_MIGRATIONS will
+// automatically grow this matrix.
+for (const migration of SCHEMA_MIGRATIONS) {
+  test(
+    `migration ${migration.id} is idempotent (schema deepEquals after second apply)`,
+    () => {
+      const { before, after } = runMigrationTwiceAndDiffSchema(migration.id);
+      assert.deepEqual(after, before);
+    },
+  );
+}
+
+// === TEST-02: mid-step migration crash-recovery (CONTEXT.md Lock: extend, do not displace) ===
+test(
+  "applySchemaMigrations rolls back mid-step crash and re-applies cleanly on next run",
+  () => {
+    // Fault N=4: migration "010_project_foundation" body issues K=6 db.exec calls
+    // when run against a post-SCHEMA_SQL DB where every table already exists with
+    // its `project_id` column (the path SqlRunner.fromDatabaseSync exercises here):
+    //
+    //   exec #1 (adapter)  — BEGIN IMMEDIATE
+    //   exec #2 (body #1)  — db.exec(PROJECT_FOUNDATION_SCHEMA_SQL)
+    //   exec #3 (body #2)  — createSessionsProjectIndexIfPossible
+    //   exec #4 (body #3)  — migrateNotionWritesProjectScope (CREATE INDEX IF NOT EXISTS)
+    //   exec #5 (body #4)  — migrateNotionRegistryProjectScope (DROP+CREATE INDEX)
+    //   exec #6 (body #5)  — migrateNotionCustomPropertyRulesProjectScope (DROP+CREATE INDEX)
+    //   exec #7 (body #6)  — migrateNotionMemberRosterProjectScope (DROP+CREATE INDEX)
+    //   exec #8 (adapter)  — COMMIT
+    //
+    // N=5 lands strictly inside [2, K+1] = [2, 7], between body exec #4 (which
+    // succeeded) and body exec #5 (which never ran). This guarantees the throw
+    // fires AFTER the migration began mutating but BEFORE COMMIT, exercising the
+    // SqlRunner adapter's ROLLBACK path. If a future change shifts K, this comment
+    // — paired with the N constant below — flags the mismatch loudly.
+    const FAULT_N = 5;
+    const TARGET_MIGRATION = "010_project_foundation";
+
+    const fixture = createTmpDirongDatabase();
+    try {
+      // DirongDatabase ctor already ran every migration. Force 010 back into
+      // "pending" by deleting its ledger row; the body is internally idempotent
+      // (uses IF NOT EXISTS / addColumnIfMissing) so re-running it is safe.
+      fixture.database.db
+        .prepare("DELETE FROM dirong_migrations WHERE id = ?;")
+        .run(TARGET_MIGRATION);
+
+      // Sanity: 010 (and only 010) is now pending.
+      const pendingBefore = (
+        fixture.database.db
+          .prepare(
+            `SELECT id FROM dirong_migrations WHERE id = ?;`,
+          )
+          .get(TARGET_MIGRATION)
+      );
+      assert.equal(pendingBefore, undefined);
+
+      const schemaBefore = snapshotSchema(fixture.database.db);
+
+      const faultyDb = new FaultInjectingDatabaseSync(
+        fixture.database.db,
+        FAULT_N,
+      );
+      const faultyRunner = SqlRunner.fromDatabaseSync(
+        faultyDb as unknown as DatabaseSync,
+      );
+
+      assert.throws(
+        () => applySchemaMigrations(faultyRunner),
+        /injected fault/,
+      );
+
+      const schemaAfterCrash = snapshotSchema(fixture.database.db);
+
+      // (a) Ledger row for the failed migration MUST NOT exist.
+      const ledgerRow = fixture.database.db
+        .prepare("SELECT id FROM dirong_migrations WHERE id = ?;")
+        .get(TARGET_MIGRATION);
+      assert.equal(ledgerRow, undefined);
+
+      // (b) Schema MUST be byte-identical to the pre-crash snapshot.
+      assert.deepEqual(schemaAfterCrash, schemaBefore);
+
+      // (c) Re-run without fault injection — must succeed, ledger gains the row,
+      // schema matches a freshly-built control DB.
+      const cleanRunner = new SqlRunner(fixture.database);
+      assert.doesNotThrow(() => applySchemaMigrations(cleanRunner));
+
+      const ledgerRowAfterRecovery = fixture.database.db
+        .prepare("SELECT id FROM dirong_migrations WHERE id = ?;")
+        .get(TARGET_MIGRATION) as { id: string } | undefined;
+      assert.equal(ledgerRowAfterRecovery?.id, TARGET_MIGRATION);
+
+      const controlFixture = createTmpDirongDatabase();
+      try {
+        const controlSchema = snapshotSchema(controlFixture.database.db);
+        const schemaAfterRecovery = snapshotSchema(fixture.database.db);
+        assert.deepEqual(schemaAfterRecovery, controlSchema);
+      } finally {
+        controlFixture.close();
+      }
+    } finally {
+      fixture.close();
+    }
+  },
+);
 
 function createLegacyTranscriptFixture(): {
   dir: string;

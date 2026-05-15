@@ -318,39 +318,7 @@ export class RecordingProducer {
 
     const gracefulClose = await waitForChunkPromises(stoppingChunks, 20000);
     if (!gracefulClose) {
-      this.store.recordConnectionEvent({
-        sessionId: active.sessionId,
-        eventType: "chunk_force_destroy_requested",
-        level: "warn",
-        details: {
-          openChunks: active.activeChunks.size,
-          reason: "manual stop chunk close timeout",
-        },
-      });
-
-      for (const chunk of active.activeChunks.values()) {
-        chunk.opusStream.destroy();
-      }
-
-      const forcedClose = await waitForChunkPromises(stoppingChunks, 60000);
-      if (!forcedClose) {
-        active.fatalErrors += 1;
-        for (const chunk of active.activeChunks.values()) {
-          this.store.recordRepairItem({
-            type: "chunk_finalize_timeout",
-            sessionId: active.sessionId,
-            chunkId: chunk.chunkId,
-            path: chunk.rawFinalPath,
-            severity: "error",
-            details: {
-              message: t(
-                this.locale(),
-                "recordingProducer.chunkFinalizeTimeout",
-              ),
-            },
-          });
-        }
-      }
+      await this.executeForceCloseBranch(active, stoppingChunks);
     }
 
     active.connection.destroy();
@@ -387,6 +355,50 @@ export class RecordingProducer {
       stoppedByUserId: "process_shutdown",
       stoppedByDisplayName: "process_shutdown",
     });
+  }
+
+  // Phase 2 RELY-05: extracted from the body of stopActiveSession's
+  // `if (!gracefulClose)` branch (formerly inlined). Byte-equivalent refactor
+  // performed so the 60s force-close branch can be unit-tested directly with
+  // `t.mock.timers` — driving it via the full Discord voice-connection flow
+  // would require >100 lines of stubs (per plan T5 fallback path).
+  private async executeForceCloseBranch(
+    active: ActiveSession,
+    stoppingChunks: ActiveChunk[],
+  ): Promise<void> {
+    this.store.recordConnectionEvent({
+      sessionId: active.sessionId,
+      eventType: "chunk_force_destroy_requested",
+      level: "warn",
+      details: {
+        openChunks: active.activeChunks.size,
+        reason: "manual stop chunk close timeout",
+      },
+    });
+
+    for (const chunk of active.activeChunks.values()) {
+      chunk.opusStream.destroy();
+    }
+
+    const forcedClose = await waitForChunkPromises(stoppingChunks, 60000);
+    if (!forcedClose) {
+      active.fatalErrors += 1;
+      for (const chunk of active.activeChunks.values()) {
+        this.store.recordRepairItem({
+          type: "chunk_finalize_timeout",
+          sessionId: active.sessionId,
+          chunkId: chunk.chunkId,
+          path: chunk.rawFinalPath,
+          severity: "error",
+          details: {
+            message: t(
+              this.locale(),
+              "recordingProducer.chunkFinalizeTimeout",
+            ),
+          },
+        });
+      }
+    }
   }
 
   private async openChunkForSpeaker(

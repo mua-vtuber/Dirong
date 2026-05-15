@@ -5,7 +5,7 @@
 See: .planning/PROJECT.md (updated 2026-05-15)
 
 **Core value:** A meeting host can run `/dirong start` in Discord and end up with a clean, validated, locally-owned meeting note (and an optional Notion page) without exporting any audio or transcript outside their machine.
-**Current focus:** Phase 1 — Storage Foundation (Stability & Hardening v0.1 milestone) — ✓ COMPLETE (4 waves / 5 tasks). Next: Phase 2 — Persistent CLI & Recording Reliability (awaiting `/gsd:discuss-phase 2` or `/gsd:transition`).
+**Current focus:** Phase 2 — Persistent CLI & Recording Reliability. Discuss + plan complete; 6 tasks across 3 internal waves; awaiting `/gsd:execute-phase 2`.
 
 ## Current Position
 
@@ -61,9 +61,13 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-- **Phase 2 (Persistent CLI & Recording Reliability) — entry gate.** Run `/gsd:discuss-phase 2` next to gather Phase 2 context, then `/gsd:plan-phase 2`. Forward dependency from Phase 1 is satisfied (RELY-* work lands against the new facades).
-- **POLY follow-up (carry into Phase 3):** update each `src/*/storage-port.ts` narrow port (e.g. `RecordingProducerStore`, `DashboardStore`, `SttBatchStore`, `AiCleanupAutomationStore`) to accept facade-typed inputs, then delete the transitional `flattenStorageContext` helper + `FlatStorageStore` type from `storage-context.ts`. The helper was added in Wave 3 as a `.bind()`-based pass-through because existing narrow ports expect flat method surfaces — zero behavior change, purely a structural transition step.
-- **Hygiene follow-up (deferred, surfaced by Wave 4 executor):** `dist/storage/job-retry-policy.test.js` is a pre-existing test file (commit `524ccf5`, pre-Phase-1) not enumerated in `package.json#scripts.test`. Out of scope for T4.1's atomic contract; a future audit task should enumerate it or formally deprecate it.
+- **Phase 2 execution — ready.** `/gsd:execute-phase 2` will run T1 → T2 → T3 (Wave 1, sequential on `claude-persistent-cli-provider.{ts,test.ts}`) ∥ T5 (Wave 1, parallel, independent file set `recording-producer.test.ts`); then T4 (Wave 2, sequential after T2 — both touch `main.ts`); then T6 (Wave 3, final verification gate). 6 tasks total.
+- **Plan-checker advisories carried into execution** (non-blocking, executor handles inline):
+  - A5: verify `recordConnectionEvent` signature before T2/T4 edit (sessionId may be non-nullable → fall back to `console.error` and log a Phase 3 / POLY follow-up).
+  - A2: confirm `waitForChunkPromises` is `setTimeout`-driven before T5 commits to `t.mock.timers`; else use byte-equivalent helper-extraction fallback.
+  - A1: CRLF merge recovery sequence documented in plan's `<executor_advisories>` so each worktree merge replays the stash → checkout `--ours` → reset HEAD pattern proven in Phase 1 Waves 3/4.
+- **POLY follow-up (Phase 3):** update narrow ports (`RecordingProducerStore`, `DashboardStore`, `SttBatchStore`, `AiCleanupAutomationStore`) to accept facade-typed inputs, then delete `flattenStorageContext` + `FlatStorageStore` from `storage-context.ts`.
+- **Hygiene follow-up (deferred):** `dist/storage/job-retry-policy.test.js` is a pre-existing test file (commit `524ccf5`, pre-Phase-1) not enumerated in `package.json#scripts.test`. Out of scope for Phase 1/2; a future audit task should enumerate it or formally deprecate it.
 
 ### Wave 4 Outcomes (T4.1 — 2026-05-15) — Phase 1 close-out
 

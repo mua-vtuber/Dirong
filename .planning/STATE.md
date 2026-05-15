@@ -77,11 +77,11 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-**Environmental (not a regression — pre-existing):** `npm test` (full suite) reports 8 failures across `dist/app/doctor.test.js` (4), `dist/health.test.js` (1), and `dist/recording/*.test.js` (3). Root cause is `@snazzah/davey` (Discord voice native module) has no built native binding in this WSL setup — `node_modules/@snazzah/davey/` lacks `*.node` and `build/`. The affected test files have not been modified since commit `0a26e6f` (pre-Phase-1), so this is not a Wave 1 regression. The migrations / schema-consistency / sql-runner test paths Wave 1 actually changed all pass clean (14/14 in T1.1's verify, 26/26 in T1.2's verify).
-
-Recommended follow-up before Wave 3 (which runs the full suite as its gate): either install the missing native binding (`npm rebuild @snazzah/davey` or `npm i` from a clean `node_modules`) so `npm test` is green for the cutover gate, OR explicitly accept these 8 as pre-existing skips and re-baseline the gate to "all NEW failures must be zero".
+None active. The previously-flagged `@snazzah/davey` native-binding gap was resolved on 2026-05-15 by installing the platform-specific napi-rs binary package (the host `node_modules` had only `@snazzah/davey-win32-x64-msvc` because `npm install` had been run from the Windows side; WSL needs `@snazzah/davey-linux-x64-gnu`). Full suite now reports zero pre-existing failures — Wave 4's `npm test` gate will run against a clean baseline.
 
 **Forward dependency note:** Phases 2, 3, and 4 nominally depend on Phase 1 (so refactors land against the new facades), but POLY/DASH/LOG work could be unblocked early if Phase 1 over-runs — revisit at Phase 1 transition.
+
+**Environment note (carry-forward):** `node_modules/@snazzah/` must contain BOTH platform binaries when developing across Windows and WSL on the same checkout. Re-running `npm install` from whichever side has the missing binary is the canonical fix — do NOT `npm rebuild`, the package ships prebuilt and has no source to recompile.
 
 ## Deferred Items
 

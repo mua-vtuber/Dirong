@@ -5,7 +5,7 @@
 See: .planning/PROJECT.md (updated 2026-05-15)
 
 **Core value:** A meeting host can run `/dirong start` in Discord and end up with a clean, validated, locally-owned meeting note (and an optional Notion page) without exporting any audio or transcript outside their machine.
-**Current focus:** Phase 2 — Persistent CLI & Recording Reliability. Wave 1 of 3 complete (T1+T2+T3 trio + T5, 4/6 tasks); pending Wave 2 (T4 boot repair) + Wave 3 (T6 verification gate).
+**Current focus:** Phase 2 — Persistent CLI & Recording Reliability. Wave 2 of 3 complete (T4 boot repair, 5/6 tasks); pending Wave 3 (T6 verification gate).
 
 ## Current Position
 
@@ -59,6 +59,16 @@ Recent decisions affecting current work:
 - Init: 4-agent project research phase skipped — domain is well-known and `.planning/codebase/` already documents the actual stack.
 - Roadmap: Phases ordered by blast radius — Storage Foundation (Phase 1) precedes everything because STORE-01 splits the 136-edge `SessionStore` god node, which every later phase consumes via the new facades.
 
+### Wave 2 Outcomes (T4 — 2026-05-16)
+
+- Atomic commit `1496663` on `worktree-agent-a4d9d3d3b23055f27` (merged via `95d623a`); SUMMARY `.planning/phase2/01-T4-SUMMARY.md` committed in `18a2e05`.
+- `src/app/main.ts` repair log line replaced — `JSON.stringify(repairSummary, null, 2)` blob → literal `"startup repair: ${reconciledTotal} items reconciled"` (with indented 7-field breakdown when `reconciledTotal > 0`) per D-06.
+- `runStartupRepair(ctx, config)` wrapped in `try/catch`: failure path emits `console.error("startup repair failed:", errorMessage)` + `store.recordConnectionEvent({ sessionId: null, eventType: "startup_repair_failed", level: "error", details: { error: errorMessage } })` and falls through to an empty `RepairScanSummary` so boot continues per D-08. Zero `process.exit(1)` added on the repair-failure path.
+- **A5 final disposition (signature correction by executor):** Planner brief used `{ kind, occurredAt, payload }` but the actual `recordConnectionEvent` signature is `{ sessionId, eventType, level?, startedAtMs?, endedAtMs?, details? }` (defined in `src/storage/repair-repository.ts:15-22`, delegated from `SessionWriteStore`). Executor verified against 4 neighboring callers (`voice-connection-controller.ts`) and used `eventType: "startup_repair_failed"` + `level: "error"` + `details: { error }`. **Lesson:** for Phase 3+ planner briefs, always read the actual signature before composing example call shapes.
+- **Merge friction:** T4 worktree was branched from `f8623a4` (pre-Phase-2-planning), so it lacked Wave 1's `process.on('exit')` hook and `provider` hoist. The merge produced 1 conflict at `main.ts:125-152` (try/catch region). Resolved manually: kept HEAD's `const store = flattenStorageContext(ctx)` line, took T4's try/catch structure, fixed `runStartupRepair(store, …)` → `runStartupRepair(ctx, …)` (T4 worktree had used the stale signature). Documented in merge commit `95d623a` body.
+- ROADMAP success criterion #4 grep gate: `startup repair:` = 1, `JSON.stringify(repairSummary` = 0, `startup_repair_failed` = 1. PASS.
+- Test count unchanged at 528 (T4 modifies runtime only, no test additions). `npm run build && npm test` exit 0 (8.49s).
+
 ### Wave 1 Outcomes (T1+T2+T3 trio + T5 — 2026-05-15/16)
 
 **Trio commits (worktree `worktree-agent-a8fe6ad1c808c26f1`, merged via `27a4d5b`):**
@@ -87,8 +97,7 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-- **Wave 2 (T4) — boot repair polish.** `/gsd:execute-phase 2 --wave 2` modifies `src/app/main.ts`: replace `JSON.stringify(repairSummary, null, 2)` blob with literal `"startup repair: N items reconciled"` (indented detail when N>0) + wrap `runStartupRepair` in try/catch that logs `recordConnectionEvent({ kind: 'startup_repair_failed', error })` and continues boot (no `process.exit(1)` per D-08).
-- **Wave 3 (T6) — final verification gate.** `/gsd:execute-phase 2 --wave 3` runs all 5 ROADMAP success-criterion grep checks + `npm run build && npm test` and confirms no new test files were added (Wave 1+2 only extended existing test files).
+- **Wave 3 (T6) — final verification gate.** `/gsd:execute-phase 2 --wave 3` runs all 5 ROADMAP success-criterion grep checks + `npm run build && npm test` and confirms no new test files were added (Waves 1+2 only extended existing test files). Final phase exit gate.
 - **POLY follow-up (Phase 3):** update narrow ports (`RecordingProducerStore`, `DashboardStore`, `SttBatchStore`, `AiCleanupAutomationStore`) to accept facade-typed inputs, then delete `flattenStorageContext` + `FlatStorageStore` from `storage-context.ts`.
 - **Hygiene follow-up (deferred):** `dist/storage/job-retry-policy.test.js` is a pre-existing test file (commit `524ccf5`, pre-Phase-1) not enumerated in `package.json#scripts.test`. Out of scope for Phase 1/2; a future audit task should enumerate it or formally deprecate it.
 

@@ -155,6 +155,12 @@ const setupWizard = createProductSetupWizardService({
   projectStore,
 });
 const aiCleanupProvider = createAiCleanupProvider();
+// RELY-01: SIGKILL any orphan claude PIDs on parent exit. Sync handler —
+// no await allowed. Quiet on failure inside reapTrackedPids() per D-04;
+// the DB writer may already be torn down at this point.
+process.on("exit", () => {
+  aiCleanupProvider.reapTrackedPids();
+});
 const aiLifecycle = createAiLifecycleService(aiCleanupProvider);
 const aiCleanupAutomation = createAiCleanupAutomationService(
   aiCleanupProvider,
@@ -636,10 +642,20 @@ function createAloneFinalizeService(): AloneFinalizeService {
   });
 }
 
-function createAiCleanupProvider(): AiCleanupProvider {
+function createAiCleanupProvider(): ClaudeStreamJsonCliCleanupProvider {
   return new ClaudeStreamJsonCliCleanupProvider({
     command: appSettings.aiCleanup.claudeCommand,
     model: appSettings.aiCleanup.claudeModel,
+    // RELY-01 / D-04: stop()-path orphan-reap failure surface. Structured
+    // event so the operator sees a non-zero counter in the dashboard.
+    onOrphanKillFailed: ({ pid, errno }) => {
+      ctx.writes.recordConnectionEvent({
+        sessionId: null,
+        eventType: "claude_orphan_kill_failed",
+        level: "warn",
+        details: { pid, errno },
+      });
+    },
   });
 }
 

@@ -308,6 +308,112 @@ test("ClaudeStreamJsonCliCleanupProvider abort listener body no-ops when session
   assert.doesNotThrow(() => listener(), "listener must tolerate null session");
 });
 
+// === Phase 2 RELY-01 / TEST-01: trackedPids lifecycle ===
+
+test("ClaudeStreamJsonCliCleanupProvider tracks PID during generate and clears on success", async () => {
+  const fake = new FakeChildProcess(401);
+  const provider = new ClaudeStreamJsonCliCleanupProvider({
+    command: "claude.exe",
+    spawnProcess: () => fake,
+  });
+  const generatePromise = provider.generate(
+    createProviderInput(),
+    createProviderOptions(),
+  );
+  emitClaudeTurn(fake, "session_track", '{"ok":true}');
+  await generatePromise;
+  const internal = provider as unknown as { trackedPids: Set<number> };
+  assert.equal(
+    internal.trackedPids.size,
+    0,
+    "trackedPids must be empty after successful generate",
+  );
+});
+
+test("ClaudeStreamJsonCliCleanupProvider clears trackedPids on abort mid-generate", async () => {
+  const fake = new FakeChildProcess(402);
+  const provider = new ClaudeStreamJsonCliCleanupProvider({
+    command: "claude.exe",
+    spawnProcess: () => fake,
+  });
+  const controller = new AbortController();
+  const generatePromise = provider.generate(createProviderInput(), {
+    ...createProviderOptions(),
+    timeoutMs: 60_000, // large so the abort path is what ends it, not timeout
+    signal: controller.signal,
+  });
+  // Fire abort after the microtask tick so generate() has run past
+  // `this.session = session` and `session.start()` (PID was added).
+  setImmediate(() => controller.abort());
+  await assert.rejects(generatePromise);
+  const internal = provider as unknown as { trackedPids: Set<number> };
+  assert.equal(
+    internal.trackedPids.size,
+    0,
+    "trackedPids must be empty after aborted generate (TEST-01 primary assertion)",
+  );
+});
+
+test("ClaudeStreamJsonCliCleanupProvider.reapTrackedPids SIGKILLs every tracked PID and clears the set", () => {
+  const provider = new ClaudeStreamJsonCliCleanupProvider({
+    command: "claude.exe",
+    spawnProcess: () => new FakeChildProcess(0),
+  });
+  const internal = provider as unknown as { trackedPids: Set<number> };
+  internal.trackedPids.add(12345);
+  internal.trackedPids.add(12346);
+
+  const calls: Array<{ pid: number; signal: NodeJS.Signals | number }> = [];
+  const realKill = process.kill;
+  process.kill = ((pid: number, signal: NodeJS.Signals | number) => {
+    calls.push({ pid, signal });
+    return true;
+  }) as typeof process.kill;
+  try {
+    provider.reapTrackedPids();
+  } finally {
+    process.kill = realKill;
+  }
+
+  assert.equal(calls.length, 2, "process.kill must be called once per tracked PID");
+  assert.deepEqual(
+    calls.map((c) => c.signal),
+    ["SIGKILL", "SIGKILL"],
+    "SIGKILL must be the signal sent on the exit-handler reap path",
+  );
+  assert.deepEqual(
+    new Set(calls.map((c) => c.pid)),
+    new Set([12345, 12346]),
+  );
+  assert.equal(internal.trackedPids.size, 0, "trackedPids must be cleared after reap");
+});
+
+test("ClaudeStreamJsonCliCleanupProvider.reapTrackedPids swallows ESRCH and still clears the set", () => {
+  const provider = new ClaudeStreamJsonCliCleanupProvider({
+    command: "claude.exe",
+    spawnProcess: () => new FakeChildProcess(0),
+  });
+  const internal = provider as unknown as { trackedPids: Set<number> };
+  internal.trackedPids.add(99999);
+  internal.trackedPids.add(99998);
+
+  const realKill = process.kill;
+  process.kill = (() => {
+    const err = new Error("kill ESRCH") as NodeJS.ErrnoException;
+    err.code = "ESRCH";
+    throw err;
+  }) as typeof process.kill;
+  try {
+    assert.doesNotThrow(
+      () => provider.reapTrackedPids(),
+      "reapTrackedPids must be quiet on the exit-handler path (D-04)",
+    );
+  } finally {
+    process.kill = realKill;
+  }
+  assert.equal(internal.trackedPids.size, 0, "trackedPids must be cleared even on throw");
+});
+
 function createProviderInput(): AiCleanupProviderInput {
   return {
     sessionId: "meeting_test",

@@ -26,6 +26,15 @@ export type ClaudeStreamJsonCliCleanupProviderOptions = {
   model?: string | null;
   spawnProcess?: ClaudePersistentSmokeSpawn;
   versionRunner?: CommandExitRunner;
+  /**
+   * RELY-01 / D-04: invoked from the `stop()`-path orphan reaper when a SIGKILL
+   * call against a tracked PID throws. The handler should write a structured
+   * `claude_orphan_kill_failed` connection event so operators see a non-zero
+   * counter in the dashboard. Not invoked from `reapTrackedPids()` (the sync
+   * `process.on('exit')` path is quiet per D-04 — the DB writer may already be
+   * torn down).
+   */
+  onOrphanKillFailed?: (event: { pid: number; errno: string | null }) => void;
 };
 
 export type CommandExitResult = {
@@ -52,6 +61,14 @@ export class ClaudeStreamJsonCliCleanupProvider implements AiCleanupProvider {
   private readonly spawnProcess?: ClaudePersistentSmokeSpawn;
   private readonly versionRunner: CommandExitRunner;
   private session: ClaudePersistentSmokeSession | null = null;
+  // RELY-01 / D-03: tracked PIDs for orphan-reap on stop() and process exit.
+  // Add in generate() after `session.start()` (PID becomes non-null), remove
+  // in killSession() after the child has exited.
+  private readonly trackedPids = new Set<number>();
+  private readonly onOrphanKillFailed?: (event: {
+    pid: number;
+    errno: string | null;
+  }) => void;
 
   constructor(options: ClaudeStreamJsonCliCleanupProviderOptions = {}) {
     this.command = options.command?.trim() || "claude";
@@ -59,6 +76,7 @@ export class ClaudeStreamJsonCliCleanupProvider implements AiCleanupProvider {
       options.model?.trim() || DEFAULT_CLAUDE_CLEANUP_MODEL;
     this.spawnProcess = options.spawnProcess;
     this.versionRunner = options.versionRunner ?? runCommandForExit;
+    this.onOrphanKillFailed = options.onOrphanKillFailed;
   }
 
   async preflight(): Promise<void> {
@@ -134,6 +152,17 @@ export class ClaudeStreamJsonCliCleanupProvider implements AiCleanupProvider {
       });
       this.session = session;
 
+      // RELY-01: track PID for orphan-reap (on stop() + on parent exit).
+      // `session.start()` is idempotent (see claude-persistent-smoke.ts:204-206:
+      // early-return when this.child && this.isAlive()) — calling it here
+      // makes `session.pid` non-null synchronously so the safeguard interval
+      // and the stop()-path reaper have a deterministic PID to inspect.
+      session.start();
+      const pid = session.pid;
+      if (pid !== null) {
+        this.trackedPids.add(pid);
+      }
+
       if (options.signal?.aborted) {
         throw new AiCleanupProviderError(
           "provider_timeout",
@@ -190,15 +219,53 @@ export class ClaudeStreamJsonCliCleanupProvider implements AiCleanupProvider {
 
   async stop(): Promise<void> {
     await this.killSession();
+    // RELY-01 / D-04 stop()-path reaper. killSession() already removed the
+    // current session's PID; any PIDs STILL in trackedPids indicate a leak.
+    // SIGKILL with loud structured logging via onOrphanKillFailed so the
+    // operator sees a non-zero counter in the dashboard.
+    for (const pid of [...this.trackedPids]) {
+      try {
+        process.kill(pid, "SIGKILL");
+        this.trackedPids.delete(pid);
+      } catch (error) {
+        const errno = (error as NodeJS.ErrnoException)?.code ?? null;
+        this.onOrphanKillFailed?.({ pid, errno });
+        // give up; better to leak the Set entry than to re-throw / loop forever
+        this.trackedPids.delete(pid);
+      }
+    }
+  }
+
+  /**
+   * RELY-01: sync `process.on('exit')` reaper. Iterates `trackedPids`, calls
+   * `process.kill(pid, 'SIGKILL')` and clears the set. Quiet on failure per
+   * D-04 — `ESRCH` is expected when the child already exited, and the DB
+   * writer may already be torn down so we MUST NOT throw or emit events here.
+   */
+  reapTrackedPids(): void {
+    for (const pid of this.trackedPids) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // quiet — ESRCH expected; exit handler must not throw
+      }
+    }
+    this.trackedPids.clear();
   }
 
   private async killSession(): Promise<void> {
     const session = this.session;
+    // Capture the PID BEFORE clearing this.session — once cleared, the getter
+    // returns null and we lose the tracking key.
+    const pid = session?.pid ?? null;
     this.session = null;
     if (!session) {
       return;
     }
     await session.killAndWait();
+    if (pid !== null) {
+      this.trackedPids.delete(pid);
+    }
   }
 
   private renderCommandDisplay(extraArgs: string[]): string {

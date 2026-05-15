@@ -239,24 +239,23 @@ test("RuntimeStateStore.normalizeStoredPaths rewrites absolute paths to storage-
       "seeded path should be absolute before normalization",
     );
 
-    // Now open a context with storageRoot AND normalizeStoredPaths: true
-    // (the runtime store will sweep all path columns).
-    const normalizeCtx = createStorageContext(database, {
+    // Now open a context with storageRoot AND normalizeStoredPaths: true.
+    // The constructor side-effect sweeps every absolute path column under
+    // storageRoot to its forward-slash relative form — the returned context
+    // is intentionally unused here; closing the shared database happens
+    // once in the outer finally below.
+    createStorageContext(database, {
       storageRoot,
       normalizeStoredPaths: true,
     });
-    try {
-      const after = database.db
-        .prepare("SELECT data_dir FROM sessions WHERE id = ?")
-        .get("sess-1") as { data_dir: string };
-      assert.equal(
-        after.data_dir,
-        "sessions/sess-1",
-        "absolute path under storageRoot should be rewritten to a forward-slash relative path",
-      );
-    } finally {
-      // close() on either context closes the shared database; only call once
-    }
+    const after = database.db
+      .prepare("SELECT data_dir FROM sessions WHERE id = ?")
+      .get("sess-1") as { data_dir: string };
+    assert.equal(
+      after.data_dir,
+      "sessions/sess-1",
+      "absolute path under storageRoot should be rewritten to a forward-slash relative path",
+    );
   } finally {
     database.close();
     rmSync(tmpDir, { recursive: true, force: true });

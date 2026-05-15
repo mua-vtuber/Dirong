@@ -10,7 +10,6 @@ import { SttJobQueue } from "./stt-job-queue.js";
 import { isoNow, sha256Text } from "./store-helpers.js";
 import { TranscriptRepository } from "./transcript-repository.js";
 import type {
-  AiCleanupFailureKind,
   MeetingNotesDraftRow,
   SessionStatus,
   SpeechStatus,

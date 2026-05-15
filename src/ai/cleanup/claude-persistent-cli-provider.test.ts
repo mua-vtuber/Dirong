@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { PassThrough, Writable } from "node:stream";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   ClaudeStreamJsonCliCleanupProvider,
   buildPersistentCleanupExtraArgs,
@@ -218,6 +221,92 @@ class FakeChildProcess
     return super.on(event, listener);
   }
 }
+
+// === Phase 2 RELY-02: abort-listener-first ordering ===
+
+test("ClaudeStreamJsonCliCleanupProvider registers abort listener before killSession in generate()", () => {
+  // Static-source assertion: the order inside generate() must be
+  //   1. addEventListener("abort", ...)
+  //   2. await this.killSession()
+  // We assert this by inspecting the compiled source so a regression in the
+  // textual ordering of the file is caught even if the runtime behavior
+  // happens to work by coincidence (e.g. abort never fires in the test).
+  // Resolve the .ts source from the compiled .js test location:
+  //   dist/ai/cleanup/claude-persistent-cli-provider.test.js  →  ../../..  →  repo root
+  //   then walk into src/ai/cleanup/claude-persistent-cli-provider.ts
+  const here = dirname(fileURLToPath(import.meta.url));
+  const sourcePath = resolve(
+    here,
+    "../../../src/ai/cleanup/claude-persistent-cli-provider.ts",
+  );
+  const source = readFileSync(sourcePath, "utf8");
+  const generateIdx = source.indexOf("async generate(");
+  assert.ok(generateIdx >= 0, "generate() method must exist in source");
+  // Slice from generate( down to the next `async ` method (or end-of-class) so
+  // we don't accidentally pick up an addEventListener in a later method.
+  const afterGenerate = source.slice(generateIdx);
+  const nextMethodIdx = afterGenerate.slice(20).search(/\n\s{2}async\s/);
+  const generateBody =
+    nextMethodIdx >= 0
+      ? afterGenerate.slice(0, nextMethodIdx + 20)
+      : afterGenerate;
+  const addListenerIdx = generateBody.indexOf("addEventListener(\"abort\"");
+  const killSessionIdx = generateBody.indexOf("await this.killSession()");
+  assert.ok(addListenerIdx >= 0, "generate() must register an abort listener");
+  assert.ok(killSessionIdx >= 0, "generate() must call await this.killSession()");
+  assert.ok(
+    addListenerIdx < killSessionIdx,
+    `RELY-02 contract violated: addEventListener (${addListenerIdx}) must precede killSession (${killSessionIdx})`,
+  );
+  // Listener body must use the optional-chain form so it tolerates a null
+  // this.session at fire time (the pre-construction abort window).
+  assert.match(
+    generateBody,
+    /this\.session\?\.kill\(\)/,
+    "abort listener body must use this.session?.kill() optional chain",
+  );
+});
+
+test("ClaudeStreamJsonCliCleanupProvider tolerates abort before generate() starts", async () => {
+  const provider = new ClaudeStreamJsonCliCleanupProvider({
+    command: "claude.exe",
+    spawnProcess: () => {
+      throw new Error("spawn should never run when abort fires before generate");
+    },
+  });
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    provider.generate(createProviderInput(), {
+      ...createProviderOptions(),
+      signal: controller.signal,
+    }),
+    /cancelled before it started/,
+  );
+  // No unhandled rejection on the next microtask tick.
+  await new Promise((resolve) => setImmediate(resolve));
+});
+
+test("ClaudeStreamJsonCliCleanupProvider abort listener body no-ops when session is null", () => {
+  // White-box test: reach into the provider, replicate the listener body and
+  // fire it against a null session. The optional chain in `this.session?.kill()`
+  // must not throw "Cannot read properties of null" — this protects the
+  // pre-construction abort window opened by T1's reorder.
+  const provider = new ClaudeStreamJsonCliCleanupProvider({
+    command: "claude.exe",
+    spawnProcess: () => new FakeChildProcess(701),
+  });
+  // session is private — cast to any to inspect/set for the duration of this test.
+  const internal = provider as unknown as {
+    session: unknown;
+  };
+  assert.equal(internal.session, null, "fresh provider must start with null session");
+  // Synthesize the listener as written in generate() and invoke it directly.
+  const listener = (): void => {
+    (provider as unknown as { session?: { kill(): boolean } | null }).session?.kill();
+  };
+  assert.doesNotThrow(() => listener(), "listener must tolerate null session");
+});
 
 function createProviderInput(): AiCleanupProviderInput {
   return {

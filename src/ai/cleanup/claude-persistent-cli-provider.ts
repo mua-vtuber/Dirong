@@ -101,7 +101,28 @@ export class ClaudeStreamJsonCliCleanupProvider implements AiCleanupProvider {
 
     const startedAt = Date.now();
     const extraArgs = buildPersistentCleanupExtraArgs(options);
+
+    // RELY-02: register the abort listener BEFORE any await on the session-kill
+    // path, so a synchronous abort during that await window kills whatever
+    // session ends up assigned to `this.session`. The listener body uses an
+    // optional chain so it tolerates being fired against a null session
+    // (pre-construction abort window).
     let abortListener: (() => void) | null = null;
+    abortListener = () => {
+      this.session?.kill();
+    };
+    options.signal?.addEventListener("abort", abortListener, { once: true });
+    if (options.signal?.aborted) {
+      // Edge case: abort fired between the entry check and addEventListener.
+      // Remove the listener we just installed and throw the same error path.
+      options.signal?.removeEventListener("abort", abortListener);
+      abortListener = null;
+      throw new AiCleanupProviderError(
+        "provider_timeout",
+        "Claude stream-json request was cancelled before it started.",
+      );
+    }
+
     try {
       await this.killSession();
       const session = new ClaudePersistentSmokeSession({
@@ -113,10 +134,6 @@ export class ClaudeStreamJsonCliCleanupProvider implements AiCleanupProvider {
       });
       this.session = session;
 
-      abortListener = () => {
-        session.kill();
-      };
-      options.signal?.addEventListener("abort", abortListener, { once: true });
       if (options.signal?.aborted) {
         throw new AiCleanupProviderError(
           "provider_timeout",

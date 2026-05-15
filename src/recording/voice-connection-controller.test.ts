@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 import type { VoiceConnection } from "@discordjs/voice";
-import type { SessionStore } from "../storage/session-store.js";
+import type { FlatStorageStore } from "../storage/storage-context.js";
 import { VoiceConnectionController } from "./voice-connection-controller.js";
 
 test("VoiceConnectionController detaches receiver and connection listeners", () => {
@@ -16,7 +16,7 @@ test("VoiceConnectionController detaches receiver and connection listeners", () 
       events.push(input.eventType);
     },
     updateSessionStatus() {},
-  } as unknown as SessionStore;
+  } as unknown as FlatStorageStore;
   const controller = new VoiceConnectionController(store);
   let speakingStarts = 0;
 

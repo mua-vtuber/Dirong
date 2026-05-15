@@ -14,7 +14,11 @@ import {
   NotionMemberRosterStore,
 } from "../notion/member-roster-store.js";
 import type { AiCleanupRuntimeSettings } from "../settings/app-settings.js";
-import { SessionStore } from "../storage/session-store.js";
+import {
+  createStorageContext,
+  flattenStorageContext,
+  type FlatStorageStore,
+} from "../storage/storage-context.js";
 import { SqlRunner } from "../storage/sql-runner.js";
 import { DirongDatabase } from "../storage/sqlite.js";
 import {
@@ -23,7 +27,7 @@ import {
 } from "./phase4-ai-cleanup-cli.js";
 import { backupDatabaseSnapshot } from "../storage/sqlite-backup.js";
 
-let store: SessionStore | null = null;
+let store: FlatStorageStore | null = null;
 
 try {
   const options = parsePhase4AiCleanupArgs(process.argv.slice(2));
@@ -34,10 +38,11 @@ try {
   const database = new DirongDatabase(config.dbPath, config.dbBusyTimeoutMs, {
     readOnly: options.dryRun,
   });
-  store = new SessionStore(database, {
+  const ctx = createStorageContext(database, {
     storageRoot: config.dataDir,
     normalizeStoredPaths: !options.dryRun,
   });
+  store = flattenStorageContext(ctx);
   const notionPropertyRuleStore = new NotionCustomPropertyRuleStore(
     new SqlRunner(database),
   );

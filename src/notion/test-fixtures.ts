@@ -2,7 +2,7 @@ import { MEETING_NOTES_DRAFT_SCHEMA_VERSION } from "../ai/cleanup/draft.js";
 import type { MeetingNotesDraftV1 } from "../ai/cleanup/draft.js";
 import type { DirongLocale } from "../settings/local-settings-store.js";
 import type { NotionDraftInput, NotionDraftSpeaker } from "./draft-input.js";
-import type { TranscriptSegmentRow } from "../storage/session-store.js";
+import type { TranscriptSegmentRow } from "../storage/storage-context.js";
 import { DEFAULT_PROJECT_ID } from "../projects/project-types.js";
 
 type SpeakerFixture = [name: string, isBot: number];

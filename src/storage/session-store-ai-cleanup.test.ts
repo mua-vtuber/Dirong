@@ -5,7 +5,10 @@ import path from "node:path";
 import test from "node:test";
 import { PHASE4_AI_CLEANUP_PROMPT_VERSION } from "../ai/cleanup/prompts.js";
 import { buildPhase4TimelineInput } from "../ai/cleanup/timeline-input.js";
-import { SessionStore } from "./session-store.js";
+import {
+  createStorageContext,
+  type StorageContext,
+} from "./storage-context.js";
 import { DirongDatabase } from "./sqlite.js";
 
 test("getAiCleanupSttTerminalSnapshot waits for queued STT jobs", () => {
@@ -14,7 +17,7 @@ test("getAiCleanupSttTerminalSnapshot waits for queued STT jobs", () => {
     addQueuedSttChunk(fixture, 1);
     finalizeSession(fixture);
 
-    const snapshot = fixture.store.getAiCleanupSttTerminalSnapshot(fixture.sessionId);
+    const snapshot = fixture.ctx.reads.getAiCleanupSttTerminalSnapshot(fixture.sessionId);
 
     assert.equal(snapshot?.isTerminal, false);
     assert.equal(snapshot?.canInvokeRunner, false);
@@ -30,7 +33,7 @@ test("getAiCleanupSttTerminalSnapshot allows empty timeline block after fake/no_
     addNoSpeechChunk(fixture, 1);
     finalizeSession(fixture);
 
-    const snapshot = fixture.store.getAiCleanupSttTerminalSnapshot(fixture.sessionId);
+    const snapshot = fixture.ctx.reads.getAiCleanupSttTerminalSnapshot(fixture.sessionId);
 
     assert.equal(snapshot?.isTerminal, true);
     assert.equal(snapshot?.realTranscriptEntryCount, 0);
@@ -49,7 +52,7 @@ test("getAiCleanupSttTerminalSnapshot reports failed/missing chunk warnings whil
     addTranscodeFailedChunk(fixture, 3);
     finalizeSession(fixture);
 
-    const snapshot = fixture.store.getAiCleanupSttTerminalSnapshot(fixture.sessionId);
+    const snapshot = fixture.ctx.reads.getAiCleanupSttTerminalSnapshot(fixture.sessionId);
 
     assert.equal(snapshot?.isTerminal, true);
     assert.equal(snapshot?.canGenerateDraft, true);
@@ -69,11 +72,11 @@ test("repairExpiredAiCleanupProcessingJobs requeues retryable jobs and fails exh
   try {
     addCompletedRealSttChunk(fixture, 1);
     finalizeSession(fixture);
-    const timelineInput = buildPhase4TimelineInput(fixture.store, {
+    const timelineInput = buildPhase4TimelineInput(fixture.ctx.reads, {
       sessionId: fixture.sessionId,
     });
 
-    const retryable = fixture.store.getOrCreateAiCleanupJob({
+    const retryable = fixture.ctx.jobs.getOrCreateAiCleanupJob({
       id: "ai_retryable",
       sessionId: fixture.sessionId,
       provider: "fake",
@@ -87,7 +90,7 @@ test("repairExpiredAiCleanupProcessingJobs requeues retryable jobs and fails exh
       inputTimelineMarkdownPath: null,
       maxAttempts: 2,
     });
-    const exhausted = fixture.store.getOrCreateAiCleanupJob({
+    const exhausted = fixture.ctx.jobs.getOrCreateAiCleanupJob({
       id: "ai_exhausted",
       sessionId: fixture.sessionId,
       provider: "fake",
@@ -102,14 +105,14 @@ test("repairExpiredAiCleanupProcessingJobs requeues retryable jobs and fails exh
       maxAttempts: 1,
     });
     assert.ok(
-      fixture.store.claimAiCleanupJob({
+      fixture.ctx.jobs.claimAiCleanupJob({
         jobId: retryable.id,
         workerId: "test",
         leaseMs: 1,
       }),
     );
     assert.ok(
-      fixture.store.claimAiCleanupJob({
+      fixture.ctx.jobs.claimAiCleanupJob({
         jobId: exhausted.id,
         workerId: "test",
         leaseMs: 1,
@@ -119,13 +122,13 @@ test("repairExpiredAiCleanupProcessingJobs requeues retryable jobs and fails exh
       "UPDATE ai_cleanup_jobs SET locked_until = '2000-01-01T00:00:00.000Z'",
     ).run();
 
-    const summary = fixture.store.repairExpiredAiCleanupProcessingJobs(
+    const summary = fixture.ctx.runtime.repairExpiredAiCleanupProcessingJobs(
       "2026-05-06T00:00:00.000Z",
     );
 
     assert.deepEqual(summary, { requeued: 1, failed: 1 });
-    assert.equal(fixture.store.getAiCleanupJob(retryable.id)?.status, "queued");
-    const exhaustedAfter = fixture.store.getAiCleanupJob(exhausted.id);
+    assert.equal(fixture.ctx.reads.getAiCleanupJob(retryable.id)?.status, "queued");
+    const exhaustedAfter = fixture.ctx.reads.getAiCleanupJob(exhausted.id);
     assert.equal(exhaustedAfter?.status, "failed");
     assert.equal(exhaustedAfter?.failure_kind, "provider_timeout");
   } finally {
@@ -151,7 +154,7 @@ test("listFinalizedSessionsForAiCleanupAutomation preserves readiness ordering",
       "ai_processing",
     );
     assert.ok(
-      fixture.store.claimAiCleanupJob({
+      fixture.ctx.jobs.claimAiCleanupJob({
         jobId: processingJob.id,
         workerId: "selection-test",
         leaseMs: 60000,
@@ -181,7 +184,7 @@ test("listFinalizedSessionsForAiCleanupAutomation preserves readiness ordering",
       .prepare("UPDATE ai_cleanup_jobs SET next_attempt_at = ? WHERE id = ?")
       .run("2026-05-08T00:00:00.000Z", futureJob.id);
 
-    const selected = fixture.store.listFinalizedSessionsForAiCleanupAutomation({
+    const selected = fixture.ctx.reads.listFinalizedSessionsForAiCleanupAutomation({
       limit: 10,
       provider: "fake",
       model: "selection-model",
@@ -201,7 +204,7 @@ test("listFinalizedSessionsForAiCleanupAutomation preserves readiness ordering",
 type StoreFixture = {
   dir: string;
   database: DirongDatabase;
-  store: SessionStore;
+  ctx: StorageContext;
   sessionId: string;
   close: () => void;
 };
@@ -209,9 +212,9 @@ type StoreFixture = {
 function createFixture(): StoreFixture {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-ai-store-"));
   const database = new DirongDatabase(path.join(dir, "dirong.sqlite"), 1000);
-  const store = new SessionStore(database);
+  const ctx = createStorageContext(database);
   const sessionId = "meeting_ai_store_test";
-  store.createSession({
+  ctx.writes.createSession({
     id: sessionId,
     guildId: "guild",
     guildName: "Guild",
@@ -222,7 +225,7 @@ function createFixture(): StoreFixture {
     startedByDisplayName: "Taniar",
     dataDir: dir,
   });
-  store.upsertSpeaker({
+  ctx.writes.upsertSpeaker({
     sessionId,
     userId: "speaker",
     displayNameSnapshot: "Taniar",
@@ -232,10 +235,10 @@ function createFixture(): StoreFixture {
   return {
     dir,
     database,
-    store,
+    ctx,
     sessionId,
     close: () => {
-      store.close();
+      ctx.close();
       rmSync(dir, { recursive: true, force: true });
     },
   };
@@ -243,13 +246,13 @@ function createFixture(): StoreFixture {
 
 function addCompletedRealSttChunk(fixture: StoreFixture, index: number): void {
   addQueuedSttChunk(fixture, index);
-  const job = fixture.store.claimNextSttJob({
+  const job = fixture.ctx.jobs.claimNextSttJob({
     workerId: "ai-store-test-stt",
     leaseMs: 60000,
     sessionId: fixture.sessionId,
   });
   assert.ok(job);
-  fixture.store.completeSttJob({
+  fixture.ctx.writes.completeSttJob({
     job,
     text: "실제 회의 발화입니다.",
     source: "real",
@@ -261,13 +264,13 @@ function addCompletedRealSttChunk(fixture: StoreFixture, index: number): void {
 
 function addNoSpeechChunk(fixture: StoreFixture, index: number): void {
   addQueuedSttChunk(fixture, index);
-  const job = fixture.store.claimNextSttJob({
+  const job = fixture.ctx.jobs.claimNextSttJob({
     workerId: "ai-store-test-stt",
     leaseMs: 60000,
     sessionId: fixture.sessionId,
   });
   assert.ok(job);
-  fixture.store.completeSttJob({
+  fixture.ctx.writes.completeSttJob({
     job,
     text: "",
     source: "real",
@@ -279,13 +282,13 @@ function addNoSpeechChunk(fixture: StoreFixture, index: number): void {
 
 function addFailedSttChunk(fixture: StoreFixture, index: number): void {
   addQueuedSttChunk(fixture, index, { maxAttempts: 1 });
-  const job = fixture.store.claimNextSttJob({
+  const job = fixture.ctx.jobs.claimNextSttJob({
     workerId: "ai-store-test-stt",
     leaseMs: 60000,
     sessionId: fixture.sessionId,
   });
   assert.ok(job);
-  fixture.store.failProcessingSttJob({
+  fixture.ctx.writes.failProcessingSttJob({
     jobId: job.id,
     error: "deterministic STT failure",
   });
@@ -293,7 +296,7 @@ function addFailedSttChunk(fixture: StoreFixture, index: number): void {
 
 function addTranscodeFailedChunk(fixture: StoreFixture, index: number): void {
   const chunkId = addRawFinalizedChunk(fixture, index);
-  fixture.store.markChunkTranscodeFailed({
+  fixture.ctx.writes.markChunkTranscodeFailed({
     chunkId,
     error: "deterministic transcode failure",
   });
@@ -305,7 +308,7 @@ function addQueuedSttChunk(
   options: { maxAttempts?: number } = {},
 ): void {
   const chunkId = addRawFinalizedChunk(fixture, index);
-  fixture.store.completeChunkTranscodeAndQueueJob({
+  fixture.ctx.writes.completeChunkTranscodeAndQueueJob({
     chunkId,
     sttAudioPath: path.join(fixture.dir, `${chunkId}.webm`),
     sttAudioFormat: "webm",
@@ -317,7 +320,7 @@ function addQueuedSttChunk(
 
 function addRawFinalizedChunk(fixture: StoreFixture, index: number): string {
   const chunkId = `${fixture.sessionId}_${String(index).padStart(6, "0")}_speaker`;
-  fixture.store.createChunkWriting({
+  fixture.ctx.writes.createChunkWriting({
     chunkId,
     sessionId: fixture.sessionId,
     chunkIndex: index,
@@ -326,7 +329,7 @@ function addRawFinalizedChunk(fixture: StoreFixture, index: number): string {
     startedAtMs: index * 1000,
     rawAudioPath: path.join(fixture.dir, `${chunkId}.ogg`),
   });
-  fixture.store.finalizeRawChunk({
+  fixture.ctx.writes.finalizeRawChunk({
     chunkId,
     endedAtMs: index * 1000 + 500,
     durationMs: 500,
@@ -339,7 +342,7 @@ function addRawFinalizedChunk(fixture: StoreFixture, index: number): string {
 }
 
 function finalizeSession(fixture: StoreFixture): void {
-  fixture.store.stopSession({
+  fixture.ctx.writes.stopSession({
     sessionId: fixture.sessionId,
     stoppedByUserId: "starter",
     stoppedByDisplayName: "Taniar",
@@ -351,7 +354,7 @@ function createSessionForSelection(
   fixture: StoreFixture,
   sessionId: string,
 ): void {
-  fixture.store.createSession({
+  fixture.ctx.writes.createSession({
     id: sessionId,
     guildId: "guild",
     guildName: "Guild",
@@ -362,7 +365,7 @@ function createSessionForSelection(
     startedByDisplayName: "Taniar",
     dataDir: path.join(fixture.dir, sessionId),
   });
-  fixture.store.upsertSpeaker({
+  fixture.ctx.writes.upsertSpeaker({
     sessionId,
     userId: "speaker",
     displayNameSnapshot: "Taniar",
@@ -377,13 +380,13 @@ function addCompletedRealSttChunkForSession(
   index: number,
 ): void {
   addQueuedSttChunkForSession(fixture, sessionId, index);
-  const job = fixture.store.claimNextSttJob({
+  const job = fixture.ctx.jobs.claimNextSttJob({
     workerId: "ai-selection-test-stt",
     leaseMs: 60000,
     sessionId,
   });
   assert.ok(job);
-  fixture.store.completeSttJob({
+  fixture.ctx.writes.completeSttJob({
     job,
     text: `실제 회의 발화입니다 ${sessionId}.`,
     source: "real",
@@ -399,7 +402,7 @@ function addQueuedSttChunkForSession(
   index: number,
 ): void {
   const chunkId = addRawFinalizedChunkForSession(fixture, sessionId, index);
-  fixture.store.completeChunkTranscodeAndQueueJob({
+  fixture.ctx.writes.completeChunkTranscodeAndQueueJob({
     chunkId,
     sttAudioPath: path.join(fixture.dir, sessionId, `${chunkId}.webm`),
     sttAudioFormat: "webm",
@@ -415,7 +418,7 @@ function addRawFinalizedChunkForSession(
   index: number,
 ): string {
   const chunkId = `${sessionId}_${String(index).padStart(6, "0")}_speaker`;
-  fixture.store.createChunkWriting({
+  fixture.ctx.writes.createChunkWriting({
     chunkId,
     sessionId,
     chunkIndex: index,
@@ -424,7 +427,7 @@ function addRawFinalizedChunkForSession(
     startedAtMs: index * 1000,
     rawAudioPath: path.join(fixture.dir, sessionId, `${chunkId}.ogg`),
   });
-  fixture.store.finalizeRawChunk({
+  fixture.ctx.writes.finalizeRawChunk({
     chunkId,
     endedAtMs: index * 1000 + 500,
     durationMs: 500,
@@ -441,7 +444,7 @@ function finalizeSessionForSelection(
   sessionId: string,
   finalizedAt: string,
 ): void {
-  fixture.store.stopSession({
+  fixture.ctx.writes.stopSession({
     sessionId,
     stoppedByUserId: "starter",
     stoppedByDisplayName: "Taniar",
@@ -460,9 +463,9 @@ function createAiCleanupJobForSelection(
   fixture: StoreFixture,
   sessionId: string,
   jobId: string,
-): ReturnType<SessionStore["getOrCreateAiCleanupJob"]> {
-  const timelineInput = buildPhase4TimelineInput(fixture.store, { sessionId });
-  return fixture.store.getOrCreateAiCleanupJob({
+): ReturnType<StorageContext["jobs"]["getOrCreateAiCleanupJob"]> {
+  const timelineInput = buildPhase4TimelineInput(fixture.ctx.reads, { sessionId });
+  return fixture.ctx.jobs.getOrCreateAiCleanupJob({
     id: jobId,
     sessionId,
     provider: "fake",

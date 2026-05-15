@@ -3,8 +3,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { RecordingRuntimeState } from "./session-store.js";
-import { SessionStore } from "./session-store.js";
+import type { RecordingRuntimeState } from "./storage-context.js";
+import {
+  createStorageContext,
+  type StorageContext,
+} from "./storage-context.js";
 import { DirongDatabase } from "./sqlite.js";
 
 test("SessionStore dashboard read model returns current session slices", () => {
@@ -19,7 +22,7 @@ test("SessionStore dashboard read model returns current session slices", () => {
       openChunks: 0,
     };
 
-    const state = fixture.store.getDashboardState(runtime) as {
+    const state = fixture.ctx.reads.getDashboardState(runtime) as {
       currentSession?: { id: string };
       speakers?: Array<{ user_id: string }>;
       recentChunks?: Array<{ id: string; stt_job_id: string }>;
@@ -51,7 +54,7 @@ test("SessionStore dashboard read model returns latest Notion write without secr
       openChunks: 0,
     };
 
-    const state = fixture.store.getDashboardState(runtime) as {
+    const state = fixture.ctx.reads.getDashboardState(runtime) as {
       latestNotionWrite?: {
         id: string;
         status: string;
@@ -76,7 +79,7 @@ test("SessionStore dashboard read model returns latest Notion write without secr
 type DashboardFixture = {
   dir: string;
   database: DirongDatabase;
-  store: SessionStore;
+  ctx: StorageContext;
   sessionId: string;
   chunkId: string;
   close: () => void;
@@ -85,24 +88,24 @@ type DashboardFixture = {
 function createFixture(): DashboardFixture {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-dashboard-read-"));
   const database = new DirongDatabase(path.join(dir, "dirong.sqlite"), 1000);
-  const store = new SessionStore(database);
+  const ctx = createStorageContext(database);
   const sessionId = "meeting_dashboard_read";
   const chunkId = `${sessionId}_000001_speaker`;
   return {
     dir,
     database,
-    store,
+    ctx,
     sessionId,
     chunkId,
     close: () => {
-      store.close();
+      ctx.close();
       rmSync(dir, { recursive: true, force: true });
     },
   };
 }
 
 function seedDashboardSession(fixture: DashboardFixture): void {
-  fixture.store.createSession({
+  fixture.ctx.writes.createSession({
     id: fixture.sessionId,
     guildId: "guild",
     guildName: "Guild",
@@ -113,14 +116,14 @@ function seedDashboardSession(fixture: DashboardFixture): void {
     startedByDisplayName: "Taniar",
     dataDir: fixture.dir,
   });
-  fixture.store.upsertSpeaker({
+  fixture.ctx.writes.upsertSpeaker({
     sessionId: fixture.sessionId,
     userId: "speaker",
     displayNameSnapshot: "Taniar",
     isBot: false,
     seenAtMs: 0,
   });
-  fixture.store.createChunkWriting({
+  fixture.ctx.writes.createChunkWriting({
     chunkId: fixture.chunkId,
     sessionId: fixture.sessionId,
     chunkIndex: 1,
@@ -129,7 +132,7 @@ function seedDashboardSession(fixture: DashboardFixture): void {
     startedAtMs: 0,
     rawAudioPath: path.join(fixture.dir, "chunk.ogg"),
   });
-  fixture.store.finalizeRawChunk({
+  fixture.ctx.writes.finalizeRawChunk({
     chunkId: fixture.chunkId,
     endedAtMs: 1000,
     durationMs: 1000,
@@ -138,7 +141,7 @@ function seedDashboardSession(fixture: DashboardFixture): void {
     closeReason: "test",
     pipelineError: null,
   });
-  fixture.store.completeChunkTranscodeAndQueueJob({
+  fixture.ctx.writes.completeChunkTranscodeAndQueueJob({
     chunkId: fixture.chunkId,
     sttAudioPath: path.join(fixture.dir, "chunk.webm"),
     sttAudioFormat: "webm",

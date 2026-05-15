@@ -15,7 +15,7 @@ import type { AiCleanupLeaseRepairSummary } from "./rows.js";
 // absolute paths to storage-root-relative form. It uses `database.transaction`
 // directly (NOT `sql.transaction`) because the bulk update walks an unbounded
 // number of rows and we need a single BEGIN IMMEDIATE around the whole sweep —
-// behavior preserved BYTE-IDENTICAL from session-store.ts lines 712-761.
+// behavior preserved BYTE-IDENTICAL from the legacy SessionStore.
 
 export class RuntimeStateStore {
   private readonly aiCleanupJobs: AiCleanupJobQueue;

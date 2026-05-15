@@ -13,8 +13,12 @@ import {
 import { RecordingProducer } from "./recording-producer.js";
 import type { Phase1Config } from "../config.js";
 import type { AppLocaleResolver } from "../i18n/app-locale.js";
-import type { RecordingRuntimeState } from "../storage/session-store.js";
-import { SessionStore } from "../storage/session-store.js";
+import type { RecordingRuntimeState } from "../storage/storage-context.js";
+import {
+  createStorageContext,
+  flattenStorageContext,
+  type FlatStorageStore,
+} from "../storage/storage-context.js";
 import { DirongDatabase } from "../storage/sqlite.js";
 
 test("AloneFinalizeService starts grace timer when everyone leaves", async () => {
@@ -337,7 +341,7 @@ test("formatAloneFinalizeForStatus renders countdown", () => {
 type Fixture = {
   dir: string;
   database: DirongDatabase;
-  store: SessionStore;
+  store: FlatStorageStore;
   sessionId: string;
   clock: ManualClock;
   producer: FakeProducer;
@@ -353,7 +357,8 @@ type Fixture = {
 function createFixture(): Fixture {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-alone-finalize-"));
   const database = new DirongDatabase(path.join(dir, "dirong.sqlite"), 1000);
-  const store = new SessionStore(database);
+  const ctx = createStorageContext(database);
+  const store = flattenStorageContext(ctx);
   const sessionId = "meeting_alone_finalize_test";
   store.createSession({
     id: sessionId,
@@ -432,7 +437,7 @@ class FakeProducer implements AloneFinalizeProducer {
   private stopCallWaiter: (() => void) | null = null;
 
   constructor(
-    private readonly store: SessionStore,
+    private readonly store: FlatStorageStore,
     private readonly sessionId: string,
     private readonly sessionDir: string,
   ) {

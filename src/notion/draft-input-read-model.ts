@@ -4,7 +4,7 @@ import type {
   MeetingNotesDraftRow,
   SessionRow,
   TranscriptSegmentRow,
-} from "../storage/session-store.js";
+} from "../storage/storage-context.js";
 import { DEFAULT_PROJECT_ID } from "../projects/project-types.js";
 import type { NotionDraftInput, NotionDraftSpeaker } from "./draft-input.js";
 

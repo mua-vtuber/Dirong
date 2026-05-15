@@ -13,7 +13,10 @@ import {
 } from "../cli/stt-summary.js";
 import { loadProductRuntimeSettings } from "../settings/product-settings.js";
 import { runFakeSttBatch } from "../stt/fake-runner.js";
-import { SessionStore } from "../storage/session-store.js";
+import {
+  createStorageContext,
+  flattenStorageContext,
+} from "../storage/storage-context.js";
 import { DirongDatabase } from "../storage/sqlite.js";
 import { backupDatabaseSnapshot } from "../storage/sqlite-backup.js";
 
@@ -38,10 +41,11 @@ try {
   }
 
   const database = new DirongDatabase(config.dbPath, config.dbBusyTimeoutMs);
-  const store = new SessionStore(database, {
+  const ctx = createStorageContext(database, {
     storageRoot: config.dataDir,
     normalizeStoredPaths: !options.dryRun,
   });
+  const store = flattenStorageContext(ctx);
 
   const result = await runFakeSttBatch(store, {
     workerId: `fake-stt-${process.pid}`,

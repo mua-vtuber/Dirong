@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-// File-local helpers extracted from session-store.ts (lines 866-872) so the four
+// File-local helpers extracted from the legacy SessionStore so the four
 // new role-scoped facades can share them without duplication. Behavior is
 // byte-identical to the original SessionStore source.
 

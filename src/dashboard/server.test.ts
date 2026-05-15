@@ -10,7 +10,7 @@ import type { Phase1Config } from "../config.js";
 import type { ActiveProjectSwitchBlockReason } from "../projects/active-project-service.js";
 import type { DirongProjectRow } from "../projects/project-types.js";
 import type { RecordingProducer } from "../recording/recording-producer.js";
-import type { SessionStore } from "../storage/session-store.js";
+import type { FlatStorageStore } from "../storage/storage-context.js";
 import type { DirongLocale } from "../settings/local-settings-store.js";
 import { LocalSettingsStore } from "../settings/local-settings-store.js";
 import { LocalSecretStore } from "../settings/local-secret-store.js";
@@ -2302,7 +2302,7 @@ function makeDashboardConfig(): Phase1Config {
   };
 }
 
-function makeStore(audio?: AudioFixture): SessionStore {
+function makeStore(audio?: AudioFixture): FlatStorageStore {
   return {
     getDashboardState: () => ({
       generatedAt: "2026-05-07T00:00:00.000Z",
@@ -2325,7 +2325,7 @@ function makeStore(audio?: AudioFixture): SessionStore {
       }
       return audio[kind] ?? null;
     },
-  } as unknown as SessionStore;
+  } as unknown as FlatStorageStore;
 }
 
 function makeProducer(): RecordingProducer {

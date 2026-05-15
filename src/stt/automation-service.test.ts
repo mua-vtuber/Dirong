@@ -3,7 +3,11 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { SessionStore } from "../storage/session-store.js";
+import {
+  createStorageContext,
+  flattenStorageContext,
+  type FlatStorageStore,
+} from "../storage/storage-context.js";
 import { DirongDatabase } from "../storage/sqlite.js";
 import {
   formatSttAutomationForStatus,
@@ -132,14 +136,15 @@ test("formatSttAutomationForStatus localizes text labels", () => {
 });
 
 function createQueuedSttFixture(): {
-  store: SessionStore;
+  store: FlatStorageStore;
   close: () => void;
   countQueuedSttJobs: () => number;
   countTranscriptSegments: () => number;
 } {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-stt-auto-"));
   const database = new DirongDatabase(path.join(dir, "dirong.sqlite"), 1000);
-  const store = new SessionStore(database);
+  const ctx = createStorageContext(database);
+  const store = flattenStorageContext(ctx);
   const sessionId = "meeting_stt_auto_test";
   const chunkId = `${sessionId}_000001_speaker`;
   const rawAudioPath = path.join(dir, "chunk.ogg");

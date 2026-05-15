@@ -1,4 +1,7 @@
 import {
+  execFileSync,
+} from "node:child_process";
+import {
   chmodSync,
   copyFileSync,
   cpSync,
@@ -15,10 +18,15 @@ import { fileURLToPath } from "node:url";
 
 export const DEFAULT_PORTABLE_APP_NAME = "Dirong";
 export const DEFAULT_PORTABLE_OUTPUT_DIR = "portable";
+export const DEFAULT_PORTABLE_PYTHON_NUGET_VERSION = "3.13.10";
 export const PORTABLE_DATA_ENV_VAR = "DIRONG_PORTABLE_DATA_DIR";
 export const PORTABLE_ROOT_ENV_VAR = "DIRONG_PORTABLE_ROOT";
 export const PORTABLE_PYTHON_ENV_VAR = "DIRONG_PORTABLE_PYTHON";
+export const PORTABLE_PYTHON_CACHE_ENV_VAR = "DIRONG_PORTABLE_PYTHON_CACHE_DIR";
 export const PORTABLE_PYTHON_SOURCE_ENV_VAR = "DIRONG_PORTABLE_PYTHON_DIR";
+
+type PortableDownloadFile = (url: string, targetPath: string) => void;
+type PortableExtractArchive = (archivePath: string, targetDir: string) => void;
 
 export type PortableBundleOptions = {
   projectRoot?: string;
@@ -26,6 +34,10 @@ export type PortableBundleOptions = {
   appName?: string;
   nodeExecutable?: string;
   pythonRuntimeDir?: string;
+  pythonRuntimeCacheDir?: string;
+  pythonNugetVersion?: string;
+  downloadFile?: PortableDownloadFile;
+  extractArchive?: PortableExtractArchive;
   platform?: NodeJS.Platform;
 };
 
@@ -171,6 +183,13 @@ function assertBundleInputs(
       `portable Python runtime missing: set ${PORTABLE_PYTHON_SOURCE_ENV_VAR} or place runtime/python with ${plan.pythonExecutableName}. Missing: ${pythonExecutable}`,
     );
   }
+
+  const pipPackageDir = path.join(pythonRuntimeDir, "Lib", "site-packages", "pip");
+  if (!existsSync(pipPackageDir)) {
+    throw new Error(
+      `portable Python runtime missing pip: ${pipPackageDir}. Use a Python runtime that includes pip, or let npm run bundle:portable download the default clean runtime.`,
+    );
+  }
 }
 
 function copyDirectory(source: string, target: string): void {
@@ -251,11 +270,113 @@ function resolvePythonRuntimeDir(
   options: PortableBundleOptions,
   plan: PortableBundlePlan,
 ): string {
-  const source =
+  const explicitSource =
     cleanPath(options.pythonRuntimeDir) ??
-    cleanPath(process.env[PORTABLE_PYTHON_SOURCE_ENV_VAR]) ??
-    path.join(plan.projectRoot, "runtime", "python");
-  return path.resolve(source);
+    cleanPath(process.env[PORTABLE_PYTHON_SOURCE_ENV_VAR]);
+  if (explicitSource) {
+    return path.resolve(explicitSource);
+  }
+
+  const projectRuntimeSource = path.join(plan.projectRoot, "runtime", "python");
+  if (existsSync(projectRuntimeSource)) {
+    return path.resolve(projectRuntimeSource);
+  }
+
+  return prepareDefaultPythonRuntime(options, plan);
+}
+
+function prepareDefaultPythonRuntime(
+  options: PortableBundleOptions,
+  plan: PortableBundlePlan,
+): string {
+  if (plan.pythonExecutableName !== "python.exe") {
+    throw new Error(
+      `automatic portable Python download is only supported for Windows bundles. Set ${PORTABLE_PYTHON_SOURCE_ENV_VAR} for this platform.`,
+    );
+  }
+
+  const version = options.pythonNugetVersion ?? DEFAULT_PORTABLE_PYTHON_NUGET_VERSION;
+  const packageDir = path.join(resolvePythonRuntimeCacheDir(options), `python-${version}`);
+  const runtimeDir = path.join(packageDir, "tools");
+  const pythonExecutable = path.join(runtimeDir, plan.pythonExecutableName);
+  const pipPackageDir = path.join(runtimeDir, "Lib", "site-packages", "pip");
+  if (existsSync(pythonExecutable) && existsSync(pipPackageDir)) {
+    return runtimeDir;
+  }
+
+  rmSync(packageDir, { recursive: true, force: true });
+  mkdirSync(packageDir, { recursive: true });
+
+  const archivePath = path.join(packageDir, `python.${version}.nupkg`);
+  const url = `https://api.nuget.org/v3-flatcontainer/python/${version}/python.${version}.nupkg`;
+  const downloadFile = options.downloadFile ?? downloadFileWithPowerShell;
+  const extractArchive = options.extractArchive ?? extractArchiveWithPowerShell;
+
+  console.log(`Downloading clean Python ${version} with pip for the portable bundle...`);
+  try {
+    downloadFile(url, archivePath);
+    extractArchive(archivePath, packageDir);
+  } catch (error) {
+    throw new Error(
+      `failed to prepare clean portable Python ${version}: ${formatError(error)}`,
+    );
+  }
+
+  if (!existsSync(pythonExecutable)) {
+    throw new Error(`downloaded portable Python is missing ${plan.pythonExecutableName}: ${pythonExecutable}`);
+  }
+  if (!existsSync(pipPackageDir)) {
+    throw new Error(`downloaded portable Python is missing pip: ${pipPackageDir}`);
+  }
+
+  return runtimeDir;
+}
+
+function resolvePythonRuntimeCacheDir(options: PortableBundleOptions): string {
+  const configured =
+    cleanPath(options.pythonRuntimeCacheDir) ??
+    cleanPath(process.env[PORTABLE_PYTHON_CACHE_ENV_VAR]);
+  if (configured) {
+    return path.resolve(configured);
+  }
+
+  const localAppData = cleanPath(process.env.LOCALAPPDATA);
+  if (localAppData) {
+    return path.join(localAppData, "DirongBuild", "runtime");
+  }
+
+  return path.join(process.cwd(), "portable", ".runtime");
+}
+
+function downloadFileWithPowerShell(url: string, targetPath: string): void {
+  runPowerShell(
+    `$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -Uri ${quotePowerShell(url)} -OutFile ${quotePowerShell(targetPath)}`,
+  );
+}
+
+function extractArchiveWithPowerShell(archivePath: string, targetDir: string): void {
+  runPowerShell(
+    `Expand-Archive -LiteralPath ${quotePowerShell(archivePath)} -DestinationPath ${quotePowerShell(targetDir)} -Force`,
+  );
+}
+
+function runPowerShell(command: string): void {
+  execFileSync(
+    "powershell.exe",
+    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+    { stdio: ["ignore", "pipe", "pipe"] },
+  );
+}
+
+function quotePowerShell(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+function formatError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }
 
 function isPathInside(child: string, parent: string): boolean {

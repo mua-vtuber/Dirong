@@ -13,6 +13,7 @@ import test from "node:test";
 import {
   createPortableBundle,
   createWindowsLauncher,
+  DEFAULT_PORTABLE_PYTHON_NUGET_VERSION,
   PORTABLE_DATA_ENV_VAR,
   PORTABLE_PYTHON_ENV_VAR,
   PORTABLE_ROOT_ENV_VAR,
@@ -70,6 +71,7 @@ test("createPortableBundle creates a clean portable folder without source data s
     assert.ok(existsSync(path.join(plan.nodeDir, "node.exe")));
     assert.ok(existsSync(path.join(plan.pythonDir, "python.exe")));
     assert.ok(existsSync(path.join(plan.pythonDir, "Lib", "site.py")));
+    assert.ok(existsSync(path.join(plan.pythonDir, "Lib", "site-packages", "pip")));
     assert.ok(existsSync(path.join(plan.scriptsDir, "local-whisper-json.py")));
     assert.ok(existsSync(path.join(plan.dataDir, "settings")));
     assert.ok(existsSync(path.join(plan.dataDir, "secrets")));
@@ -83,16 +85,47 @@ test("createPortableBundle creates a clean portable folder without source data s
   }
 });
 
-function createFakeProject(projectRoot: string): void {
+test("createPortableBundle prepares a clean NuGet Python runtime when no source is configured", () => {
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), "dirong-portable-"));
+  try {
+    const projectRoot = path.join(tempRoot, "source");
+    createFakeProject(projectRoot, { includeProjectRuntimePython: false });
+    const downloadedUrls: string[] = [];
+
+    const plan = createPortableBundle({
+      projectRoot,
+      nodeExecutable: path.join(projectRoot, "fake-node.exe"),
+      pythonRuntimeCacheDir: path.join(tempRoot, "runtime-cache"),
+      platform: "win32",
+      downloadFile: (url, targetPath) => {
+        downloadedUrls.push(url);
+        writeFileSync(targetPath, "fake nupkg");
+      },
+      extractArchive: (_archivePath, targetDir) => {
+        createFakePythonRuntime(path.join(targetDir, "tools"));
+      },
+    });
+
+    assert.deepEqual(downloadedUrls, [
+      `https://api.nuget.org/v3-flatcontainer/python/${DEFAULT_PORTABLE_PYTHON_NUGET_VERSION}/python.${DEFAULT_PORTABLE_PYTHON_NUGET_VERSION}.nupkg`,
+    ]);
+    assert.ok(existsSync(path.join(plan.pythonDir, "python.exe")));
+    assert.ok(existsSync(path.join(plan.pythonDir, "Lib", "site-packages", "pip")));
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+function createFakeProject(
+  projectRoot: string,
+  options: { includeProjectRuntimePython?: boolean } = {},
+): void {
   mkdirSync(path.join(projectRoot, "dist", "app"), { recursive: true });
   mkdirSync(path.join(projectRoot, "node_modules", "runtime-package"), {
     recursive: true,
   });
   mkdirSync(path.join(projectRoot, "scripts"), { recursive: true });
   mkdirSync(path.join(projectRoot, "data", "secrets"), { recursive: true });
-  mkdirSync(path.join(projectRoot, "runtime", "python", "Lib"), {
-    recursive: true,
-  });
 
   writeFileSync(
     path.join(projectRoot, "package.json"),
@@ -106,10 +139,20 @@ function createFakeProject(projectRoot: string): void {
   );
   writeFileSync(path.join(projectRoot, "scripts", "local-whisper-json.py"), "");
   writeFileSync(path.join(projectRoot, "fake-node.exe"), "");
-  writeFileSync(path.join(projectRoot, "runtime", "python", "python.exe"), "");
-  writeFileSync(path.join(projectRoot, "runtime", "python", "Lib", "site.py"), "");
+  if (options.includeProjectRuntimePython ?? true) {
+    createFakePythonRuntime(path.join(projectRoot, "runtime", "python"));
+  }
   writeFileSync(
     path.join(projectRoot, "data", "secrets", "secrets.json"),
     JSON.stringify({ secrets: { token: { value: "do-not-copy" } } }),
   );
+}
+
+function createFakePythonRuntime(runtimeDir: string): void {
+  mkdirSync(path.join(runtimeDir, "Lib", "site-packages", "pip"), {
+    recursive: true,
+  });
+  writeFileSync(path.join(runtimeDir, "python.exe"), "");
+  writeFileSync(path.join(runtimeDir, "Lib", "site.py"), "");
+  writeFileSync(path.join(runtimeDir, "Lib", "site-packages", "pip", "__init__.py"), "");
 }

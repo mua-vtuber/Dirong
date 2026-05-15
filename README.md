@@ -11,6 +11,16 @@ The app is designed to be run on your own machine. Settings, secrets, recordings
 
 ## Quick Start
 
+### Portable release
+
+For most Windows users, download `Dirong_portable.zip` from the [latest GitHub release](https://github.com/mua-vtuber/Dirong/releases/latest), extract it, and double-click:
+
+```bat
+Dirong Start.bat
+```
+
+The portable release includes the app, Node.js, Python with pip, helper scripts, and an empty `data/` folder. Complete the setup wizard on first launch. After setup, do not share the portable folder unless you remove `data/secrets/` first.
+
 ### Windows launcher
 
 Double-click:
@@ -41,18 +51,6 @@ For a rebuild-and-run cycle:
 npm run dev
 ```
 
-### Portable bundle
-
-To create a clean portable Windows folder:
-
-```bash
-npm run bundle:portable
-```
-
-The bundle is written to `portable/Dirong/`. It includes copied Node.js and Python runtimes, built app files, runtime dependencies, helper scripts, and an empty `data/` directory. Existing local settings and secrets are not copied.
-
-Portable bundle creation requires a Python runtime source. Set `DIRONG_PORTABLE_PYTHON_DIR` or place a runtime at `runtime/python` before running `npm run bundle:portable`.
-
 ## Requirements
 
 - Node.js 22.12.0 or newer.
@@ -65,7 +63,7 @@ Portable bundle creation requires a Python runtime source. Set `DIRONG_PORTABLE_
 - For AI meeting-note cleanup, Claude Code CLI is currently the only supported runtime path.
 - For Notion upload, a Notion integration token and a parent page are needed.
 
-For local Whisper, the setup wizard creates an app-managed `python-venv`, installs `faster-whisper`, and downloads the selected model. A portable bundle uses its bundled Python runtime instead of requiring Python on the user's computer. OpenAI STT does not require local Python.
+For local Whisper, the setup wizard creates an app-managed `python-venv`, installs `faster-whisper`, and downloads the selected model. The portable release uses its bundled Python runtime instead of requiring Python on the user's computer. OpenAI STT does not require local Python.
 
 ## First-Time Setup Workflow
 
@@ -148,7 +146,6 @@ If multiple projects are configured, only the active project's Discord guild sho
 
 ```bash
 npm run build
-npm run bundle:portable
 npm test
 npm run doctor
 npm run doctor -- --notion-remote
@@ -195,7 +192,7 @@ Important local files include:
 
 Secrets are stored locally and dashboard/API status responses expose only redacted snapshots.
 
-In a portable bundle, these files live under `portable/Dirong/data/` instead. After setup, do not share the portable folder unless you remove `data/secrets/` first.
+In the portable release, these files live under `portable/Dirong/data/` instead. After setup, do not share the portable folder unless you remove `data/secrets/` first.
 
 ## License / Usage
 
@@ -225,6 +222,16 @@ The project uses TypeScript, native Node.js test runner, Discord.js, SQLite, loc
 이 앱은 사용자의 PC에서 실행되는 것을 전제로 합니다. 설정, 비밀값, 녹음 파일, 전사 결과, 초안, SQLite 데이터베이스는 호스팅 서비스가 아니라 로컬에 저장됩니다.
 
 ## 빠른 시작
+
+### 포터블 릴리즈
+
+대부분의 Windows 사용자는 [최신 GitHub 릴리즈](https://github.com/mua-vtuber/Dirong/releases/latest)에서 `Dirong_portable.zip`을 받은 뒤 압축을 풀고 다음 파일을 더블클릭하면 됩니다.
+
+```bat
+Dirong Start.bat
+```
+
+포터블 릴리즈에는 앱, Node.js, pip가 포함된 Python, 보조 스크립트, 빈 `data/` 폴더가 들어 있습니다. 첫 실행 때 설정 마법사를 완료하세요. 설정 후에는 `data/secrets/`를 제거하지 않은 상태로 포터블 폴더를 공유하지 마세요.
 
 ### Windows 실행 파일
 
@@ -256,18 +263,6 @@ npm start
 npm run dev
 ```
 
-### 포터블 번들
-
-깨끗한 Windows 포터블 폴더를 만들려면:
-
-```bash
-npm run bundle:portable
-```
-
-번들은 `portable/Dirong/`에 생성됩니다. 복사된 Node.js와 Python runtime, 빌드된 앱 파일, runtime dependency, 보조 스크립트, 빈 `data/` 폴더가 포함됩니다. 기존 로컬 설정과 secrets는 복사하지 않습니다.
-
-포터블 번들을 만들려면 Python runtime 원본이 필요합니다. `npm run bundle:portable` 실행 전에 `DIRONG_PORTABLE_PYTHON_DIR`을 지정하거나 `runtime/python`에 Python runtime을 두세요.
-
 ## 필요 조건
 
 - Node.js 22.12.0 이상.
@@ -280,7 +275,7 @@ npm run bundle:portable
 - AI 회의록 정리는 현재 Claude Code CLI만 지원합니다.
 - Notion 업로드에는 Notion integration token과 parent page가 필요합니다.
 
-local Whisper를 선택하면 설정 마법사가 앱 전용 `python-venv`를 만들고, `faster-whisper`와 선택한 모델을 설치합니다. 포터블 번들은 포함된 Python runtime을 사용하므로 사용자 PC에 Python이 없어도 됩니다. OpenAI STT는 로컬 Python이 필요하지 않습니다.
+local Whisper를 선택하면 설정 마법사가 앱 전용 `python-venv`를 만들고, `faster-whisper`와 선택한 모델을 설치합니다. 포터블 릴리즈는 포함된 Python runtime을 사용하므로 사용자 PC에 Python이 없어도 됩니다. OpenAI STT는 로컬 Python이 필요하지 않습니다.
 
 ## 최초 설정 워크플로우
 
@@ -363,7 +358,6 @@ exit
 
 ```bash
 npm run build
-npm run bundle:portable
 npm test
 npm run doctor
 npm run doctor -- --notion-remote
@@ -410,7 +404,7 @@ npm run sessions:purge -- --all --dry-run
 
 비밀값은 로컬에 저장되며, 대시보드/API 상태 응답에서는 redacted snapshot만 노출됩니다.
 
-포터블 번들에서는 이 파일들이 `portable/Dirong/data/` 아래에 저장됩니다. 설정 후에는 `data/secrets/`를 제거하지 않은 상태로 포터블 폴더를 공유하지 마세요.
+포터블 릴리즈에서는 이 파일들이 `portable/Dirong/data/` 아래에 저장됩니다. 설정 후에는 `data/secrets/`를 제거하지 않은 상태로 포터블 폴더를 공유하지 마세요.
 
 ## 라이선스 / 사용 범위
 

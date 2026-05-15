@@ -117,8 +117,147 @@ test("RecordingProducer localizes direct user-facing errors", async () => {
   }
 });
 
+// === Phase 2 RELY-05: 60s force-close branch ===
+//
+// Drives `executeForceCloseBranch` past its 60s timeout via Node 22 built-in
+// mock timers (`t.mock.timers`). The branch was extracted from
+// `stopActiveSession` as a byte-equivalent refactor because driving the full
+// Discord voice-connection flow would require >100 lines of stubs (per plan
+// T5 fallback path / executor advisory A2). Confirms RELY-05 success: when
+// the chunk close never completes (opusStream.destroy() is a no-op), the
+// store records a `chunk_finalize_timeout` repair item AND fatalErrors > 0.
+test("executeForceCloseBranch writes chunk_finalize_timeout repair items when the 60s force-close fails", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+
+  const dataDir = mkdtempSync(path.join(tmpdir(), "dirong-recording-force-close-"));
+  try {
+    const repairItems: Array<Parameters<RecordingProducerStore["recordRepairItem"]>[0]> = [];
+    const connectionEvents: Array<
+      Parameters<RecordingProducerStore["recordConnectionEvent"]>[0]
+    > = [];
+    const store = createRecordingStoreSpy([], {
+      onRepairItem: (input) => repairItems.push(input),
+      onConnectionEvent: (input) => connectionEvents.push(input),
+    });
+
+    const producer = new RecordingProducer(
+      { user: { id: "bot-user" } } as Client,
+      createConfig(dataDir),
+      store,
+      { localeResolver: () => "en" },
+    );
+
+    const sessionId = "meeting_2026_05_16_120000";
+    const chunkId = `${sessionId}_000001_user-1`;
+    const rawFinalPath = path.join(dataDir, sessionId, "chunks", "000001_user-1.ogg");
+
+    // Fake opus stream whose destroy() is a no-op — simulates the failure
+    // mode where Discord's AudioReceiveStream never emits end/close/error.
+    const fakeOpusStream = {
+      destroy: () => {
+        /* no-op: chunk close promise never resolves */
+      },
+    };
+
+    // Chunk.done is a never-resolving promise — guarantees the 60s
+    // waitForChunkPromises timeout elapses.
+    const neverResolving = new Promise<void>(() => {
+      /* never resolves */
+    });
+
+    const activeChunk = {
+      chunkId,
+      chunkIndex: 1,
+      userId: "user-1",
+      displayNameSnapshot: "User One",
+      startedAtMs: 0,
+      rawPartPath: rawFinalPath.replace(/\.ogg$/, ".part.ogg"),
+      rawFinalPath,
+      baseName: "000001_user-1",
+      opusStream: fakeOpusStream,
+      done: neverResolving,
+      requestClose: () => {
+        /* no-op */
+      },
+    };
+
+    const activeChunks = new Map<string, typeof activeChunk>([
+      ["user-1", activeChunk],
+    ]);
+
+    const active = {
+      sessionId,
+      projectId: null,
+      sessionDir: path.join(dataDir, sessionId),
+      chunksDir: path.join(dataDir, sessionId, "chunks"),
+      sttAudioDir: path.join(dataDir, sessionId, "stt-audio"),
+      startedAtMs: 0,
+      ffmpegPath: "/usr/bin/ffmpeg",
+      connection: {} as never,
+      guild: {} as never,
+      channel: {} as never,
+      activeChunks,
+      speakerSnapshots: new Map(),
+      voiceController: undefined,
+      chunkCounter: 1,
+      fatalErrors: 0,
+      lastDisconnectedAt: null,
+    };
+
+    const stoppingChunks = [...activeChunks.values()];
+
+    // Invoke the extracted force-close branch directly.
+    const branchPromise = (
+      producer as unknown as {
+        executeForceCloseBranch: (a: typeof active, s: typeof stoppingChunks) => Promise<void>;
+      }
+    ).executeForceCloseBranch(active, stoppingChunks);
+
+    // Advance through the 60s force-close timeout. tick() fires the inner
+    // setTimeout(..., 60000) synchronously; awaiting branchPromise then
+    // drains the microtask queue so the repair-item writes have run.
+    t.mock.timers.tick(60_000);
+    await branchPromise;
+
+    // RELY-05 primary assertion: chunk_finalize_timeout repair item written.
+    const timeoutItems = repairItems.filter(
+      (item) => item.type === "chunk_finalize_timeout",
+    );
+    assert.equal(timeoutItems.length, 1);
+    const item = timeoutItems[0];
+    assert.equal(item?.sessionId, sessionId);
+    assert.equal(item?.chunkId, chunkId);
+    assert.equal(item?.path, rawFinalPath);
+    assert.equal(item?.severity, "error");
+
+    // RELY-05 ordering assertion: chunk_force_destroy_requested was recorded
+    // BEFORE the repair item (the destroy attempt always precedes the
+    // forced-close-timeout repair write).
+    const forceDestroyIdx = connectionEvents.findIndex(
+      (e) => e.eventType === "chunk_force_destroy_requested",
+    );
+    assert.ok(forceDestroyIdx >= 0, "chunk_force_destroy_requested must be recorded");
+    assert.equal(connectionEvents[forceDestroyIdx]?.level, "warn");
+
+    // RELY-05 secondary: helper increments fatalErrors so the caller marks
+    // the session as needs_repair.
+    assert.equal(active.fatalErrors, 1);
+  } finally {
+    t.mock.timers.reset();
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+type RecordingStoreSpyOptions = {
+  onRepairItem?: (input: Parameters<RecordingProducerStore["recordRepairItem"]>[0]) => void;
+  onConnectionEvent?: (
+    input: Parameters<RecordingProducerStore["recordConnectionEvent"]>[0],
+  ) => void;
+};
+
 function createRecordingStoreSpy(
   createdSessions: Array<Parameters<RecordingProducerStore["createSession"]>[0]>,
+  options: RecordingStoreSpyOptions = {},
 ): RecordingProducerStore {
   return {
     createSession(input) {
@@ -129,8 +268,12 @@ function createRecordingStoreSpy(
     getSession() {
       return null;
     },
-    recordConnectionEvent() {},
-    recordRepairItem() {},
+    recordConnectionEvent(input) {
+      options.onConnectionEvent?.(input);
+    },
+    recordRepairItem(input) {
+      options.onRepairItem?.(input);
+    },
     upsertSpeaker() {},
     createChunkWriting() {},
     finalizeRawChunk() {},

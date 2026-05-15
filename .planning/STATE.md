@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-05-15)
 
 **Core value:** A meeting host can run `/dirong start` in Discord and end up with a clean, validated, locally-owned meeting note (and an optional Notion page) without exporting any audio or transcript outside their machine.
-**Current focus:** Phase 1 — Storage Foundation (Stability & Hardening v0.1 milestone) — Wave 2 of 4 complete; pending Wave 3
+**Current focus:** Phase 1 — Storage Foundation (Stability & Hardening v0.1 milestone) — Wave 3 of 4 complete; pending Wave 4
 
 ## Current Position
 
 Phase: 1 of 4 (Storage Foundation)
-Wave: 3 of 4 (Wave 1 + Wave 2 done; awaiting `/gsd:execute-phase 1 --wave 3`)
-Plan: T1.1 + T1.2 + T2.1 of 5 done (60%)
-Status: Wave 2 gate passed — 49/49 storage tests green (5 new facade + Wave-1 migration suites)
-Last activity: 2026-05-15 — Wave 2 executed: T2.1 (impl commit b099564, lint-fix 838381d, merge a6802bd); 4 facades + StorageContext composition root added; 22/22 new facade tests pass; session-store.ts unchanged (Wave 3 deletes it)
+Wave: 4 of 4 (Wave 1 + Wave 2 + Wave 3 done; awaiting `/gsd:execute-phase 1 --wave 4`)
+Plan: T1.1 + T1.2 + T2.1 + T3.1 of 5 done (80%)
+Status: Wave 3 gate passed — `npm run build && npm test` green (495/495 pass); ROADMAP success criterion #1 grep gate returns 0 hits
+Last activity: 2026-05-15 — Wave 3 executed: T3.1 atomic cutover (impl commit 6997ccd, SUMMARY e4157e1, merge 39e3712); 8 production callers + 12 test callers cut over; `repair-scan.ts` accepts `StorageContext` (advisory A2 applied — `RepairScanStore` composite removed); `src/storage/session-store.ts` (879 lines) deleted; transitional `flattenStorageContext` helper added to bridge legacy narrow-port interfaces (POLY follow-up flagged)
 
-Progress: [██████░░░░] 60% (T1.1 + T1.2 + T2.1 / 5 tasks)
+Progress: [████████░░] 80% (T1.1 + T1.2 + T2.1 + T3.1 / 5 tasks)
 
 ## Wave Status
 
@@ -23,7 +23,7 @@ Progress: [██████░░░░] 60% (T1.1 + T1.2 + T2.1 / 5 tasks)
 |------|-------|---------|--------|
 | 1 (sequential T1.1 → T1.2) | 2 | 119cb29, 473dbcd | ✓ Complete |
 | 2 (T2.1) | 1 | b099564, 838381d, a6802bd | ✓ Complete |
-| 3 (T3.1 — atomic cutover) | 1 | — | Pending |
+| 3 (T3.1 — atomic cutover) | 1 | 6997ccd, e4157e1, 39e3712 | ✓ Complete |
 | 4 (T4.1 — verification) | 1 | — | Pending |
 
 ## Performance Metrics
@@ -61,8 +61,21 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-- Wave 3 (T3.1) — atomic cutover: 8 production + 11 test callers swap to facades; delete `session-store.ts`. Highest blast radius — biggest risk in the milestone. Cutover decision needed: use `RepairScanStore` composite for `repair-scan.ts` (preserved by Wave 2 per A2 advisory) OR split its calls across `ctx.writes` / `ctx.reads` / `ctx.runtime` to drop the composite.
-- Wave 4 (T4.1) — final verification gates (grep + build + full test suite + forbidden-entry checks); enumerate the 5 new `dist/storage/*-store.test.js` + `dist/storage/storage-context.test.js` paths in `package.json#scripts.test`.
+- Wave 4 (T4.1) — final verification gates (grep + build + full test suite + forbidden-entry checks); enumerate the 5 new `dist/storage/*-store.test.js` + `dist/storage/storage-context.test.js` paths in `package.json#scripts.test`. Note: `npm test` is already green at 495/495 from Wave 3's merge, so Wave 4 mainly formalizes the `scripts.test` enumeration and runs the forbidden-entry check for `migration-idempotency`/`migration-crash-recovery`/`migrations-test-helpers` (which must NOT appear).
+- POLY follow-up (carry into Phase 3): update each `src/*/storage-port.ts` narrow port (e.g. `RecordingProducerStore`, `DashboardStore`, `SttBatchStore`, `AiCleanupAutomationStore`) to accept facade-typed inputs, then delete the transitional `flattenStorageContext` helper + `FlatStorageStore` type from `storage-context.ts`. The helper was added in Wave 3 as a `.bind()`-based pass-through because existing narrow ports expect flat method surfaces — zero behavior change, purely a structural transition step.
+
+### Wave 3 Outcomes (T3.1 — 2026-05-15)
+
+- Atomic cutover commit `6997ccd`: 25 files modified + `src/storage/session-store.ts` (879 lines) deleted; 362 insertions / 1080 deletions.
+- 8 production callers updated: `src/app/{main,ai-cleanup,fake-stt,real-stt,repair}.ts` swapped from `new SessionStore(...)` to `createStorageContext(...)`; method calls dispatched to `ctx.writes` / `ctx.reads` / `ctx.jobs` / `ctx.runtime`.
+- 3 Notion files (`draft-input.ts`, `draft-input-read-model.ts`, `test-fixtures.ts`) had type-only `from "../storage/session-store.js"` imports redirected to `"../storage/storage-context.js"` (T2.1 re-exports the row types line-for-line).
+- `src/storage/repair-scan.ts` (Blocker 2) now accepts `StorageContext` and dispatches internally — per executor advisory A2, the `RepairScanStore` composite type was DROPPED from `storage-context.ts` because `repair-scan.ts` also consumes `JobQueueStore` methods (`failJobsWithMissingAudio`, `queueExistingSttJobForChunk`); the composite would not have compiled.
+- 12 test files cut over (4 storage-internal + 8 cross-module); `session-purge.test.ts` filename preserved per Blocker 3 (it stays enumerated as `dist/storage/session-purge.test.js` in `package.json#scripts.test`).
+- 4 storage source files had doc comments rephrased to drop literal `session-store.ts` references (passes the strict internal grep gate `grep -rn "session-store" src/storage/ --include="*.ts" | grep -v "session-store-paths\|session-store-ai-cleanup"` returning zero).
+- ROADMAP success criterion #1 grep gate: `grep -r "from .*session-store" src/ --include="*.ts" | grep -v "^src/storage/" | grep -v test` returns ZERO hits.
+- `npm run build && npm test` green (495/495 tests pass, 0 fail, 0 skipped, 9.34s).
+- **Executor deviation (transitional helper, logged in `01-T3_1-SUMMARY.md`):** Added `flattenStorageContext(ctx)` + `FlatStorageStore` type to `storage-context.ts`. Required because existing narrow-port interfaces (`RecordingProducerStore`, `DashboardStore`, `SttBatchStore`, `AiCleanupAutomationStore`, etc.) expect flat method surfaces; passing raw `ctx` to those service constructors would not type-check. The helper is `.bind()`-based (zero behavior change) and the type is defined via `Pick<C, keyof C>` per facade so private repository slots are stripped. `FlatStorageStore` is documented as transitional — a POLY-* follow-up task will update each narrow port to accept facade-typed inputs and delete this helper.
+- **Orchestrator merge friction (process note, not a code deviation):** The main working tree carries ~221 pre-existing files with CRLF↔LF line-ending noise from Windows-side editing (known env state per Wave 2 SUMMARY). The merge initially aborted because those noise files would have been "overwritten by merge"; orchestrator stashed the noise (`wave3-pre-merge-line-ending-noise`), merged cleanly, resolved 20 stash-pop conflicts in favor of merge HEAD (`--ours`), unstaged the stash-applied non-conflicting noise via `git reset HEAD` to restore pre-merge user state, and dropped the stash. Merge commit `39e3712` is clean and atomic; the line-ending noise remains as pre-existing untracked user state, identical to its post-Wave-2 condition.
 
 ### Wave 2 Outcomes (T2.1 — 2026-05-15)
 

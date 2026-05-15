@@ -220,6 +220,7 @@ export class AiCleanupProviderLifecycleAdapter implements AiMeetingNotesProvider
       technicalDetail: null,
     });
   }
+
 }
 
 function normalizeResetReason(
@@ -253,7 +254,21 @@ export function wrapAiCleanupProviderWithLifecycle(
   provider: AiCleanupProvider,
   options?: AiCleanupProviderLifecycleAdapterOptions,
 ): AiMeetingNotesProvider {
-  return new AiCleanupProviderLifecycleAdapter(provider, options);
+  const adapter = new AiCleanupProviderLifecycleAdapter(provider, options);
+  // RELY-03: forward `forceKillIfStale` to the underlying provider iff it
+  // implements one. Attached as an own-property so the service's runtime
+  // narrowing `'forceKillIfStale' in this.provider` succeeds for CLI
+  // providers and fails for API providers that lack the safeguard.
+  const underlying = provider as {
+    forceKillIfStale?: (now?: number) => boolean;
+  };
+  if (typeof underlying.forceKillIfStale === "function") {
+    const forceKillIfStale = underlying.forceKillIfStale.bind(provider);
+    (adapter as unknown as {
+      forceKillIfStale: (now?: number) => boolean;
+    }).forceKillIfStale = (now?: number) => forceKillIfStale(now);
+  }
+  return adapter;
 }
 
 function inferLegacyProviderCapabilities(

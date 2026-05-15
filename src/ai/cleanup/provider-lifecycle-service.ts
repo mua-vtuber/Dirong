@@ -37,6 +37,12 @@ export class AiProviderLifecycleService {
   private preparePromise: Promise<AiProviderRuntimeReadinessSnapshot> | null = null;
   private snapshot: AiProviderRuntimeReadinessSnapshot;
   private stopped = false;
+  // RELY-03: safeguard interval that force-kills sessions whose wall-clock
+  // duration exceeded `timeoutMs * 2`. Started in `startPrepareInBackground`
+  // when the wrapped provider exposes `forceKillIfStale`; cleared in `stop()`.
+  // Per CONTEXT.md D-03/RELY-03: `.unref()` so the interval does not block
+  // process exit.
+  private safeguardInterval: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly provider: AiMeetingNotesProvider,
@@ -52,6 +58,27 @@ export class AiProviderLifecycleService {
 
     if (this.preparePromise) {
       return this.preparePromise;
+    }
+
+    // RELY-03: install safeguard interval if the wrapped provider supports it.
+    // Non-CLI providers (or wrapped adapters without the method) are a no-op.
+    if (this.safeguardInterval === null && hasForceKillIfStale(this.provider)) {
+      const periodMs = Math.max(
+        5_000,
+        Math.floor(this.options.prepareTimeoutMs / 4),
+      );
+      const stalenessGuard = this.provider;
+      this.safeguardInterval = setInterval(() => {
+        try {
+          stalenessGuard.forceKillIfStale(Date.now());
+        } catch {
+          // Safeguard interval must never throw — a hung session is still
+          // better than crashing the lifecycle service.
+        }
+      }, periodMs);
+      // Unref so the interval does not keep the Node process alive past
+      // intended shutdown.
+      this.safeguardInterval.unref?.();
     }
 
     const callOptions: AiProviderLifecycleCallOptions = {
@@ -104,6 +131,12 @@ export class AiProviderLifecycleService {
   async stop(): Promise<void> {
     this.stopped = true;
     this.prepareAbortController.abort();
+    // RELY-03: clear the safeguard interval BEFORE delegating to provider.stop
+    // so we cannot fire `forceKillIfStale` against an already-torn-down session.
+    if (this.safeguardInterval !== null) {
+      clearInterval(this.safeguardInterval);
+      this.safeguardInterval = null;
+    }
     await this.provider.stop({ timeoutMs: this.options.prepareTimeoutMs });
     this.snapshot = this.sanitizeSnapshot(this.provider.getReadiness());
   }
@@ -153,6 +186,23 @@ function sanitizeSnapshot(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * RELY-03: type guard for the optional safeguard hook. Returns true iff the
+ * wrapped provider exposes a synchronous `forceKillIfStale(now)` method.
+ * Non-CLI providers (e.g. future API providers) will not implement this and
+ * the safeguard interval becomes a no-op for them.
+ */
+function hasForceKillIfStale(
+  provider: AiMeetingNotesProvider,
+): provider is AiMeetingNotesProvider & {
+  forceKillIfStale(now?: number): boolean;
+} {
+  return (
+    typeof (provider as { forceKillIfStale?: unknown }).forceKillIfStale ===
+    "function"
+  );
 }
 
 function buildAiReadinessDisplay(

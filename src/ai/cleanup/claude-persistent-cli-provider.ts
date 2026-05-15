@@ -69,6 +69,11 @@ export class ClaudeStreamJsonCliCleanupProvider implements AiCleanupProvider {
     pid: number;
     errno: string | null;
   }) => void;
+  // RELY-03: safeguard-interval inputs. Tracked across the in-flight generate()
+  // and consulted by `forceKillIfStale(now)` so the AiProviderLifecycleService
+  // can SIGKILL a session whose wall-clock duration exceeded `timeoutMs * 2`.
+  private generateStartedAt: number | null = null;
+  private currentTimeoutMs: number | null = null;
 
   constructor(options: ClaudeStreamJsonCliCleanupProviderOptions = {}) {
     this.command = options.command?.trim() || "claude";
@@ -118,6 +123,11 @@ export class ClaudeStreamJsonCliCleanupProvider implements AiCleanupProvider {
     }
 
     const startedAt = Date.now();
+    // RELY-03: record startedAt + timeoutMs on the provider so the service-owned
+    // safeguard interval can detect a stale in-flight generate() via
+    // `forceKillIfStale(now)`. Cleared in `finally` after killSession.
+    this.generateStartedAt = startedAt;
+    this.currentTimeoutMs = options.timeoutMs;
     const extraArgs = buildPersistentCleanupExtraArgs(options);
 
     // RELY-02: register the abort listener BEFORE any await on the session-kill
@@ -202,7 +212,33 @@ export class ClaudeStreamJsonCliCleanupProvider implements AiCleanupProvider {
         options.signal?.removeEventListener("abort", abortListener);
       }
       await this.killSession();
+      // RELY-03: clear safeguard inputs AFTER killSession so a concurrent
+      // `forceKillIfStale` call mid-shutdown still has the data it needs.
+      this.generateStartedAt = null;
+      this.currentTimeoutMs = null;
     }
+  }
+
+  /**
+   * RELY-03: safeguard-interval entry point. Returns `true` iff a kill was
+   * performed. Idempotent — repeated calls on an already-killed session
+   * return `false` because killSession() nulls `this.session`.
+   *
+   * The service owns the `setInterval` cadence and unref()s it; this method
+   * is pure and trivially testable in isolation (no timers, no I/O).
+   */
+  forceKillIfStale(now: number = Date.now()): boolean {
+    const startedAt = this.generateStartedAt;
+    const timeoutMs = this.currentTimeoutMs;
+    const session = this.session;
+    if (startedAt === null || timeoutMs === null || session === null) {
+      return false;
+    }
+    if (now - startedAt <= timeoutMs * 2) {
+      return false;
+    }
+    session.kill("SIGKILL");
+    return true;
   }
 
   async resetSession(

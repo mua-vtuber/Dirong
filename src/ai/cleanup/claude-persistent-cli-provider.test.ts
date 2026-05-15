@@ -414,6 +414,81 @@ test("ClaudeStreamJsonCliCleanupProvider.reapTrackedPids swallows ESRCH and stil
   assert.equal(internal.trackedPids.size, 0, "trackedPids must be cleared even on throw");
 });
 
+// === Phase 2 RELY-03: safeguard interval force-kill ===
+
+test("ClaudeStreamJsonCliCleanupProvider.forceKillIfStale SIGKILLs when now - startedAt > timeoutMs * 2", () => {
+  const provider = new ClaudeStreamJsonCliCleanupProvider({
+    command: "claude.exe",
+    spawnProcess: () => new FakeChildProcess(0),
+  });
+  const internal = provider as unknown as {
+    generateStartedAt: number | null;
+    currentTimeoutMs: number | null;
+    session: { kill(signal: NodeJS.Signals | number): boolean } | null;
+  };
+  const killCalls: Array<NodeJS.Signals | number> = [];
+  internal.generateStartedAt = 0;
+  internal.currentTimeoutMs = 1_000;
+  internal.session = {
+    kill: (signal) => {
+      killCalls.push(signal);
+      return true;
+    },
+  };
+
+  const killed = provider.forceKillIfStale(2_001);
+
+  assert.equal(killed, true, "forceKillIfStale must return true when stale");
+  assert.deepEqual(killCalls, ["SIGKILL"]);
+});
+
+test("ClaudeStreamJsonCliCleanupProvider.forceKillIfStale returns false at the boundary now - startedAt === timeoutMs * 2", () => {
+  const provider = new ClaudeStreamJsonCliCleanupProvider({
+    command: "claude.exe",
+    spawnProcess: () => new FakeChildProcess(0),
+  });
+  const internal = provider as unknown as {
+    generateStartedAt: number | null;
+    currentTimeoutMs: number | null;
+    session: { kill(signal: NodeJS.Signals | number): boolean } | null;
+  };
+  const killCalls: Array<NodeJS.Signals | number> = [];
+  internal.generateStartedAt = 0;
+  internal.currentTimeoutMs = 1_000;
+  internal.session = {
+    kill: (signal) => {
+      killCalls.push(signal);
+      return true;
+    },
+  };
+
+  // Boundary: now - startedAt === timeoutMs * 2. Predicate is strictly greater
+  // than (`> timeoutMs * 2`), so this must NOT trigger a kill.
+  const killed = provider.forceKillIfStale(2_000);
+
+  assert.equal(killed, false, "forceKillIfStale must return false at the boundary");
+  assert.equal(killCalls.length, 0, "no SIGKILL must be sent at the boundary");
+});
+
+test("ClaudeStreamJsonCliCleanupProvider.forceKillIfStale returns false when session is null", () => {
+  const provider = new ClaudeStreamJsonCliCleanupProvider({
+    command: "claude.exe",
+    spawnProcess: () => new FakeChildProcess(0),
+  });
+  const internal = provider as unknown as {
+    generateStartedAt: number | null;
+    currentTimeoutMs: number | null;
+    session: unknown;
+  };
+  internal.generateStartedAt = 0;
+  internal.currentTimeoutMs = 1_000;
+  // session stays at its default null
+
+  const killed = provider.forceKillIfStale(99_999_999);
+
+  assert.equal(killed, false, "forceKillIfStale must no-op on null session");
+});
+
 function createProviderInput(): AiCleanupProviderInput {
   return {
     sessionId: "meeting_test",

@@ -5,24 +5,24 @@
 See: .planning/PROJECT.md (updated 2026-05-15)
 
 **Core value:** A meeting host can run `/dirong start` in Discord and end up with a clean, validated, locally-owned meeting note (and an optional Notion page) without exporting any audio or transcript outside their machine.
-**Current focus:** Phase 1 — Storage Foundation (Stability & Hardening v0.1 milestone) — Wave 1 of 4 complete; pending Wave 2
+**Current focus:** Phase 1 — Storage Foundation (Stability & Hardening v0.1 milestone) — Wave 2 of 4 complete; pending Wave 3
 
 ## Current Position
 
 Phase: 1 of 4 (Storage Foundation)
-Wave: 2 of 4 (Wave 1 done; awaiting `/gsd:execute-phase 1 --wave 2`)
-Plan: T1.1 + T1.2 of 5 done (40%)
-Status: Wave 1 gate passed (with environmental caveat — see Blockers)
-Last activity: 2026-05-15 — Wave 1 executed: T1.1 (commit 119cb29) + T1.2 (commit 473dbcd); migrations test suite green (26/26)
+Wave: 3 of 4 (Wave 1 + Wave 2 done; awaiting `/gsd:execute-phase 1 --wave 3`)
+Plan: T1.1 + T1.2 + T2.1 of 5 done (60%)
+Status: Wave 2 gate passed — 49/49 storage tests green (5 new facade + Wave-1 migration suites)
+Last activity: 2026-05-15 — Wave 2 executed: T2.1 (impl commit b099564, lint-fix 838381d, merge a6802bd); 4 facades + StorageContext composition root added; 22/22 new facade tests pass; session-store.ts unchanged (Wave 3 deletes it)
 
-Progress: [██░░░░░░░░] 20% (T1.1 + T1.2 / 5 tasks)
+Progress: [██████░░░░] 60% (T1.1 + T1.2 + T2.1 / 5 tasks)
 
 ## Wave Status
 
 | Wave | Tasks | Commits | Status |
 |------|-------|---------|--------|
 | 1 (sequential T1.1 → T1.2) | 2 | 119cb29, 473dbcd | ✓ Complete |
-| 2 (T2.1) | 1 | — | Pending |
+| 2 (T2.1) | 1 | b099564, 838381d, a6802bd | ✓ Complete |
 | 3 (T3.1 — atomic cutover) | 1 | — | Pending |
 | 4 (T4.1 — verification) | 1 | — | Pending |
 
@@ -61,9 +61,19 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-- Wave 2 (T2.1) — create role-scoped facades (`SessionWriteStore` / `SessionReadStore` / `JobQueueStore` / `RuntimeStateStore`) + composition root `storage-context.ts`. Drop the dead `RepairScanStore` composite type per executor advisory A2.
-- Wave 3 (T3.1) — atomic cutover: 8 production + 11 test callers swap to facades; delete `session-store.ts`. High blast radius — biggest risk in the milestone.
-- Wave 4 (T4.1) — final verification gates (grep + build + full test suite + forbidden-entry checks).
+- Wave 3 (T3.1) — atomic cutover: 8 production + 11 test callers swap to facades; delete `session-store.ts`. Highest blast radius — biggest risk in the milestone. Cutover decision needed: use `RepairScanStore` composite for `repair-scan.ts` (preserved by Wave 2 per A2 advisory) OR split its calls across `ctx.writes` / `ctx.reads` / `ctx.runtime` to drop the composite.
+- Wave 4 (T4.1) — final verification gates (grep + build + full test suite + forbidden-entry checks); enumerate the 5 new `dist/storage/*-store.test.js` + `dist/storage/storage-context.test.js` paths in `package.json#scripts.test`.
+
+### Wave 2 Outcomes (T2.1 — 2026-05-15)
+
+- 7 new production files in `src/storage/`: `path-mapping.ts`, `store-helpers.ts`, `session-write-store.ts`, `session-read-store.ts`, `job-queue-store.ts`, `runtime-state-store.ts`, `storage-context.ts` — plus `rows.ts` (executor-introduced row-type extraction module that `storage-context.ts` re-exports; not in the original plan file list but consistent with CONVENTIONS.md and unblocks Wave 3's `repair-scan.ts` type redirect).
+- 5 co-located `*.test.ts` files, all pass under `node --test`: 22/22 facade tests; post-merge gate against Wave-1 migration tests is 49/49 green.
+- All four facades share ONE `SqlRunner` per `DirongDatabase` (CONTEXT.md lock verified by `storage-context.test.ts`).
+- `src/storage/session-store.ts` is byte-identical to its pre-Wave-2 state (Wave 3 deletes it).
+- `package.json` is unchanged (Wave 4 enumerates the new tests).
+- `repair-scan.ts` is unchanged (Wave 3 redirects its type imports).
+- Executor deviation logged in `01-T2_1-SUMMARY.md`: 11 initial test failures from missing `upsertSpeaker` before `createChunkWriting` (composite FK on `chunks(session_id, user_id) → session_speakers`); auto-fixed in-place before the atomic commit.
+- Post-merge LSP follow-up: 2 unused-locals diagnostics (`AiCleanupFailureKind` import in `session-write-store.ts`; `normalizeCtx` binding in `runtime-state-store.test.ts`) — fixed in 838381d before the merge to main.
 
 ### Blockers/Concerns
 

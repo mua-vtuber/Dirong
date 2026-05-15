@@ -70,7 +70,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Storage Foundation | 0/TBD | Not started | - |
+| 1. Storage Foundation | 0/1 (3/5 tasks: T1.1, T1.2, T2.1) | In progress (Wave 2 of 4 done) | - |
 | 2. Persistent CLI & Recording Reliability | 0/TBD | Not started | - |
 | 3. Policy Compliance — Silent Fallbacks & Mock Isolation | 0/TBD | Not started | - |
 | 4. Dashboard Surface Hygiene | 0/TBD | Not started | - |

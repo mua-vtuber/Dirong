@@ -186,6 +186,15 @@ Items acknowledged and carried forward (v2 scope, see REQUIREMENTS.md):
 
 ## Session Continuity
 
-Last session: 2026-05-15 (init)
-Stopped at: Roadmap created; awaiting `/gsd:plan-phase 1` to begin Phase 1 planning.
-Resume file: None
+Last session: 2026-05-16 (Phase 2 execution + UAT)
+Stopped at: Phase 2 UAT 8/9 PASS + **1 BLOCKED** (step 9 — environment problem, NOT a code defect). Investigation traced "녹음 결과 안 보임" symptom to `ERR_DLOPEN_FAILED` on `node_modules/node-crc/build/Release/crc.node` — a Linux ELF binary loaded on Windows. Same cross-platform native-binding class as the `@snazzah/davey` carry-forward. Recovery path documented: user runs `npm install` (or `npm rebuild node-crc`) on the Windows side to overwrite the Linux binary, then re-attempts the recording flow.
+Resume file: `.planning/phase2/01-UAT.md` (test 9 is `blocked: environment / cross-platform-native-binding` — flip to `pass` once user confirms post-`npm install` recording flow renders the audio playbar in the dashboard).
+
+**Resume checklist (in order):**
+1. User confirms `npm install` (Windows side) completed without errors.
+2. User starts the bot (`Dirong Start.bat`).
+3. User runs `/dirong start` → records briefly → `/dirong stop` in a Discord voice channel.
+4. User checks dashboard — if **audio playbar renders** under the chunk row, the chunk pipeline is healthy → flip UAT step 9 to `pass`, commit UAT.md, run `/gsd:discuss-phase 3` to start Phase 3 (POLY-01..03 + LOG-01).
+5. If playbar still missing, drill into the chunk pipeline error path: look at the new `connection_events` row for the chunk in question, check if `node-crc` still fails, check `chunks.status` column. The first chunk_pipeline_error event after the re-attempt is the next decisive data point.
+
+**If user wants to revisit Phase 2 code:** there is no known code defect. All ROADMAP success criteria (5/5) hold, all REQUIREMENTS (RELY-01..05 + TEST-01) are satisfied by passing tests + greps. The only outstanding work is environmental.

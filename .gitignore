@@ -15,6 +15,7 @@ AGENTS.md
 .agestra
 
 # Local planning docs are intentionally not committed.
+.planning/
 docs/
 
 references/*

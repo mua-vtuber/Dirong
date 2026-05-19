@@ -4,6 +4,7 @@ import { ClaudeStreamJsonCliCleanupProvider } from "../ai/cleanup/claude-persist
 import { runAiCleanupForSession } from "../ai/cleanup/runner.js";
 import type { AiCleanupProvider } from "../ai/cleanup/provider.js";
 import { printCliError, resolveCliLocale } from "../cli/error-output.js";
+import { t } from "../i18n/catalog.js";
 import { loadProductRuntimeSettings } from "../settings/product-settings.js";
 import {
   buildNotionCustomPropertyPrompt,
@@ -120,7 +121,8 @@ function printResult(
   result: Awaited<ReturnType<typeof runAiCleanupForSession>>,
   options: Phase4AiCleanupCliOptions,
 ): void {
-  console.log("디롱이 Phase 4 AI cleanup 결과");
+  const locale = resolveCliLocale();
+  console.log(t(locale, "runtimeCli.phaseCli.phase4Title"));
   console.log(`DB: ${dbPath}`);
   console.log(`mode: ${result.dryRun ? "dry-run" : "write"}`);
   console.log(`status: ${result.status}`);
@@ -134,7 +136,7 @@ function printResult(
     console.log("smoke test: yes");
   }
   if (options.includeFakeStt) {
-    console.log("주의: 테스트 전사용(fake STT) 입력이 포함되었습니다. 일반 회의록 생성 경로에서는 사용하지 마세요.");
+    console.log(t(locale, "runtimeCli.phaseCli.fakeSttIncludedWarning"));
   }
   console.log(`input chars: ${result.inputChars} / ${result.maxInputChars}`);
   console.log(`DB changed: ${result.dbChanged ? "yes" : "no"}`);
@@ -145,7 +147,7 @@ function printResult(
       console.log(`- ${backupPath}`);
     }
   } else if (result.dryRun) {
-    console.log("SQLite snapshot backup: dry-run에서는 생성하지 않음");
+    console.log(t(locale, "runtimeCli.phaseCli.backupDryRunSkipped"));
   }
 
   if (result.job) {

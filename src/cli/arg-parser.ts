@@ -1,3 +1,5 @@
+import { formatLocaleText } from "../i18n/catalog.js";
+
 export type CliBooleanArg<TOptions> = {
   kind: "boolean";
   apply: (options: TOptions) => void;
@@ -116,7 +118,9 @@ export function readPositiveIntegerArg(
 ): number {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${flag} 값은 1 이상의 정수여야 합니다.`);
+    throw new Error(formatLocaleText("ko", "runtimeCli.argParser.positiveIntegerRequired", {
+      flag,
+    }));
   }
   return parsed;
 }

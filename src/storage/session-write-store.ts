@@ -1,4 +1,5 @@
 import { AiCleanupJobQueue } from "./ai-cleanup-job-queue.js";
+import { formatLocaleText, t } from "../i18n/catalog.js";
 import { ChunkRepository } from "./chunk-repository.js";
 import { MeetingNotesDraftRepository } from "./meeting-notes-draft-repository.js";
 import { mapAiCleanupJobRow, mapMeetingNotesDraftRow } from "./path-mapping.js";
@@ -153,7 +154,9 @@ export class SessionWriteStore {
     this.sql.transaction(() => {
       const chunk = this.chunks.get(input.chunkId);
       if (!chunk) {
-        throw new Error(`chunk를 찾지 못했습니다: ${input.chunkId}`);
+        throw new Error(formatLocaleText("ko", "runtimeCli.storage.chunkMissing", {
+          chunkId: input.chunkId,
+        }));
       }
 
       const now = isoNow();
@@ -236,7 +239,9 @@ export class SessionWriteStore {
     const chunk = this.chunks.get(input.job.chunk_id);
     if (!chunk) {
       throw new Error(
-        `STT job의 chunk를 찾지 못했습니다: ${input.job.chunk_id}`,
+        formatLocaleText("ko", "runtimeCli.storage.sttJobChunkMissing", {
+          chunkId: input.job.chunk_id,
+        }),
       );
     }
 
@@ -279,7 +284,9 @@ export class SessionWriteStore {
     const segment = this.transcripts.getBySttJobId(input.job.id);
     if (!segment) {
       throw new Error(
-        `transcript segment 저장에 실패했습니다: ${input.job.id}`,
+        formatLocaleText("ko", "runtimeCli.storage.transcriptSegmentSaveFailed", {
+          jobId: input.job.id,
+        }),
       );
     }
     return segment;
@@ -330,7 +337,9 @@ export class SessionWriteStore {
       this.paths.resolveStoredPath(filePath),
     );
     if (!job) {
-      throw new Error(`AI cleanup job을 찾지 못했습니다: ${input.jobId}`);
+      throw new Error(formatLocaleText("ko", "runtimeCli.storage.aiCleanupJobMissing", {
+        jobId: input.jobId,
+      }));
     }
 
     const now = isoNow();
@@ -370,7 +379,7 @@ export class SessionWriteStore {
       (filePath) => this.paths.resolveStoredPath(filePath),
     );
     if (!draft) {
-      throw new Error("meeting notes draft 저장에 실패했습니다.");
+      throw new Error(t("ko", "runtimeCli.storage.meetingNotesDraftSaveFailed"));
     }
     return draft;
   }

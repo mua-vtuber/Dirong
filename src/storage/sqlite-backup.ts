@@ -3,6 +3,7 @@ import path from "node:path";
 import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
 import { DirongError, redactSensitiveText } from "../errors.js";
+import { t } from "../i18n/catalog.js";
 
 export type SqliteBackupOptions = {
   busyTimeoutMs: number;
@@ -11,9 +12,9 @@ export type SqliteBackupOptions = {
 };
 
 const DEFAULT_FAILURE_MESSAGE_LINES = [
-  "SQLite backup 생성에 실패했습니다.",
-  "녹음 중이면 잠시 후 다시 시도해 주세요.",
-  "backup이 실패했으므로 STT job은 claim하지 않았고 attempts도 증가하지 않았습니다.",
+  t("ko", "runtimeCli.sqlite.backupFailed"),
+  t("ko", "runtimeCli.sqlite.recordingRetry"),
+  t("ko", "runtimeCli.sqlite.sttNotClaimed"),
 ] as const;
 
 export function backupDatabaseSnapshot(

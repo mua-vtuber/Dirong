@@ -3,6 +3,7 @@ import {
   DEFAULT_DIRONG_LOCALE,
   type DirongLocale,
 } from "../../settings/local-settings-store.js";
+import { t } from "../../i18n/catalog.js";
 
 export const PHASE4_AI_CLEANUP_PROMPT_VERSION = "phase4-ai-cleanup-v4";
 
@@ -214,16 +215,9 @@ function meetingNotesSkeletonText(locale: DirongLocale): {
   summary: string;
   none: string;
 } {
-  if (locale === "en") {
-    return {
-      title: "Meeting notes draft",
-      summary: "Summary",
-      none: "None",
-    };
-  }
   return {
-    title: "회의록 초안",
-    summary: "요약",
-    none: "없음",
+    title: t(locale, "meetingNotesMarkdown.draftTitle"),
+    summary: t(locale, "meetingNotesMarkdown.summaryHeading"),
+    none: t(locale, "meetingNotesMarkdown.empty"),
   };
 }

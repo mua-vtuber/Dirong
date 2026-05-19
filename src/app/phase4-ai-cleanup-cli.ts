@@ -6,6 +6,7 @@ import {
   valueArg,
   type CliArgSpec,
 } from "../cli/arg-parser.js";
+import { formatLocaleText, t } from "../i18n/catalog.js";
 
 export type Phase4AiCleanupProviderName = "fake" | "claude-cli";
 
@@ -44,21 +45,17 @@ export function parsePhase4AiCleanupArgs(
       debug: false,
     },
     PHASE4_ARG_SPEC,
-    (flag) => `알 수 없는 Phase 4 AI cleanup 옵션입니다: ${flag}`,
+    (flag) => formatLocaleText("ko", "runtimeCli.phaseCli.phase4UnknownOption", { flag }),
   );
 
   if (!options.sessionId) {
-    throw new Error("--session <session-id> 값이 필요합니다.");
+    throw new Error(t("ko", "runtimeCli.phaseCli.phase4SessionRequired"));
   }
   if (options.smokeTest && options.provider !== "fake") {
-    throw new Error(
-      "--smoke-test는 --provider fake와 함께 사용하는 명시적 smoke test 전용 옵션입니다.",
-    );
+    throw new Error(t("ko", "runtimeCli.phaseCli.smokeTestRequiresFake"));
   }
   if (options.includeFakeStt && !options.dryRun && !options.smokeTest) {
-    throw new Error(
-      "--include-fake-stt는 dry-run 진단 또는 --provider fake --smoke-test에서만 사용할 수 있습니다.",
-    );
+    throw new Error(t("ko", "runtimeCli.phaseCli.includeFakeSttRequiresDryRun"));
   }
 
   return {
@@ -99,11 +96,17 @@ const PHASE4_ARG_SPEC: Record<
   "--include-fake-stt": booleanOptionArg("includeFakeStt", true),
   "--smoke-test": booleanOptionArg("smokeTest", true),
   "--no-backup": booleanOptionArg("backup", false),
-  "--session": requiredStringOptionArg("--session 값이 필요합니다.", "sessionId"),
+  "--session": requiredStringOptionArg(
+    t("ko", "runtimeCli.phaseCli.sessionValueRequired"),
+    "sessionId",
+  ),
   "--provider": valueArg(readProvider, (options, value) => {
     options.provider = value;
   }),
-  "--model": requiredStringOptionArg("--model 값이 필요합니다.", "model"),
+  "--model": requiredStringOptionArg(
+    t("ko", "runtimeCli.phaseCli.modelValueRequired"),
+    "model",
+  ),
   "--lease-ms": positiveIntegerOptionArg("leaseMs"),
   "--timeout-ms": positiveIntegerOptionArg("timeoutMs"),
   "--max-input-chars": positiveIntegerOptionArg("maxInputChars"),
@@ -114,5 +117,5 @@ function readProvider(value: string | undefined): Phase4AiCleanupProviderName {
   if (value === "fake" || value === "claude-cli") {
     return value;
   }
-  throw new Error("--provider 값은 fake 또는 claude-cli 중 하나여야 합니다.");
+  throw new Error(t("ko", "runtimeCli.phaseCli.aiProviderInvalid"));
 }

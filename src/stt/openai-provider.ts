@@ -1,6 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { redactSensitiveText } from "../errors.js";
+import { formatLocaleText, t } from "../i18n/catalog.js";
 import type {
   SttProvider,
   SttTranscriptionContext,
@@ -29,13 +30,15 @@ export class OpenAiSttProvider implements SttProvider {
     options?: SttTranscriptionOptions,
   ): Promise<SttTranscriptionResult> {
     if (!this.apiKey.trim()) {
-      throw new Error("OpenAI API key가 저장되지 않아 실제 STT를 호출할 수 없습니다.");
+      throw new Error(t("ko", "runtimeCli.sttProvider.openAiKeyMissing"));
     }
 
     const audioStat = await stat(inputAudioPath);
     if (audioStat.size > OPENAI_AUDIO_UPLOAD_LIMIT_BYTES) {
       throw new Error(
-        `OpenAI STT 입력 파일이 25MB 제한을 초과했습니다: ${audioStat.size} bytes`,
+        formatLocaleText("ko", "runtimeCli.sttProvider.openAiFileTooLarge", {
+          bytes: audioStat.size,
+        }),
       );
     }
 
@@ -102,7 +105,7 @@ function parseTranscriptionResponse(body: string): { text: string } {
     !("text" in parsed) ||
     typeof parsed.text !== "string"
   ) {
-    throw new Error("OpenAI STT API 응답에 text 필드가 없습니다.");
+    throw new Error(t("ko", "runtimeCli.sttProvider.openAiTextMissing"));
   }
   return { text: parsed.text };
 }

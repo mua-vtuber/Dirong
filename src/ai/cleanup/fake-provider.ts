@@ -9,6 +9,7 @@ import type {
   AiCleanupProviderOptions,
   AiCleanupProviderResult,
 } from "./provider.js";
+import { formatLocaleText, t } from "../../i18n/catalog.js";
 
 export class FakeAiCleanupProvider implements AiCleanupProvider {
   readonly providerName: string = "fake";
@@ -182,10 +183,14 @@ function fakeDraftText(
     };
   }
   return {
-    title: `회의록 초안: ${sessionId}`,
-    summary: `총 ${entryCount}개의 transcript entry를 바탕으로 생성한 fake 회의록 초안입니다.`,
-    topicTitle: "회의 내용",
-    removedChatterSummary: "Fake provider는 실제 잡담 제거를 수행하지 않았습니다.",
-    keptBecause: "오프라인 검증용 deterministic draft입니다.",
+    title: formatLocaleText("ko", "runtimeCli.fakeProvider.draftTitle", {
+      sessionId,
+    }),
+    summary: formatLocaleText("ko", "runtimeCli.fakeProvider.summary", {
+      entryCount,
+    }),
+    topicTitle: t("ko", "runtimeCli.fakeProvider.topicTitle"),
+    removedChatterSummary: t("ko", "runtimeCli.fakeProvider.removedChatterSummary"),
+    keptBecause: t("ko", "runtimeCli.fakeProvider.keptBecause"),
   };
 }

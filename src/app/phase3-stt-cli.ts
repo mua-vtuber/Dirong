@@ -6,6 +6,7 @@ import {
   valueArg,
   type CliArgSpec,
 } from "../cli/arg-parser.js";
+import { formatLocaleText, t } from "../i18n/catalog.js";
 import type { SttProviderName } from "../settings/app-settings.js";
 
 export type Phase3SttCliOptions = {
@@ -33,7 +34,7 @@ export function parsePhase3SttArgs(args: string[]): Phase3SttCliOptions {
       debug: false,
     },
     PHASE3_ARG_SPEC,
-    (flag) => `알 수 없는 Phase 3 STT 옵션입니다: ${flag}`,
+    (flag) => formatLocaleText("ko", "runtimeCli.phaseCli.phase3UnknownOption", { flag }),
   );
 }
 
@@ -42,18 +43,24 @@ const PHASE3_ARG_SPEC: Record<string, CliArgSpec<Phase3SttCliOptions>> = {
   "--debug": booleanOptionArg("debug", true),
   "--no-backup": booleanOptionArg("backup", false),
   "--limit": positiveIntegerOptionArg("limit"),
-  "--session": requiredStringOptionArg("--session 값이 필요합니다.", "sessionId"),
+  "--session": requiredStringOptionArg(
+    t("ko", "runtimeCli.phaseCli.sessionValueRequired"),
+    "sessionId",
+  ),
   "--provider": valueArg(readProvider, (options, value) => {
     options.provider = value;
   }),
-  "--model": requiredStringOptionArg("--model 값이 필요합니다.", "model"),
+  "--model": requiredStringOptionArg(
+    t("ko", "runtimeCli.phaseCli.modelValueRequired"),
+    "model",
+  ),
   "--lease-ms": positiveIntegerOptionArg("leaseMs"),
 };
 
 function readProvider(value: string | undefined): SttProviderName {
   const provider = value?.trim();
   if (provider !== "local-whisper" && provider !== "openai") {
-    throw new Error("--provider는 local-whisper 또는 openai여야 합니다.");
+    throw new Error(t("ko", "runtimeCli.phaseCli.sttProviderInvalid"));
   }
   return provider;
 }

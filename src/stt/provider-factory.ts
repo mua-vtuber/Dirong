@@ -1,5 +1,6 @@
 import { LocalWhisperSttProvider } from "./local-whisper-provider.js";
 import { OpenAiSttProvider } from "./openai-provider.js";
+import { t } from "../i18n/catalog.js";
 import type { SttProvider } from "./provider.js";
 import type {
   SttSettings,
@@ -51,9 +52,7 @@ export function assertPhase3SttProviderReady(input: {
     input.settings.provider === "openai" &&
     !input.settings.openai.apiKey
   ) {
-    throw new Error(
-      "OpenAI API key가 저장되지 않아 OpenAI STT를 호출하지 않았습니다. local-whisper를 쓰려면 --provider local-whisper를 선택해 주세요.",
-    );
+    throw new Error(t("ko", "runtimeCli.sttProvider.openAiNotCalled"));
   }
 }
 

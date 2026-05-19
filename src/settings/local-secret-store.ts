@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { registerSensitiveValue } from "../errors.js";
+import { t } from "../i18n/catalog.js";
 
 export const DEFAULT_SECRET_REFS = {
   discordBotToken: "discord.bot_token",
@@ -67,7 +68,7 @@ export class LocalSecretStore {
     const normalizedRef = requireSecretRef(ref);
     const trimmedValue = value.trim();
     if (!trimmedValue) {
-      throw new Error("secret value는 비워 둘 수 없습니다.");
+      throw new Error(t("ko", "runtimeCli.localSecretStore.emptyValue"));
     }
 
     const file = this.readFile();
@@ -149,7 +150,7 @@ function normalizeSecretFile(value: unknown): LocalSecretFile {
 function requireSecretRef(ref: string): string {
   const normalizedRef = normalizeSecretRef(ref);
   if (!normalizedRef) {
-    throw new Error("secret ref는 영문, 숫자, 점, 밑줄, 콜론, 하이픈만 사용할 수 있습니다.");
+    throw new Error(t("ko", "runtimeCli.localSecretStore.invalidRef"));
   }
   return normalizedRef;
 }

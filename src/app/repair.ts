@@ -1,5 +1,6 @@
 import process from "node:process";
 import { printCliError } from "../cli/error-output.js";
+import { t } from "../i18n/catalog.js";
 import { loadProductRuntimeSettings } from "../settings/product-settings.js";
 import { runStartupRepair } from "../storage/repair-scan.js";
 import { createStorageContext } from "../storage/storage-context.js";
@@ -14,11 +15,11 @@ try {
   });
   const repairSummary = await runStartupRepair(ctx, config);
 
-  console.log("디롱이 Recording + STT repair 결과");
+  console.log(t("ko", "runtimeCli.phaseCli.repairTitle"));
   console.log(`SQLite DB: ${config.dbPath}`);
   console.log(JSON.stringify(repairSummary, null, 2));
   console.log("");
-  console.log("repair는 DB 상태를 수정할 수 있는 명시 명령입니다.");
+  console.log(t("ko", "runtimeCli.phaseCli.repairNotice"));
 
   ctx.close();
 } catch (error) {

@@ -106,8 +106,8 @@ export class AiProviderLifecycleService {
           provider: this.provider.providerName,
           model: this.provider.modelName,
           checkedAt: new Date().toISOString(),
-          message: "AI 준비 확인 실패. 실패했지만 녹음/STT는 보존됩니다.",
-          userAction: "AI 설정과 provider 상태를 확인한 뒤 다시 시도해 주세요.",
+          message: t(this.resolveLocale(), "runtimeStatus.aiReadiness.failed.message"),
+          userAction: t(this.resolveLocale(), "runtimeStatus.aiReadiness.failed.action"),
           technicalDetail: errorMessage(error),
         });
         return this.snapshot;
@@ -161,9 +161,9 @@ export function formatAiReadinessForStatus(
   const display = localized.display ?? buildAiReadinessDisplay(resolvedLocale, localized);
   const lines = [
     formatHumanStatusDisplayForText(display, {
-      title: "AI 상태",
-      description: "설명",
-      nextAction: "AI 조치",
+      title: t(resolvedLocale, "runtimeStatus.aiReadiness.statusText.title"),
+      description: t(resolvedLocale, "runtimeStatus.aiReadiness.statusText.description"),
+      nextAction: t(resolvedLocale, "runtimeStatus.aiReadiness.statusText.nextAction"),
     }),
     `AI provider: ${snapshot.provider} / ${snapshot.model}`,
   ];

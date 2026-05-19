@@ -1,4 +1,5 @@
 import { planJobFailureRetry } from "./job-retry-policy.js";
+import { t } from "../i18n/catalog.js";
 import type {
   AiCleanupFailureKind,
   AiCleanupJobRow,
@@ -76,7 +77,7 @@ export class AiCleanupJobQueue {
       inputHash: input.inputHash,
     });
     if (!job) {
-      throw new Error("AI cleanup job 저장에 실패했습니다.");
+      throw new Error(t("ko", "runtimeCli.storage.aiCleanupJobSaveFailed"));
     }
     return job;
   }

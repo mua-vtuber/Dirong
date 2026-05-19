@@ -1,4 +1,5 @@
 import { planJobFailureRetry } from "./job-retry-policy.js";
+import { t } from "../i18n/catalog.js";
 import type {
   ChunkRow,
   SttJobRow,
@@ -71,7 +72,7 @@ export class SttJobQueue {
        SET status = 'failed_missing_file', locked_by = NULL,
            locked_until = NULL, last_error = ?, updated_at = ?
        WHERE id = ?`,
-      "STT input audio file이 없습니다.",
+      t("ko", "runtimeCli.storage.sttInputAudioMissing"),
       now,
       jobId,
     );

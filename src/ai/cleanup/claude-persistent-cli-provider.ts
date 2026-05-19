@@ -19,6 +19,7 @@ import {
   safeEmitAiCleanupProgress,
   type AiCleanupProgressPhase,
 } from "./progress.js";
+import { formatLocaleText, t } from "../../i18n/catalog.js";
 import { runChild } from "../../process/run-child.js";
 
 export type ClaudeStreamJsonCliCleanupProviderOptions = {
@@ -93,7 +94,10 @@ export class ClaudeStreamJsonCliCleanupProvider implements AiCleanupProvider {
     } catch (error) {
       throw new AiCleanupProviderError(
         "provider_not_found",
-        `Claude CLI를 찾지 못했습니다. 터미널에서 ${this.command} --version이 실행되는지 확인해 주세요. ${errorMessage(error)}`,
+        formatLocaleText("ko", "runtimeCli.aiProvider.claudeCliMissing", {
+          command: this.command,
+          error: errorMessage(error),
+        }),
       );
     }
 
@@ -106,7 +110,10 @@ export class ClaudeStreamJsonCliCleanupProvider implements AiCleanupProvider {
     if (result.exitCode !== 0) {
       throw new AiCleanupProviderError(
         "provider_not_found",
-        `Claude CLI preflight에 실패했습니다. 터미널에서 ${this.command} --version을 확인해 주세요. ${result.stderr || result.stdout}`,
+        formatLocaleText("ko", "runtimeCli.aiProvider.claudePreflightFailed", {
+          command: this.command,
+          detail: result.stderr || result.stdout,
+        }),
       );
     }
   }
@@ -380,18 +387,18 @@ function messageForClaudeProgress(
   kind: ClaudePersistentSmokeRequestProgress["kind"],
 ): string {
   if (kind === "started") {
-    return "Claude stream-json process 시작";
+    return t("ko", "runtimeCli.aiProvider.streamProcessStarted");
   }
   if (kind === "waiting_for_first_stream_event") {
-    return "Claude 첫 stream 이벤트 대기 중";
+    return t("ko", "runtimeCli.aiProvider.firstStreamEventWaiting");
   }
   if (kind === "result_boundary_received") {
-    return "Claude result boundary 수신";
+    return t("ko", "runtimeCli.aiProvider.resultBoundaryReceived");
   }
   if (kind === "failed") {
-    return "Claude stream-json protocol 실패";
+    return t("ko", "runtimeCli.aiProvider.streamProtocolFailed");
   }
-  return "Claude stream-json 응답 수신 중";
+  return t("ko", "runtimeCli.aiProvider.streamResponseReceiving");
 }
 
 async function runCommandForExit(

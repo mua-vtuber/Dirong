@@ -11,6 +11,7 @@ import {
   formatSttRunSummary,
   printSqliteBackupSummary,
 } from "../cli/stt-summary.js";
+import { formatLocaleText, t } from "../i18n/catalog.js";
 import { loadProductRuntimeSettings } from "../settings/product-settings.js";
 import { runFakeSttBatch } from "../stt/fake-runner.js";
 import {
@@ -56,7 +57,7 @@ try {
   });
 
   console.log(formatSttRunSummary({
-    title: "디롱이 Fake STT 결과",
+    title: t("ko", "runtimeCli.phaseCli.phase2FakeTitle"),
     dbPath: config.dbPath,
     mode: options.dryRun ? "dry-run" : "write",
     result,
@@ -80,7 +81,7 @@ function parseArgs(args: string[]): CliOptions {
       debug: false,
     },
     FAKE_STT_ARG_SPEC,
-    (flag) => `알 수 없는 Phase 2 fake STT 옵션입니다: ${flag}`,
+    (flag) => formatLocaleText("ko", "runtimeCli.phaseCli.phase2UnknownOption", { flag }),
   );
 }
 
@@ -89,6 +90,9 @@ const FAKE_STT_ARG_SPEC: Record<string, CliArgSpec<CliOptions>> = {
   "--debug": booleanOptionArg("debug", true),
   "--no-backup": booleanOptionArg("backup", false),
   "--limit": positiveIntegerOptionArg("limit"),
-  "--session": requiredStringOptionArg("--session 값이 필요합니다.", "sessionId"),
+  "--session": requiredStringOptionArg(
+    t("ko", "runtimeCli.phaseCli.sessionValueRequired"),
+    "sessionId",
+  ),
   "--lease-ms": positiveIntegerOptionArg("leaseMs"),
 };

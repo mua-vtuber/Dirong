@@ -1,5 +1,6 @@
 import process from "node:process";
 import { printCliError } from "../cli/error-output.js";
+import { t } from "../i18n/catalog.js";
 import {
   formatSttRunSummary,
   printSqliteBackupSummary,
@@ -45,7 +46,7 @@ try {
       busyTimeoutMs: phase1Config.dbBusyTimeoutMs,
     });
     printSqliteBackupSummary(backupPaths, {
-      missingDatabaseMessage: "SQLite DB 파일이 아직 없어 backup을 만들지 않았습니다.",
+      missingDatabaseMessage: t("ko", "runtimeCli.phaseCli.realSttMissingDbBackup"),
     });
   }
 
@@ -70,7 +71,7 @@ try {
   });
 
   console.log(formatSttRunSummary({
-    title: "디롱이 Real STT 결과",
+    title: t("ko", "runtimeCli.phaseCli.phase3RealTitle"),
     dbPath: phase1Config.dbPath,
     mode: options.dryRun ? "dry-run" : "write",
     detailLines: [
@@ -80,7 +81,7 @@ try {
     ],
     noteLines:
       options.dryRun && sttSettings.provider !== "openai"
-        ? ["OpenAI API key는 현재 provider dry-run에는 필요하지 않습니다."]
+        ? [t("ko", "runtimeCli.phaseCli.openAiDryRunKeyNotRequired")]
         : [],
     result,
   }));

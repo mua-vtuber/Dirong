@@ -4,6 +4,7 @@ import { stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { redactSensitiveText } from "./errors.js";
+import { formatLocaleText, t } from "./i18n/catalog.js";
 import type { SttSafeFormat } from "./config.js";
 import { runChild } from "./process/run-child.js";
 
@@ -54,7 +55,7 @@ export async function resolveFfmpegPath(): Promise<{
   return {
     path: null,
     source: "missing",
-    error: systemResult.stderr || "ffmpeg 실행 파일을 찾지 못했습니다.",
+    error: systemResult.stderr || t("ko", "runtimeCli.media.ffmpegMissing"),
   };
 }
 
@@ -88,13 +89,20 @@ export async function transcodeToSttSafe(
   if (fallback.playbackChecked) {
     return {
       ...fallback,
-      error: `기본 ${preferredFormat} 변환 실패 후 ${fallbackFormat}로 대체했습니다. 원인: ${first.error ?? "알 수 없음"}`,
+      error: formatLocaleText("ko", "runtimeCli.media.fallbackNotice", {
+        preferredFormat,
+        fallbackFormat,
+        error: first.error ?? t("ko", "runtimeCli.media.fallbackUnknown"),
+      }),
     };
   }
 
   return {
     ...first,
-    error: `STT-safe 변환 실패: ${first.error ?? "기본 포맷 실패"} / fallback: ${fallback.error ?? "fallback 실패"}`,
+    error: formatLocaleText("ko", "runtimeCli.media.sttSafeFailed", {
+      firstError: first.error ?? t("ko", "runtimeCli.media.defaultFormatFailed"),
+      fallbackError: fallback.error ?? t("ko", "runtimeCli.media.fallbackFailed"),
+    }),
   };
 }
 
@@ -103,12 +111,12 @@ export async function validatePlayable(
   ffmpegPath: string,
 ): Promise<{ ok: boolean; error?: string }> {
   if (!existsSync(filePath)) {
-    return { ok: false, error: "파일이 없습니다." };
+    return { ok: false, error: t("ko", "runtimeCli.media.fileMissing") };
   }
 
   const fileStat = await stat(filePath);
   if (fileStat.size === 0) {
-    return { ok: false, error: "파일 크기가 0바이트입니다." };
+    return { ok: false, error: t("ko", "runtimeCli.media.fileEmpty") };
   }
 
   const result = await runProcess(
@@ -120,7 +128,10 @@ export async function validatePlayable(
   if (!result.ok) {
     return {
       ok: false,
-      error: result.stderr || `ffmpeg 검증 실패(exit=${result.exitCode})`,
+      error: result.stderr ||
+        formatLocaleText("ko", "runtimeCli.media.validationFailed", {
+          exitCode: result.exitCode ?? "unknown",
+        }),
     };
   }
 

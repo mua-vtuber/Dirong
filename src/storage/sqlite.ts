@@ -5,6 +5,7 @@ import {
   applySchemaMigrations,
   listPendingSchemaMigrationIds,
 } from "./migrations.js";
+import { t } from "../i18n/catalog.js";
 import { SCHEMA_SQL } from "./schema.js";
 import { SqlRunner } from "./sql-runner.js";
 import { backupOpenDatabaseSnapshot } from "./sqlite-backup.js";
@@ -41,9 +42,9 @@ export class DirongDatabase {
             busyTimeoutMs,
             targetPath: options?.migrationBackup?.targetPath,
             failureMessageLines: [
-              "SQLite migration backup 생성에 실패했습니다.",
-              "migration을 적용하지 않고 시작을 중단합니다.",
-              "backup이 실패했으므로 DB schema는 변경하지 않았습니다.",
+              t("ko", "runtimeCli.sqlite.migrationBackupFailed"),
+              t("ko", "runtimeCli.sqlite.migrationAborted"),
+              t("ko", "runtimeCli.sqlite.schemaUnchanged"),
             ],
           });
         }

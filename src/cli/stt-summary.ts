@@ -1,4 +1,5 @@
 import type { SttRunResult } from "../stt/runner.js";
+import { t } from "../i18n/catalog.js";
 
 export type SttRunSummaryInput = {
   title: string;
@@ -56,7 +57,7 @@ export function printSqliteBackupSummary(
   const writeLine = options.writeLine ?? ((line: string) => console.log(line));
 
   if (backupPaths.length > 0) {
-    writeLine("SQLite snapshot backup 생성:");
+    writeLine(t("ko", "runtimeCli.sqliteBackup.created"));
     for (const backupPath of backupPaths) {
       writeLine(`- ${backupPath}`);
     }

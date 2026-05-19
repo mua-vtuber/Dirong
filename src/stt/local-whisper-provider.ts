@@ -1,4 +1,5 @@
 import { DirongError, redactSensitiveText } from "../errors.js";
+import { t } from "../i18n/catalog.js";
 import { runProcess } from "../media.js";
 import type {
   SttProvider,
@@ -43,7 +44,7 @@ export class LocalWhisperSttProvider implements SttProvider {
 
     if (!result.ok) {
       throw new DirongError("LOCAL_WHISPER_PREFLIGHT_FAILED", [
-        "local-whisper 실행 준비에 실패했습니다.",
+        t("ko", "runtimeCli.sttProvider.localWhisperPreflightFailed"),
         `command: ${displayCommand(this.config.command, this.config.args)}`,
         `model: ${this.modelName}`,
         `device: ${this.config.device}`,
@@ -117,7 +118,7 @@ function parseLocalWhisperJson(stdout: string): { text: string } {
     }
   }
 
-  throw new Error("local-whisper wrapper stdout에서 JSON text 필드를 찾지 못했습니다.");
+  throw new Error(t("ko", "runtimeCli.sttProvider.localWhisperTextMissing"));
 }
 
 function displayCommand(command: string, args: string[]): string {
@@ -127,7 +128,7 @@ function displayCommand(command: string, args: string[]): string {
 function summarizeProcessOutput(value: string): string {
   const redacted = redactSensitiveText(value).trim();
   if (!redacted) {
-    return "stderr/stdout output 없음";
+    return t("ko", "runtimeCli.sttProvider.noStdoutOrStderr");
   }
   return redacted.length <= 1000 ? redacted : `${redacted.slice(0, 1000)}...`;
 }

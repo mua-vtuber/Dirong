@@ -1,4 +1,5 @@
 import { summarizeSafeText } from "../../errors.js";
+import { formatLocaleText, t } from "../../i18n/catalog.js";
 import type {
   AiCleanupFailureKind,
   AiCleanupJobRow,
@@ -51,30 +52,23 @@ export function getInputBlockedReason(
   ) {
     return {
       kind: "unsafe_input",
-      message: [
-        "fake STT는 실제 AI cleanup provider로 보낼 수 없습니다.",
-        "일반 회의록 생성에서는 Phase 3 Real STT 결과만 사용해 주세요.",
-        "fake STT 검증은 dry-run 또는 --provider fake --smoke-test 경로에서만 허용됩니다.",
-      ].join(" "),
+      message: t("ko", "runtimeCli.aiWorkflow.fakeSttUnsafe"),
     };
   }
 
   if (input.timeline.entries.length === 0) {
     return {
       kind: "empty_timeline",
-      message: [
-        "회의록으로 보낼 실제 STT 발화가 아직 없습니다.",
-        "Phase 3 Real STT를 먼저 실행해 주세요.",
-        "no_speech와 fake STT는 기본 Phase 4 입력에서 제외됩니다.",
-        "테스트 목적이면 dry-run에서 --include-fake-stt를 사용하거나,",
-        "명시적 smoke test로 --provider fake --smoke-test --include-fake-stt를 사용해 주세요.",
-      ].join(" "),
+      message: t("ko", "runtimeCli.aiWorkflow.emptyTimeline"),
     };
   }
   if (inputChars > options.maxInputChars) {
     return {
       kind: "input_too_long",
-      message: `회의 transcript가 Phase 4 MVP single-pass 한도를 초과했습니다. input=${inputChars}, max=${options.maxInputChars}. 긴 회의 map-reduce 요약은 Phase 4.1 이후 범위입니다.`,
+      message: formatLocaleText("ko", "runtimeCli.aiWorkflow.inputTooLong", {
+        inputChars,
+        maxInputChars: options.maxInputChars,
+      }),
     };
   }
   return null;

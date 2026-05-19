@@ -1,5 +1,6 @@
 import process from "node:process";
 import { printCliError } from "../cli/error-output.js";
+import { t } from "../i18n/catalog.js";
 import { createNotionClient } from "../notion/client.js";
 import { NotionDraftInputReadModel } from "../notion/draft-input-read-model.js";
 import { NotionMemberRosterStore } from "../notion/member-roster-store.js";
@@ -77,7 +78,7 @@ function printResult(
   result: Awaited<ReturnType<typeof runNotionUpload>>,
   debug: boolean,
 ): void {
-  console.log("디롱이 Phase 5 Notion upload 결과");
+  console.log(t("ko", "runtimeCli.phaseCli.phase5Title"));
   console.log(`DB: ${dbPath}`);
   console.log(`mode: ${result.dryRun ? "dry-run" : "write"}`);
   console.log(`status: ${result.status}`);

@@ -4,6 +4,7 @@ import {
   requiredStringOptionArg,
   type CliArgSpec,
 } from "../cli/arg-parser.js";
+import { formatLocaleText, t } from "../i18n/catalog.js";
 
 export type Phase5NotionUploadCliOptions = {
   sessionId: string | null;
@@ -26,11 +27,11 @@ export function parsePhase5NotionUploadArgs(
       debug: false,
     },
     PHASE5_ARG_SPEC,
-    (flag) => `알 수 없는 Phase 5 Notion upload 옵션입니다: ${flag}`,
+    (flag) => formatLocaleText("ko", "runtimeCli.phaseCli.phase5UnknownOption", { flag }),
   );
 
   if ((options.sessionId ? 1 : 0) + (options.draftId ? 1 : 0) !== 1) {
-    throw new Error("--session 또는 --draft 중 정확히 하나가 필요합니다.");
+    throw new Error(t("ko", "runtimeCli.phaseCli.phase5SelectorRequired"));
   }
 
   return options;
@@ -43,6 +44,12 @@ const PHASE5_ARG_SPEC: Record<
   "--dry-run": booleanOptionArg("dryRun", true),
   "--force": booleanOptionArg("force", true),
   "--debug": booleanOptionArg("debug", true),
-  "--session": requiredStringOptionArg("--session 값이 필요합니다.", "sessionId"),
-  "--draft": requiredStringOptionArg("--draft 값이 필요합니다.", "draftId"),
+  "--session": requiredStringOptionArg(
+    t("ko", "runtimeCli.phaseCli.sessionValueRequired"),
+    "sessionId",
+  ),
+  "--draft": requiredStringOptionArg(
+    t("ko", "runtimeCli.phaseCli.draftValueRequired"),
+    "draftId",
+  ),
 };

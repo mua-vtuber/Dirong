@@ -135,7 +135,7 @@ try {
     level: "error",
     details: { error: errorMessage },
   });
-  // D-08: continue boot — repair is 보조, not a critical path.
+  // D-08: continue boot; repair is a helper, not a critical path.
   repairSummary = {
     oldPartFiles: 0,
     staleWritingChunksRepaired: 0,
@@ -268,7 +268,7 @@ const dashboard = new DashboardServer(config, store, producer, {
 }, {
   clientHeartbeatTimeoutMs: 20000,
   onClientHeartbeatExpired: () => {
-    console.log("대시보드 연결이 닫혀 서버를 종료합니다.");
+    console.log(t(resolveAppLocale(), "runtimeCli.main.dashboardHeartbeatExpired"));
     void shutdown("dashboard_closed").finally(() => process.exit(0));
   },
 });
@@ -277,8 +277,12 @@ const initialSetupStatus = setupStatus.getSnapshot();
 let shutdownPromise: Promise<void> | null = null;
 let consoleReadline: ReadlineInterface | null = null;
 
-console.log("디롱이 Recording + STT dashboard 시작:", dashboardUrl);
-console.log("설정 상태 API:", `${dashboardUrl}api/setup/status`);
+console.log(formatLocaleText(resolveAppLocale(), "runtimeCli.main.dashboardStarted", {
+  url: dashboardUrl,
+}));
+console.log(formatLocaleText(resolveAppLocale(), "runtimeCli.main.setupStatusApi", {
+  url: `${dashboardUrl}api/setup/status`,
+}));
 const reconciledTotal =
   repairSummary.oldPartFiles +
   repairSummary.staleWritingChunksRepaired +
@@ -305,39 +309,49 @@ if (config.openDashboard) {
 if (canStartSttAutomation(initialSetupStatus)) {
   startSttAutomation();
 } else {
-  console.log(`STT 자동 실행 대기 안 함: ${initialSetupStatus.features.stt.message}`);
+  console.log(formatLocaleText(resolveAppLocale(), "runtimeCli.main.sttAutomationSkipped", {
+    message: initialSetupStatus.features.stt.message,
+  }));
 }
 if (canStartAiAutomation(initialSetupStatus)) {
   startAiPrepareInBackground();
   startAiCleanupAutomation();
 } else {
-  console.log(`AI cleanup 자동 실행 대기 안 함: ${initialSetupStatus.features.ai.message}`);
+  console.log(formatLocaleText(resolveAppLocale(), "runtimeCli.main.aiCleanupAutomationSkipped", {
+    message: initialSetupStatus.features.ai.message,
+  }));
 }
 startNotionAutomation();
 if (canStartDiscordRuntime(initialSetupStatus)) {
   startAloneFinalizeService();
 } else {
-  console.log(`Discord 봇 로그인 대기 안 함: ${initialSetupStatus.features.discord.message}`);
+  console.log(formatLocaleText(resolveAppLocale(), "runtimeCli.main.discordLoginSkipped", {
+    message: initialSetupStatus.features.discord.message,
+  }));
   console.log(initialSetupStatus.features.discord.userAction);
-  console.log("대시보드는 계속 열려 있습니다. 설정이 완료되면 앱을 다시 시작해 주세요.");
+  console.log(t(resolveAppLocale(), "runtimeCli.main.dashboardStillOpen"));
   startConsoleCommands();
 }
 
 client.once(Events.ClientReady, async (readyClient) => {
-  console.log(`디롱이 봇 로그인 완료: ${readyClient.user.tag}`);
-  console.log("설정 요약:", JSON.stringify(redactForJson(snapshotPhase1Config(config)), null, 2));
+  console.log(formatLocaleText(resolveAppLocale(), "runtimeCli.main.botLoginDone", {
+    tag: readyClient.user.tag,
+  }));
+  console.log(t(resolveAppLocale(), "runtimeCli.main.configSummary"), JSON.stringify(redactForJson(snapshotPhase1Config(config)), null, 2));
 
   if (config.autoRegisterCommands) {
     try {
       await registerCommands();
     } catch (error) {
-      printCliError(error, { prefix: "Slash command 자동 등록 실패" });
+      printCliError(error, {
+        prefix: t(resolveAppLocale(), "runtimeCli.main.slashCommandAutoRegisterFailed"),
+      });
     }
   }
 
   console.log("");
-  console.log("Discord에서 /dirong start, /dirong stop, /dirong status를 사용할 수 있습니다.");
-  console.log("이 콘솔에서는 status, stop, exit 명령을 사용할 수 있습니다.");
+  console.log(t(resolveAppLocale(), "runtimeCli.main.discordCommandsAvailable"));
+  console.log(t(resolveAppLocale(), "runtimeCli.main.consoleCommandsAvailable"));
   startConsoleCommands();
 });
 
@@ -365,11 +379,11 @@ process.on("SIGTERM", () => {
 });
 
 process.on("unhandledRejection", (error) => {
-  printCliError(error, { prefix: "처리되지 않은 비동기 오류" });
+  printCliError(error, { prefix: t(resolveAppLocale(), "runtimeCli.main.unhandledRejection") });
 });
 
 process.on("uncaughtException", (error) => {
-  printCliError(error, { prefix: "치명적인 오류" });
+  printCliError(error, { prefix: t(resolveAppLocale(), "runtimeCli.main.uncaughtException") });
   void shutdown("uncaughtException").finally(() => process.exit(1));
 });
 
@@ -387,7 +401,7 @@ async function startDashboardOrExit(): Promise<string> {
   try {
     return await dashboard.start();
   } catch (error) {
-    printCliError(error, { prefix: "Dashboard 시작 실패" });
+    printCliError(error, { prefix: t(resolveAppLocale(), "runtimeCli.main.dashboardStartFailed") });
     try {
       await dashboard.stop();
     } catch {
@@ -406,7 +420,7 @@ async function registerCommands(): Promise<void> {
   let successCount = 0;
   const guildIds = resolveCommandRegistrationGuildIds();
   if (guildIds.length === 0) {
-    console.log("등록할 active project Discord 서버가 없습니다. 설정 완료 후 다시 시작해 주세요.");
+    console.log(t(resolveAppLocale(), "runtimeCli.main.noActiveProjectGuild"));
     return;
   }
   for (const guildId of guildIds) {
@@ -414,15 +428,22 @@ async function registerCommands(): Promise<void> {
       const guild = await client.guilds.fetch(guildId);
       await guild.commands.set(phase1GuildCommandPayloads);
       successCount += 1;
-      console.log(`Guild slash command 등록/갱신 완료: ${guild.name} (${guild.id})`);
+      console.log(formatLocaleText(resolveAppLocale(), "runtimeCli.main.guildCommandRegistered", {
+        name: guild.name,
+        id: guild.id,
+      }));
     } catch (error) {
-      printCliError(error, { prefix: `Slash command 등록 실패 (${guildId})` });
+      printCliError(error, {
+        prefix: formatLocaleText(resolveAppLocale(), "runtimeCli.main.guildCommandRegisterFailed", {
+          guildId,
+        }),
+      });
     }
   }
   if (successCount === 0) {
-    throw new Error("설정된 Discord 서버에 slash command를 등록하지 못했습니다.");
+    throw new Error(t(resolveAppLocale(), "runtimeCli.main.noSlashCommandRegistered"));
   }
-  console.log("사용 가능 명령: /dirong start, stop, status");
+  console.log(t(resolveAppLocale(), "runtimeCli.main.shortCommandsAvailable"));
 }
 
 async function handleDirongCommand(
@@ -458,7 +479,7 @@ async function handleDirongCommand(
     if (subcommand === "start") {
       const guild = await interaction.guild?.fetch();
       if (!guild) {
-        throw new Error("Discord 서버 정보를 가져오지 못했습니다.");
+        throw new Error(t(locale, "runtimeCli.main.guildFetchFailed"));
       }
 
       const member = await guild.members.fetch(interaction.user.id);
@@ -557,7 +578,7 @@ async function handleDirongCommand(
     await interaction.editReply(t(locale, "discordRuntime.unknownSubcommand"));
   } catch (error) {
     await interaction.editReply(toLocalizedErrorMessage(error, locale));
-    printCliError(error, { prefix: "slash command 처리 실패" });
+    printCliError(error, { prefix: t(locale, "runtimeCli.main.slashCommandHandleFailed") });
   }
 }
 
@@ -616,7 +637,10 @@ async function handleConsoleCommand(command: string): Promise<void> {
         stoppedByUserId: "console",
         stoppedByDisplayName: "console",
       });
-      console.log(`녹음 종료: ${result.sessionId} (${result.status})`);
+      console.log(formatLocaleText(resolveAppLocale(), "runtimeCli.main.recordingStopped", {
+        sessionId: result.sessionId,
+        status: result.status,
+      }));
       return;
     }
 
@@ -626,7 +650,7 @@ async function handleConsoleCommand(command: string): Promise<void> {
     }
 
     if (command.length > 0) {
-      console.log("사용 가능한 콘솔 명령: status, stop, exit");
+      console.log(t(resolveAppLocale(), "runtimeCli.main.consoleCommandsAvailableShort"));
     }
   } catch (error) {
     printCliError(error);
@@ -639,29 +663,31 @@ async function shutdown(reason: string): Promise<void> {
   }
 
   shutdownPromise = (async () => {
-    console.log(`종료 처리 중: ${reason}`);
+    console.log(formatLocaleText(resolveAppLocale(), "runtimeCli.main.shutdownProcessing", {
+      reason,
+    }));
     stopConsoleCommands();
     await aloneFinalize.stop();
     await producer.shutdown();
     try {
       await sttAutomation.stop();
     } catch (error) {
-      printCliError(error, { prefix: "STT 자동화 종료 실패" });
+      printCliError(error, { prefix: t(resolveAppLocale(), "runtimeCli.main.sttAutomationStopFailed") });
     }
     try {
       await aiCleanupAutomation.stop();
     } catch (error) {
-      printCliError(error, { prefix: "AI cleanup 자동화 종료 실패" });
+      printCliError(error, { prefix: t(resolveAppLocale(), "runtimeCli.main.aiCleanupAutomationStopFailed") });
     }
     try {
       await notionAutomation.stop();
     } catch (error) {
-      printCliError(error, { prefix: "Notion 자동 업로드 종료 실패" });
+      printCliError(error, { prefix: t(resolveAppLocale(), "runtimeCli.main.notionAutomationStopFailed") });
     }
     try {
       await aiLifecycle.stop();
     } catch (error) {
-      printCliError(error, { prefix: "AI lifecycle 종료 실패" });
+      printCliError(error, { prefix: t(resolveAppLocale(), "runtimeCli.main.aiLifecycleStopFailed") });
     }
     await dashboard.stop();
     client.destroy();
@@ -897,11 +923,16 @@ function formatRetentionFailure(
 
 function startAiPrepareInBackground(): void {
   const snapshot = aiLifecycle.getSnapshot();
-  console.log(`AI 준비 중: ${snapshot.provider} / ${snapshot.model}`);
-  console.log("녹음은 바로 시작할 수 있습니다.");
+  console.log(formatLocaleText(resolveAppLocale(), "runtimeCli.main.aiPreparing", {
+    provider: snapshot.provider,
+    model: snapshot.model,
+  }));
+  console.log(t(resolveAppLocale(), "runtimeCli.main.recordingCanStart"));
 
   void aiLifecycle.startPrepareInBackground().then((readiness) => {
-    console.log(`AI 상태: ${readiness.message}`);
+    console.log(formatLocaleText(resolveAppLocale(), "runtimeCli.main.aiStatus", {
+      message: readiness.message,
+    }));
     if (readiness.userAction) {
       console.log(readiness.userAction);
     }
@@ -911,41 +942,45 @@ function startAiPrepareInBackground(): void {
 function startSttAutomation(): void {
   const snapshot = sttAutomation.getSnapshot();
   if (!snapshot.enabled) {
-    console.log("STT 자동 실행이 꺼져 있습니다. 수동 Phase 3 STT CLI는 계속 사용할 수 있습니다.");
+    console.log(t(resolveAppLocale(), "runtimeCli.main.sttAutomationDisabled"));
     return;
   }
   sttAutomation.start();
-  console.log("STT 자동 실행 대기 시작: queued STT job을 처리합니다.");
+  console.log(t(resolveAppLocale(), "runtimeCli.main.sttAutomationStarted"));
 }
 
 function startAiCleanupAutomation(): void {
   const snapshot = aiCleanupAutomation.getSnapshot();
   if (!snapshot.enabled) {
-    console.log("AI cleanup 자동 실행이 꺼져 있습니다. 수동 Phase 4 CLI는 계속 사용할 수 있습니다.");
+    console.log(t(resolveAppLocale(), "runtimeCli.main.aiCleanupAutomationDisabled"));
     return;
   }
   aiCleanupAutomation.start();
-  console.log("AI cleanup 자동 실행 대기 시작: finalized 세션과 STT 완료를 기다립니다.");
+  console.log(t(resolveAppLocale(), "runtimeCli.main.aiCleanupAutomationStarted"));
 }
 
 function startNotionAutomation(): void {
   const snapshot = notionAutomation.getSnapshot();
   notionAutomation.start();
   if (snapshot.status === "idle") {
-    console.log("Notion 자동 업로드 대기 시작: completed valid draft를 기다립니다.");
+    console.log(t(resolveAppLocale(), "runtimeCli.main.notionAutomationStarted"));
     return;
   }
-  console.log(`Notion 자동 업로드 설정 감시 시작: ${snapshot.message}`);
-  console.log("Notion 설정은 저장 후 다음 자동화 tick부터 반영됩니다.");
+  console.log(formatLocaleText(resolveAppLocale(), "runtimeCli.main.notionAutomationWatchStarted", {
+    message: snapshot.message,
+  }));
+  console.log(t(resolveAppLocale(), "runtimeCli.main.notionSettingsApplyNextTick"));
 }
 
 function startAloneFinalizeService(): void {
   if (!config.aloneFinalizeEnabled) {
-    console.log("혼자 남음 자동 종료가 꺼져 있습니다. 대시보드 설정에서 켤 수 있습니다.");
+    console.log(t(resolveAppLocale(), "runtimeCli.main.aloneFinalizeDisabled"));
     return;
   }
   aloneFinalize.start();
-  console.log(`혼자 남음 자동 종료 대기 시작: non-bot 0명 상태가 ${config.aloneFinalizeGraceMs}ms 지속되면 finalize합니다.`);
+  console.log(formatLocaleText(resolveAppLocale(), "runtimeCli.main.aloneFinalizeStarted", {
+    graceMs: config.aloneFinalizeGraceMs,
+  }));
 }
 
 function statusTextWithAiReadiness(locale = resolveAppLocale()): string {
@@ -974,7 +1009,7 @@ async function countNonBotVoiceMembers(
       return {
         ok: false,
         reason: "guild_unavailable",
-        technicalDetail: "활성 녹음 세션의 Discord 서버 ID를 확인하지 못했습니다.",
+        technicalDetail: t(resolveAppLocale(), "runtimeCli.main.activeGuildMissingDetail"),
       };
     }
     const guild =
@@ -987,7 +1022,9 @@ async function countNonBotVoiceMembers(
       return {
         ok: false,
         reason: "voice_channel_unavailable",
-        technicalDetail: `voice channel을 찾지 못했습니다: ${voiceChannelId}`,
+        technicalDetail: formatLocaleText(resolveAppLocale(), "runtimeCli.main.voiceChannelMissingDetail", {
+          voiceChannelId,
+        }),
       };
     }
 
@@ -998,7 +1035,7 @@ async function countNonBotVoiceMembers(
       return {
         ok: false,
         reason: "voice_member_cache_empty",
-        technicalDetail: "Discord voice member cache가 비어 있어 자동 종료하지 않았습니다.",
+        technicalDetail: t(resolveAppLocale(), "runtimeCli.main.voiceMemberCacheEmptyDetail"),
       };
     }
 

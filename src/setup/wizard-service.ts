@@ -1445,7 +1445,7 @@ class DiscordJsSetupGateway implements DiscordSetupGateway {
     try {
       const user = requireClientUser(client.user);
       if (user.id !== input.applicationId) {
-        throw new Error("Discord application ID와 bot token의 bot user가 서로 다릅니다.");
+        throw new Error(t("ko", "runtimeCli.setupGateway.applicationBotMismatch"));
       }
       return {
         botUserId: user.id,
@@ -1554,7 +1554,7 @@ async function loginDiscordClient(botToken: string): Promise<Client> {
 
 function requireClientUser(user: ClientUser | null): ClientUser {
   if (!user) {
-    throw new Error("Discord bot user를 확인하지 못했습니다.");
+    throw new Error(t("ko", "runtimeCli.setupGateway.botUserMissing"));
   }
   return user;
 }

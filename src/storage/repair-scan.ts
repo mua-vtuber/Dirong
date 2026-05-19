@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import type { Phase1Config } from "../config.js";
+import { t } from "../i18n/catalog.js";
 import { resolveFfmpegPath, sha256File, transcodeToSttSafe } from "../media.js";
 import type { ChunkRow, RepairScanSummary } from "./rows.js";
 import type { StorageContext } from "./storage-context.js";
@@ -57,7 +58,7 @@ function scanOldPartFiles(ctx: StorageContext, config: Phase1Config): number {
       details: {
         ageMs: Math.trunc(ageMs),
         size: fileStat.size,
-        action: "수동 확인 후 보존/삭제를 결정하세요.",
+        action: t("ko", "runtimeCli.repairScan.preserveOrDeleteAction"),
       },
     });
     count += 1;
@@ -114,7 +115,7 @@ async function repairStaleWritingChunks(
       if (!ffmpeg.path) {
         ctx.writes.markChunkTranscodeFailed({
           chunkId: chunk.id,
-          error: "startup repair에 필요한 FFmpeg가 없습니다.",
+          error: t("ko", "runtimeCli.repairScan.ffmpegMissing"),
         });
         ctx.writes.updateSessionStatus(chunk.session_id, "needs_repair");
         ctx.writes.recordRepairItem({
@@ -153,7 +154,7 @@ async function repairStaleWritingChunks(
       ctx.writes.markChunkFailed({
         chunkId: chunk.id,
         error: {
-          message: "stale writing chunk에 final file은 없고 .part file만 남았습니다.",
+          message: t("ko", "runtimeCli.repairScan.stalePartOnly"),
           partPath,
         },
       });
@@ -164,7 +165,7 @@ async function repairStaleWritingChunks(
         chunkId: chunk.id,
         path: partPath,
         severity: "error",
-        details: { action: "파일을 직접 재생/보존할 수 있는지 수동 확인하세요." },
+        details: { action: t("ko", "runtimeCli.repairScan.manualPlaybackAction") },
       });
       failed += 1;
       continue;
@@ -173,7 +174,7 @@ async function repairStaleWritingChunks(
     ctx.writes.markChunkFailed({
       chunkId: chunk.id,
       error: {
-        message: "stale writing chunk에 final file과 .part file이 모두 없습니다.",
+        message: t("ko", "runtimeCli.repairScan.staleFilesMissing"),
       },
     });
     ctx.writes.updateSessionStatus(chunk.session_id, "needs_repair");
@@ -225,7 +226,7 @@ async function repairChunksMissingSttJobs(
         chunkId: chunk.id,
         path: chunk.raw_audio_path,
         severity: "error",
-        details: { message: "STT-safe audio를 만들 FFmpeg가 없습니다." },
+        details: { message: t("ko", "runtimeCli.repairScan.sttSafeFfmpegMissing") },
       });
       continue;
     }
@@ -252,7 +253,7 @@ async function transcodeRawAndQueue(
       chunkId: chunk.id,
       path: chunk.raw_audio_path,
       severity: "error",
-      details: { message: "finalized chunk이지만 raw audio file이 없습니다." },
+      details: { message: t("ko", "runtimeCli.repairScan.finalizedRawMissing") },
     });
     return false;
   }
@@ -389,7 +390,7 @@ function scanOrphanAudioFiles(ctx: StorageContext, dataDir: string): number {
       severity: "warn",
       sessionId: inferSessionId(dataDir, filePath),
       path: filePath,
-      details: { message: "audio file은 있지만 SQLite chunk row가 없습니다." },
+      details: { message: t("ko", "runtimeCli.repairScan.orphanAudioFile") },
     });
     count += 1;
   }

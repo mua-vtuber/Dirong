@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { rename, stat } from "node:fs/promises";
 import { safeErrorInfo } from "../errors.js";
+import { t } from "../i18n/catalog.js";
 import { sha256File, transcodeToSttSafe, validatePlayable } from "../media.js";
 import type { ChunkFinalizerStore } from "./storage-port.js";
 
@@ -44,7 +45,10 @@ export class ChunkFinalizer {
     if (!rawExists) {
       this.store.markChunkFailed({
         chunkId: chunk.chunkId,
-        error: { message: "chunk 파일이 생성되지 않았습니다.", pipelineError },
+        error: {
+          message: t("ko", "runtimeCli.storage.chunkCreateMissing"),
+          pipelineError,
+        },
       });
       this.store.recordRepairItem({
         type: "chunk_audio_missing_after_write",

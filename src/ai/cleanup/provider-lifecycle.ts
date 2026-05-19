@@ -1,4 +1,5 @@
 import { AiCleanupProviderError } from "./provider.js";
+import { t } from "../../i18n/catalog.js";
 import type { HumanStatusDisplay } from "../../messages/human-status.js";
 import type {
   AiCleanupProvider,
@@ -120,7 +121,7 @@ export class AiCleanupProviderLifecycleAdapter implements AiMeetingNotesProvider
       provider: this.providerName,
       model: this.modelName,
       checkedAt: null,
-      message: "AI 준비 전",
+      message: t("ko", "runtimeStatus.aiReadiness.idle.message"),
       userAction: null,
       technicalDetail: null,
     });
@@ -134,7 +135,7 @@ export class AiCleanupProviderLifecycleAdapter implements AiMeetingNotesProvider
       provider: this.providerName,
       model: this.modelName,
       checkedAt: new Date().toISOString(),
-      message: "AI 준비 중",
+      message: t("ko", "runtimeStatus.aiReadiness.preparing.message"),
       userAction: null,
       technicalDetail: null,
     });
@@ -152,7 +153,7 @@ export class AiCleanupProviderLifecycleAdapter implements AiMeetingNotesProvider
         provider: this.providerName,
         model: this.modelName,
         checkedAt: new Date().toISOString(),
-        message: "AI 준비 완료",
+        message: t("ko", "runtimeStatus.aiReadiness.ready.message"),
         userAction: null,
         technicalDetail: null,
       });
@@ -215,7 +216,7 @@ export class AiCleanupProviderLifecycleAdapter implements AiMeetingNotesProvider
       provider: this.providerName,
       model: this.modelName,
       checkedAt: new Date().toISOString(),
-      message: "AI 준비 상태 확인 중지됨",
+      message: t("ko", "runtimeStatus.aiReadiness.stopped.message"),
       userAction: null,
       technicalDetail: null,
     });
@@ -315,12 +316,12 @@ function readinessFromPrepareFailure(
         checkedAt: new Date().toISOString(),
         message:
           capabilities.readinessKind === "http-server"
-            ? "로컬 AI 서버가 꺼져 있음"
-            : "AI 도구를 찾지 못함",
+            ? t("ko", "runtimeStatus.aiReadiness.serverUnreachable.message")
+            : t("ko", "runtimeStatus.aiReadiness.notInstalled.message"),
         userAction:
           capabilities.readinessKind === "http-server"
-            ? "로컬 AI 서버를 켠 뒤 다시 확인해 주세요."
-            : "선택한 AI CLI가 설치되어 있고 터미널에서 실행되는지 확인해 주세요.",
+            ? t("ko", "runtimeStatus.aiReadiness.serverUnreachable.action")
+            : t("ko", "runtimeStatus.aiReadiness.notInstalled.action"),
         technicalDetail,
       });
     }
@@ -332,10 +333,12 @@ function readinessFromPrepareFailure(
         provider,
         model,
         checkedAt: new Date().toISOString(),
-        message: isCliAuth ? "AI 로그인 필요" : "AI API 키 필요",
+        message: isCliAuth
+          ? t("ko", "runtimeStatus.aiReadiness.loginRequired.message")
+          : t("ko", "runtimeStatus.aiReadiness.authRequired.message"),
         userAction: isCliAuth
-          ? "터미널에서 AI CLI 로그인을 완료한 뒤 다시 확인해 주세요."
-          : "설정의 AI API key를 확인해 주세요.",
+          ? t("ko", "runtimeStatus.aiReadiness.loginRequired.action")
+          : t("ko", "runtimeStatus.aiReadiness.authRequired.action"),
         technicalDetail,
       });
     }
@@ -346,8 +349,8 @@ function readinessFromPrepareFailure(
     provider,
     model,
     checkedAt: new Date().toISOString(),
-    message: "AI 준비 확인 실패. 실패했지만 녹음/STT는 보존됩니다.",
-    userAction: "AI 설정과 provider 상태를 확인한 뒤 다시 시도해 주세요.",
+    message: t("ko", "runtimeStatus.aiReadiness.failed.message"),
+    userAction: t("ko", "runtimeStatus.aiReadiness.failed.action"),
     technicalDetail,
   });
 }

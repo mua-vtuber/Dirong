@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { summarizeSafeError } from "../errors.js";
+import { formatLocaleText } from "../i18n/catalog.js";
 import { sha256File } from "../media.js";
 import type { SttProvider } from "./provider.js";
 import type { SttBatchStore } from "./storage-port.js";
@@ -116,7 +117,9 @@ export async function runSttBatch(
     try {
       const chunk = store.getChunk(job.chunk_id);
       if (!chunk) {
-        throw new Error(`STT job의 chunk를 찾지 못했습니다: ${job.chunk_id}`);
+        throw new Error(formatLocaleText("ko", "runtimeCli.storage.sttJobChunkMissing", {
+          chunkId: job.chunk_id,
+        }));
       }
 
       const prompt = options.provider.supportsPrompt

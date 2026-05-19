@@ -1,3 +1,4 @@
+import { formatLocaleText } from "../i18n/catalog.js";
 import type {
   AiCleanupSttTerminalSnapshot,
   SessionRow,
@@ -140,19 +141,29 @@ function makeAiCleanupSttWarnings(input: {
 }): string[] {
   const warnings: string[] = [];
   if (input.sttFailedCount > 0) {
-    warnings.push(`STT 실패 ${input.sttFailedCount}건`);
+    warnings.push(formatLocaleText("ko", "runtimeCli.storage.sttFailedCount", {
+      count: input.sttFailedCount,
+    }));
   }
   if (input.sttFailedMissingFileCount > 0) {
-    warnings.push(`STT 입력 파일 누락 ${input.sttFailedMissingFileCount}건`);
+    warnings.push(formatLocaleText("ko", "runtimeCli.storage.sttMissingInputCount", {
+      count: input.sttFailedMissingFileCount,
+    }));
   }
   if (input.chunksMissingSttJobCount > 0) {
-    warnings.push(`STT job 없는 chunk ${input.chunksMissingSttJobCount}개`);
+    warnings.push(formatLocaleText("ko", "runtimeCli.storage.chunkMissingSttJobCount", {
+      count: input.chunksMissingSttJobCount,
+    }));
   }
   if (input.chunksWithTranscodeFailedCount > 0) {
-    warnings.push(`transcode 실패 chunk ${input.chunksWithTranscodeFailedCount}개`);
+    warnings.push(formatLocaleText("ko", "runtimeCli.storage.chunkTranscodeFailedCount", {
+      count: input.chunksWithTranscodeFailedCount,
+    }));
   }
   if (input.chunksMissingSttAudioCount > 0) {
-    warnings.push(`STT audio path 없는 chunk ${input.chunksMissingSttAudioCount}개`);
+    warnings.push(formatLocaleText("ko", "runtimeCli.storage.chunkMissingSttAudioCount", {
+      count: input.chunksMissingSttAudioCount,
+    }));
   }
   return warnings;
 }

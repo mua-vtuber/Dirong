@@ -142,11 +142,11 @@ Use the dashboard for day-to-day operation:
 
 If multiple projects are configured, only the active project's Discord guild should be used for Dirong commands. The command gate prevents inactive projects from starting, stopping, or querying the wrong recording.
 
-## Useful Commands
+## Operations and Troubleshooting Commands
+
+These commands are mainly for diagnostics, recovery, cleanup, and manual pipeline retries.
 
 ```bash
-npm run build
-npm test
 npm run doctor
 npm run doctor -- --notion-remote
 npm run repair
@@ -354,11 +354,11 @@ exit
 
 여러 프로젝트를 설정했다면 active project의 Discord guild에서만 디롱 명령을 사용하는 흐름입니다. command gate가 inactive project에서 잘못된 녹음이 시작/중지/조회되지 않도록 막습니다.
 
-## 자주 쓰는 명령
+## 운영/문제 해결 명령
+
+이 명령들은 주로 진단, 복구, 정리, 파이프라인 수동 재시도에 사용합니다.
 
 ```bash
-npm run build
-npm test
 npm run doctor
 npm run doctor -- --notion-remote
 npm run repair

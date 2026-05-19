@@ -1,4 +1,6 @@
 import type { NotionClient } from "./client.js";
+import { formatLocaleText, t } from "../i18n/catalog.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 import {
   readDataSourceProperties,
   readDataSources,
@@ -113,13 +115,16 @@ export async function resolveUploadTarget(input: {
   projectId?: string | null;
   baseResult: NotionUploadResult;
   signal?: AbortSignal;
+  locale?: DirongLocale;
 }): Promise<
   | { ok: true; target: ResolvedTarget }
   | { ok: false; result: NotionUploadResult }
 > {
+  const locale = input.locale ?? "ko";
   const registryBlock = blockPartialManagedNotionRegistry(input.registryStore, {
     includeDatabases: true,
     projectId: input.projectId,
+    locale,
   });
   if (registryBlock) {
     return {
@@ -144,6 +149,7 @@ export async function resolveUploadTarget(input: {
       candidate: managedCandidate,
       baseResult: input.baseResult,
       signal: input.signal,
+      locale,
     });
   }
 
@@ -153,9 +159,8 @@ export async function resolveUploadTarget(input: {
       result: {
         ...input.baseResult,
         status: "not_configured",
-        message: "Notion target is not configured.",
-        userAction:
-          "설정 화면에서 managed Notion DB를 생성하거나 업로드 대상을 다시 연결해 주세요.",
+        message: t(locale, "notionDashboardService.uploadTarget.targetMissingMessage"),
+        userAction: t(locale, "notionDashboardService.uploadTarget.targetMissingAction"),
       },
     };
   }
@@ -167,18 +172,18 @@ export async function resolveUploadTarget(input: {
       result: {
         ...input.baseResult,
         status: "not_configured",
-        message: "Notion target URL is invalid.",
-        userAction:
-          "Notion 데이터베이스 또는 data source URL을 다시 복사해 붙여넣어 주세요.",
+        message: t(locale, "notionDashboardService.uploadTarget.targetInvalidMessage"),
+        userAction: t(locale, "notionDashboardService.uploadTarget.targetInvalidAction"),
         technicalDetail: parsedTarget.reason,
       },
     };
   }
 
-  const target = await resolveTarget(input.client, parsedTarget, input.signal);
+  const target = await resolveTarget(input.client, parsedTarget, input.signal, locale);
   const schemaValidation = validateNotionDataSourceSchema(
     readDataSourceProperties(target.dataSource),
     input.settings.propertyNames,
+    locale,
   );
   if (!schemaValidation.ok) {
     return {
@@ -188,7 +193,10 @@ export async function resolveUploadTarget(input: {
         status: "blocked",
         targetId: target.id,
         targetName: target.name,
-        message: "Notion data source schema is not compatible.",
+        message: t(
+          locale,
+          "notionDashboardService.uploadTarget.legacySchemaIncompatibleMessage",
+        ),
         userAction: schemaValidation.userAction,
         technicalDetail: JSON.stringify({
           missing: schemaValidation.missing,
@@ -218,6 +226,7 @@ async function resolveManagedUploadTarget(input: {
   candidate: ManagedUploadRegistryCandidate;
   baseResult: NotionUploadResult;
   signal?: AbortSignal;
+  locale: DirongLocale;
 }): Promise<
   | { ok: true; target: ManagedResolvedTarget }
   | { ok: false; result: NotionUploadResult }
@@ -232,6 +241,7 @@ async function resolveManagedUploadTarget(input: {
     mappings: input.candidate.allMappings,
     managedDatabases: input.candidate.managedDatabases,
     requiredSemanticKeys: MANAGED_MEETING_UPLOAD_SEMANTIC_KEYS,
+    locale: input.locale,
   });
   if (!meetingValidation.ok) {
     return {
@@ -241,7 +251,10 @@ async function resolveManagedUploadTarget(input: {
         status: "blocked",
         targetId: input.candidate.meetingDatabase.dataSourceId,
         targetName: input.candidate.meetingDatabase.name,
-        message: "Managed Notion meeting DB schema is not compatible.",
+        message: t(
+          input.locale,
+          "notionDashboardService.uploadTarget.managedMeetingSchemaIncompatibleMessage",
+        ),
         userAction: meetingValidation.userAction,
         technicalDetail: JSON.stringify({
           missing: meetingValidation.missing,
@@ -262,6 +275,7 @@ async function resolveManagedUploadTarget(input: {
     mappings: input.candidate.allMappings,
     managedDatabases: input.candidate.managedDatabases,
     requiredSemanticKeys: MANAGED_MEMBER_UPLOAD_SEMANTIC_KEYS,
+    locale: input.locale,
   });
   if (!memberValidation.ok) {
     return {
@@ -271,7 +285,10 @@ async function resolveManagedUploadTarget(input: {
         status: "blocked",
         targetId: input.candidate.memberDatabase.dataSourceId,
         targetName: input.candidate.memberDatabase.name,
-        message: "Managed Notion member DB schema is not compatible.",
+        message: t(
+          input.locale,
+          "notionDashboardService.uploadTarget.managedMemberSchemaIncompatibleMessage",
+        ),
         userAction: memberValidation.userAction,
         technicalDetail: JSON.stringify({
           missing: memberValidation.missing,
@@ -294,6 +311,7 @@ async function resolveManagedUploadTarget(input: {
     client: input.client,
     candidate: input.candidate,
     signal: input.signal,
+    locale: input.locale,
   });
   return {
     ok: true,
@@ -322,6 +340,7 @@ async function resolveManagedActionItemTarget(input: {
   client: NotionClient;
   candidate: ManagedUploadRegistryCandidate;
   signal?: AbortSignal;
+  locale: DirongLocale;
 }): Promise<{
   target: ManagedResolvedTarget["actionItemTarget"];
   warnings: string[];
@@ -330,7 +349,7 @@ async function resolveManagedActionItemTarget(input: {
   if (!input.candidate.taskDatabase) {
     return {
       target: null,
-      warnings: ["Notion 할 일 목록 DB 연결 정보가 없어 할 일 페이지 생성을 건너뜁니다."],
+      warnings: [t(input.locale, "notionDashboardService.uploadTarget.taskDbMissingWarning")],
     };
   }
 
@@ -345,12 +364,17 @@ async function resolveManagedActionItemTarget(input: {
       mappings: input.candidate.allMappings,
       managedDatabases: input.candidate.managedDatabases,
       requiredSemanticKeys: MANAGED_TASK_UPLOAD_SEMANTIC_KEYS,
+      locale: input.locale,
     });
     if (!taskValidation.ok) {
       return {
         target: null,
         warnings: [
-          `Notion 할 일 목록 DB 스키마가 건강하지 않아 할 일 페이지 생성을 건너뜁니다. ${taskValidation.userAction}`,
+          formatLocaleText(
+            input.locale,
+            "notionDashboardService.uploadTarget.taskDbUnhealthyWarning",
+            { action: taskValidation.userAction },
+          ),
         ],
       };
     }
@@ -368,7 +392,11 @@ async function resolveManagedActionItemTarget(input: {
     return {
       target: null,
       warnings: [
-        `Notion 할 일 목록 DB 상태를 확인하지 못해 할 일 페이지 생성을 건너뜁니다 (${error instanceof Error ? error.message : String(error)}).`,
+        formatLocaleText(
+          input.locale,
+          "notionDashboardService.uploadTarget.taskDbCheckFailedWarning",
+          { error: error instanceof Error ? error.message : String(error) },
+        ),
       ],
     };
   }
@@ -434,6 +462,7 @@ export async function resolveTarget(
   client: NotionClient,
   parsedTarget: Exclude<ReturnType<typeof parseNotionTargetUrl>, { kind: "invalid" }>,
   signal?: AbortSignal,
+  locale: DirongLocale = "ko",
 ): Promise<RemoteResolvedTarget> {
   if (parsedTarget.kind === "data_source_id") {
     const dataSource = await client.retrieveDataSource(parsedTarget.id, { signal });
@@ -449,7 +478,7 @@ export async function resolveTarget(
   if (dataSources.length !== 1) {
     throw createWriterValidationError(
       "Notion database must contain exactly one child data source.",
-      "Notion database에 data source가 여러 개이면 업로드할 data source URL을 직접 복사해 주세요.",
+      t(locale, "notionDashboardService.uploadTarget.multipleDataSourcesAction"),
       `child data source count: ${dataSources.length}`,
     );
   }
@@ -457,7 +486,7 @@ export async function resolveTarget(
   if (!dataSourceId) {
     throw createWriterValidationError(
       "Notion data source id is missing.",
-      "Notion data source URL을 다시 복사해 붙여넣어 주세요.",
+      t(locale, "notionDashboardService.uploadTarget.dataSourceIdMissingAction"),
       "database child data source id missing",
     );
   }

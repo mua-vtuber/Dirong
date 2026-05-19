@@ -588,6 +588,7 @@ export class NotionDashboardService {
   }
 
   async syncMemberRoster(): Promise<NotionMemberRosterSyncResult> {
+    const locale = this.locale();
     const settings = this.getSettings();
     if (!settings.enabled || !settings.apiKey) {
       return {
@@ -603,7 +604,7 @@ export class NotionDashboardService {
       };
     }
 
-    const client = this.createClient(settings, this.locale());
+    const client = this.createClient(settings, locale);
     const projectId = this.resolveProjectId();
     if (!client) {
       return {
@@ -625,6 +626,7 @@ export class NotionDashboardService {
         registryStore: this.registryStore,
         rosterStore: this.memberRosterStore,
         projectId,
+        locale,
       });
     } catch (error) {
       const memberDatabase = this.registryStore.getManagedDatabase(
@@ -747,6 +749,7 @@ export class NotionDashboardService {
         this.getSettings(),
       ),
       nowIso: new Date().toISOString(),
+      locale,
     });
     return this.customPropertyActionResult({
       ok: true,

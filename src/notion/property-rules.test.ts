@@ -91,6 +91,42 @@ test("NotionCustomPropertyRuleStore saves bounded prompt descriptions", () => {
   }
 });
 
+test("NotionCustomPropertyRuleStore localizes save warnings", () => {
+  const fixture = createFixture();
+  try {
+    const store = new NotionCustomPropertyRuleStore(fixture.runner);
+
+    const saveResult = store.saveRules({
+      databaseRole: "meeting",
+      rules: [
+        {
+          propertyName: "Summary",
+          propertyType: "unsupported_type",
+          enabled: true,
+          promptDescription: "Summarize the discussion.",
+        },
+        {
+          propertyName: "Attendees Text",
+          propertyType: "rich_text",
+          valueSource: "participants",
+          enabled: true,
+          promptDescription: "Attendees",
+        },
+      ],
+      requiredPropertyNames: Object.values(DEFAULT_NOTION_PROPERTY_NAMES),
+      nowIso: "2026-05-08T00:01:00.000Z",
+      locale: "en",
+    });
+
+    assert.deepEqual(saveResult.warnings, [
+      "Summary: unsupported_type is not supported, so it was saved as rich_text.",
+      "Attendees Text: participant source can only be used with relation properties, so it was saved as AI source.",
+    ]);
+  } finally {
+    fixture.close();
+  }
+});
+
 test("NotionCustomPropertyRuleStore creates and deletes Korean local rules", () => {
   const fixture = createFixture();
   try {

@@ -1,3 +1,6 @@
+import { t } from "../i18n/catalog.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
+
 export type NotionUploadMode = "manual" | "automatic_after_ai_cleanup";
 export type NotionTemplateType = "app";
 export type NotionIncludeTranscript = "never";
@@ -65,6 +68,7 @@ export const DEFAULT_NOTION_PROPERTY_NAMES: NotionPropertyNames = {
 
 export function validateNotionRuntimeSettings(
   settings: NotionRuntimeSettings,
+  locale: DirongLocale = "ko",
 ): NotionSettingsValidation {
   if (!settings.enabled) {
     return { ok: true };
@@ -81,8 +85,7 @@ export function validateNotionRuntimeSettings(
   return {
     ok: false,
     missingKeys,
-    userAction:
-      "Notion 업로드를 켜려면 설정 마법사에서 Notion 연결 토큰을 저장해 주세요.",
+    userAction: t(locale, "notionWriter.apiKeyMissingAction"),
   };
 }
 

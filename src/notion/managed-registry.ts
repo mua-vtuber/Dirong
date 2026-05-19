@@ -7,6 +7,7 @@ import {
   type NotionLocale,
   type NotionPropertySemanticKey,
 } from "./schema-presets.js";
+import { t } from "../i18n/catalog.js";
 import type {
   ManagedNotionSchemaStatusSnapshot,
 } from "./managed-schema-status.js";
@@ -88,9 +89,10 @@ export function readManagedNotionRegistrySnapshot(
     remoteCheck: options.remoteCheck ?? null,
     actionItemUpload: {
       status: "implemented",
-      message: workspace?.locale === "en"
-        ? "When the Action Items DB is ready, uploads create or update action item pages."
-        : "할 일 목록 DB가 준비되면 업로드 시 할 일 페이지를 생성하거나 갱신합니다.",
+      message: t(
+        workspace?.locale ?? "ko",
+        "notionDashboardService.uploadTarget.actionItemUploadReady",
+      ),
     },
   };
 }

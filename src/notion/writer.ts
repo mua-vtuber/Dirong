@@ -82,7 +82,7 @@ export async function runNotionUpload(
     return {
       ...baseResult,
       status: "disabled",
-      message: "Notion export is disabled.",
+      message: t(locale, "notionWriter.disabledMessage"),
     };
   }
 
@@ -90,7 +90,7 @@ export async function runNotionUpload(
     return {
       ...baseResult,
       status: "not_configured",
-      message: "Notion settings are incomplete.",
+      message: t(locale, "notionWriter.settingsIncompleteMessage"),
       userAction: t(locale, "notionWriter.apiKeyMissingAction"),
     };
   }
@@ -99,7 +99,7 @@ export async function runNotionUpload(
     return {
       ...baseResult,
       status: "not_configured",
-      message: "Notion client is not available.",
+      message: t(locale, "notionWriter.clientUnavailableMessage"),
       userAction: t(locale, "notionWriter.clientMissingAction"),
     };
   }
@@ -112,6 +112,7 @@ export async function runNotionUpload(
       projectId: options.projectId,
       baseResult,
       signal: options.signal,
+      locale,
     });
     if (!targetResolution.ok) {
       return targetResolution.result;
@@ -125,7 +126,7 @@ export async function runNotionUpload(
         status: "draft_not_found",
         targetId: target.id,
         targetName: target.name,
-        message: "No valid meeting notes draft was found.",
+        message: t(locale, "notionWriter.draftMissingMessage"),
         userAction: t(locale, "notionWriter.draftMissingAction"),
       };
     }
@@ -171,6 +172,7 @@ export async function runNotionUpload(
             draftInput,
             target,
             signal: options.signal,
+            locale,
           })
         : { pageIds: [], warnings: [] };
 
@@ -295,6 +297,7 @@ async function executeWrite(input: {
       draftInput,
       rules: options.customPropertyRules ?? [],
       signal: input.signal,
+      locale: options.locale ?? "ko",
     });
     const page = await ensurePage({
       client: options.client,
@@ -325,6 +328,7 @@ async function executeWrite(input: {
       blocks: renderPlan.blocks,
       nowIso,
       signal: input.signal,
+      locale: options.locale ?? "ko",
     });
     await options.client?.updatePage(page.id, {
       properties: { ...renderPlan.doneProperties, ...customProperties },

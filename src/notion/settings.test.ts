@@ -33,6 +33,19 @@ test("validateNotionRuntimeSettings requires a stored token only when enabled", 
     validateNotionRuntimeSettings({
       ...DEFAULT_NOTION_SETTINGS,
       enabled: true,
+    }, "en"),
+    {
+      ok: false,
+      missingKeys: ["notion.token"],
+      userAction:
+        "Save a Notion connection token in the setup wizard before turning on Notion upload.",
+    },
+  );
+
+  assert.deepEqual(
+    validateNotionRuntimeSettings({
+      ...DEFAULT_NOTION_SETTINGS,
+      enabled: true,
     }),
     {
       ok: false,

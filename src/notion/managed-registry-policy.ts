@@ -2,13 +2,15 @@ import {
   readManagedNotionRegistrySnapshot,
   type ManagedNotionRegistrySnapshot,
 } from "./managed-registry.js";
+import { t } from "../i18n/catalog.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 import type { NotionRegistryStore } from "./registry-store.js";
 
 export const MANAGED_NOTION_REGISTRY_INCOMPLETE_MESSAGE =
   "Managed Notion registry is incomplete.";
 
 export const MANAGED_NOTION_REGISTRY_INCOMPLETE_USER_ACTION =
-  "일부 registry 값이 있어 legacy target으로 전환하지 않았습니다. 기존 DB/필드는 자동 수정하지 않으니 Notion 설정/복구 화면에서 registry 상태를 확인해 주세요.";
+  "Some registry values already exist, so Dirong did not fall back to the legacy target.";
 
 export type ManagedNotionRegistryBlock = {
   snapshot: ManagedNotionRegistrySnapshot;
@@ -19,7 +21,11 @@ export type ManagedNotionRegistryBlock = {
 
 export function blockPartialManagedNotionRegistry(
   registryStore: NotionRegistryStore | null | undefined,
-  options: { includeDatabases?: boolean; projectId?: string | null } = {},
+  options: {
+    includeDatabases?: boolean;
+    projectId?: string | null;
+    locale?: DirongLocale;
+  } = {},
 ): ManagedNotionRegistryBlock | null {
   const snapshot = readManagedNotionRegistrySnapshot(registryStore, {
     projectId: options.projectId,
@@ -30,7 +36,10 @@ export function blockPartialManagedNotionRegistry(
   return {
     snapshot,
     message: MANAGED_NOTION_REGISTRY_INCOMPLETE_MESSAGE,
-    userAction: MANAGED_NOTION_REGISTRY_INCOMPLETE_USER_ACTION,
+    userAction: t(
+      options.locale ?? "ko",
+      "notionDashboardService.uploadTarget.partialRegistryAction",
+    ),
     technicalDetail: JSON.stringify(managedRegistryDetail(snapshot, options)),
   };
 }

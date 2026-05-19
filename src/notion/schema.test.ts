@@ -118,6 +118,26 @@ test("validateNotionDataSourceSchema reports missing and wrong properties with K
   }
 });
 
+test("validateNotionDataSourceSchema reports missing and wrong properties with English action", () => {
+  const properties = completeProperties();
+  delete properties["Draft ID"];
+  properties.Participants = { id: "participants-id", type: "rich_text" };
+
+  const validation = validateNotionDataSourceSchema(
+    properties,
+    DEFAULT_NOTION_PROPERTY_NAMES,
+    "en",
+  );
+
+  assert.equal(validation.ok, false);
+  if (!validation.ok) {
+    assert.match(validation.userAction, /Add the required properties/);
+    assert.match(validation.userAction, /Check the Notion property types/);
+    assert.match(validation.userAction, /connection test again/);
+    assert.doesNotMatch(validation.userAction, /속성/);
+  }
+});
+
 test("validateNotionDataSourceSchemaBySemanticKey accepts managed Korean meeting mappings", () => {
   const validation = validateNotionDataSourceSchemaBySemanticKey({
     databaseRole: "meeting",
@@ -176,6 +196,31 @@ test("validateNotionDataSourceSchemaBySemanticKey reports semantic missing and w
       },
     ]);
     assert.match(validation.userAction, /meeting.participants/);
+  }
+});
+
+test("validateNotionDataSourceSchemaBySemanticKey can report English actions", () => {
+  const properties = koreanMeetingProperties();
+  delete properties["Dirong 초안 ID"];
+  properties["참가자"] = { id: "participants-id", type: "multi_select" };
+
+  const validation = validateNotionDataSourceSchemaBySemanticKey({
+    databaseRole: "meeting",
+    properties,
+    mappings: koreanMeetingMappings(),
+    requiredSemanticKeys: [
+      "meeting.participants",
+      "meeting.draftId",
+    ],
+    locale: "en",
+  });
+
+  assert.equal(validation.ok, false);
+  if (!validation.ok) {
+    assert.match(validation.userAction, /Check the semantic properties/);
+    assert.match(validation.userAction, /Check the managed Notion DB property types/);
+    assert.match(validation.userAction, /try again/);
+    assert.doesNotMatch(validation.userAction, /확인/);
   }
 });
 

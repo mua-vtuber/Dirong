@@ -1,5 +1,7 @@
 import type { SqlRunner } from "../storage/sql-runner.js";
 import { DEFAULT_PROJECT_ID } from "../projects/project-types.js";
+import { formatLocaleText } from "../i18n/catalog.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 import type { NotionDataSourceProperties } from "./schema.js";
 import type { NotionDatabaseRole } from "./schema-presets.js";
 import { normalizeNotionId, parseNotionPageUrl } from "./target.js";
@@ -218,6 +220,7 @@ export class NotionCustomPropertyRuleStore {
     requiredPropertyNames: readonly string[];
     nowIso: string;
     projectId?: string;
+    locale?: DirongLocale;
   }): { saved: number; deleted: number; ignored: number; warnings: string[] } {
     const projectId = cleanRequiredString(
       input.projectId ?? DEFAULT_PROJECT_ID,
@@ -228,6 +231,7 @@ export class NotionCustomPropertyRuleStore {
     let saved = 0;
     let deleted = 0;
     let ignored = 0;
+    const locale = input.locale ?? "ko";
 
     this.runner.transaction(() => {
       for (const rawRule of input.rules) {
@@ -300,18 +304,22 @@ export class NotionCustomPropertyRuleStore {
         let propertyType =
           supportedRequestedType ?? existing?.property_type ?? "rich_text";
         if (requestedType && !supportedRequestedType && !existing) {
-          warnings.push(
-            `${propertyName}: ${requestedType} 타입은 지원하지 않아 rich_text로 저장했습니다.`,
-          );
+          warnings.push(formatLocaleText(
+            locale,
+            "notionDashboardService.customProperties.unsupportedTypeWarning",
+            { property: propertyName, type: requestedType },
+          ));
         }
         let valueSource =
           readSupportedValueSource(rawRule.valueSource) ??
           readSupportedValueSource(existing?.value_source) ??
           "ai";
         if (valueSource === "participants" && propertyType !== "relation") {
-          warnings.push(
-            `${propertyName}: 참가자 source는 relation 속성에서만 사용할 수 있어 AI source로 저장했습니다.`,
-          );
+          warnings.push(formatLocaleText(
+            locale,
+            "notionDashboardService.customProperties.participantsSourceRequiresRelationWarning",
+            { property: propertyName },
+          ));
           valueSource = "ai";
         }
         const relationTargetUrl = cleanInline(rawRule.relationTargetUrl ?? "");
@@ -322,6 +330,7 @@ export class NotionCustomPropertyRuleStore {
           relationTargetPageUrl,
           relationTargetPageId: rawRule.relationTargetPageId,
           warnings,
+          locale,
         });
         const relationMatchPropertyName =
           cleanInline(rawRule.relationMatchPropertyName ?? "") || "Name";
@@ -338,9 +347,13 @@ export class NotionCustomPropertyRuleStore {
             )
           );
         if (rawRule.enabled && !enabled) {
-          warnings.push(propertyType === "relation"
-            ? `${propertyName}: relation은 대상 DB/data source URL 또는 대상 page URL이 있어야 켤 수 있습니다.`
-            : `${propertyName}: ${propertyType} 타입은 아직 자동 작성 대상이 아닙니다.`);
+          warnings.push(formatLocaleText(
+            locale,
+            propertyType === "relation"
+              ? "notionDashboardService.customProperties.relationNeedsTargetWarning"
+              : "notionDashboardService.customProperties.unsupportedAutoWriteWarning",
+            { property: propertyName, type: propertyType },
+          ));
         }
 
         this.runner.run(
@@ -558,6 +571,7 @@ function readRelationTargetPageId(input: {
   relationTargetPageUrl: string;
   relationTargetPageId?: string | null;
   warnings: string[];
+  locale: DirongLocale;
 }): string | null {
   const explicitId = cleanInline(input.relationTargetPageId ?? "");
   if (explicitId) {
@@ -565,9 +579,11 @@ function readRelationTargetPageId(input: {
     if (normalized) {
       return normalized;
     }
-    input.warnings.push(
-      `${input.propertyName}: relation 대상 page ID를 읽지 못했습니다.`,
-    );
+    input.warnings.push(formatLocaleText(
+      input.locale,
+      "notionDashboardService.customProperties.relationPageIdInvalidWarning",
+      { property: input.propertyName },
+    ));
   }
 
   if (!input.relationTargetPageUrl) {
@@ -578,9 +594,11 @@ function readRelationTargetPageId(input: {
   if (parsed.kind === "page_id") {
     return parsed.id;
   }
-  input.warnings.push(
-    `${input.propertyName}: relation 대상 page URL을 읽지 못했습니다.`,
-  );
+  input.warnings.push(formatLocaleText(
+    input.locale,
+    "notionDashboardService.customProperties.relationPageUrlInvalidWarning",
+    { property: input.propertyName },
+  ));
   return null;
 }
 

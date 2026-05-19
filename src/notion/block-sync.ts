@@ -1,4 +1,6 @@
 import { extractPlainTextFromBlock } from "./blocks.js";
+import { t } from "../i18n/catalog.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 import type { NotionBlockPayload, RenderedNotionBlock } from "./blocks.js";
 import type { NotionClient } from "./client.js";
 import {
@@ -68,6 +70,7 @@ export async function appendRemainingBlocks(input: {
   blocks: RenderedNotionBlock[];
   nowIso: string;
   signal?: AbortSignal;
+  locale?: DirongLocale;
 }): Promise<void> {
   if (!input.client) {
     throw new Error("Notion client is required.");
@@ -92,7 +95,7 @@ export async function appendRemainingBlocks(input: {
     if (results.length !== batch.length) {
       throw createWriterValidationError(
         "Notion append response did not match the requested block count.",
-        "Notion upload 상태를 확인한 뒤 다시 시도해 주세요.",
+        t(input.locale ?? "ko", "notionWriter.blockAppendMismatchAction"),
         `Notion append returned ${results.length} blocks for ${batch.length} requested blocks.`,
       );
     }

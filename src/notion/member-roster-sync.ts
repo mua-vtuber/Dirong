@@ -15,6 +15,7 @@ import type {
   NotionPropertyMapping,
   NotionRegistryStore,
 } from "./registry-store.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 import type { NotionSemanticResolvedProperty } from "./schema.js";
 import type { NotionPropertySemanticKey } from "./schema-presets.js";
 
@@ -52,6 +53,7 @@ export async function syncNotionMemberRoster(input: {
   rosterStore: NotionMemberRosterStore;
   nowIso?: string;
   projectId?: string;
+  locale?: DirongLocale;
 }): Promise<NotionMemberRosterSyncResult> {
   const nowIso = input.nowIso ?? new Date().toISOString();
   const projectId = input.projectId;
@@ -84,6 +86,7 @@ export async function syncNotionMemberRoster(input: {
     mappings,
     managedDatabases,
     requiredSemanticKeys: MEMBER_ROSTER_REQUIRED_SEMANTIC_KEYS,
+    locale: input.locale ?? "ko",
   });
   if (!requiredValidation.ok) {
     input.rosterStore.recordSyncSnapshot({

@@ -143,7 +143,7 @@ export class NotionWriteStore {
       projectId,
     );
     if (!row) {
-      throw new Error("Notion write row를 생성하지 못했습니다.");
+      throw new Error("Failed to create Notion write row.");
     }
     return row;
   }

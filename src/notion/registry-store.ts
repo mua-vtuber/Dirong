@@ -187,7 +187,7 @@ export class NotionRegistryStore {
       savedIdentity.projectId,
     );
     if (!saved) {
-      throw new Error("Notion workspace settings를 저장하지 못했습니다.");
+      throw new Error("Failed to save Notion workspace settings.");
     }
     return saved;
   }
@@ -217,7 +217,7 @@ export class NotionRegistryStore {
       savedIdentity.projectId,
     );
     if (!saved) {
-      throw new Error("Notion managed database를 저장하지 못했습니다.");
+      throw new Error("Failed to save Notion managed database.");
     }
     return saved;
   }
@@ -260,7 +260,7 @@ export class NotionRegistryStore {
       input.projectId ?? DEFAULT_PROJECT_ID,
     );
     if (!saved) {
-      throw new Error("Notion property mapping을 저장하지 못했습니다.");
+      throw new Error("Failed to save Notion property mapping.");
     }
     return saved;
   }

@@ -1,4 +1,6 @@
 import type { NotionPropertyNames } from "./settings.js";
+import { formatLocaleText, t } from "../i18n/catalog.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 import { NOTION_PAGE_STATUS_VALUES } from "./page-properties.js";
 import { readPropertyOptionNames } from "./property-shape.js";
 import type {
@@ -117,6 +119,7 @@ const PROPERTY_REQUIREMENTS: readonly PropertyRequirement[] = [
 export function validateNotionDataSourceSchema(
   properties: NotionDataSourceProperties,
   propertyNames: NotionPropertyNames,
+  locale: DirongLocale = "ko",
 ): NotionSchemaValidation {
   const missing: string[] = [];
   const wrongType: NotionSchemaWrongType[] = [];
@@ -171,7 +174,7 @@ export function validateNotionDataSourceSchema(
     missing,
     wrongType,
     missingOptions: [],
-    userAction: buildSchemaUserAction(missing, wrongType),
+    userAction: buildSchemaUserAction(missing, wrongType, locale),
   };
 }
 
@@ -180,6 +183,7 @@ export function validateNotionDataSourceSchemaBySemanticKey(input: {
   properties: NotionDataSourceProperties;
   mappings: readonly NotionSemanticPropertyMappingInput[];
   requiredSemanticKeys: readonly NotionPropertySemanticKey[];
+  locale?: DirongLocale;
 }): NotionSemanticSchemaValidation {
   const missing: NotionSemanticSchemaMissing[] = [];
   const wrongType: NotionSemanticSchemaWrongType[] = [];
@@ -246,7 +250,11 @@ export function validateNotionDataSourceSchemaBySemanticKey(input: {
     missing,
     wrongType,
     missingOptions: [],
-    userAction: buildSemanticSchemaUserAction(missing, wrongType),
+    userAction: buildSemanticSchemaUserAction(
+      missing,
+      wrongType,
+      input.locale ?? "ko",
+    ),
   };
 }
 
@@ -346,47 +354,72 @@ function findActualProperty(
 function buildSchemaUserAction(
   missing: string[],
   wrongType: NotionSchemaWrongType[],
+  locale: DirongLocale,
 ): string {
   const messages: string[] = [];
   if (missing.length > 0) {
     messages.push(
-      `Notion 데이터베이스에 필요한 속성을 추가해 주세요: ${missing.join(", ")}`,
+      formatLocaleText(
+        locale,
+        "notionDashboardService.legacySchemaValidation.missing",
+        { items: missing.join(", ") },
+      ),
     );
   }
   if (wrongType.length > 0) {
+    const items = wrongType
+      .map((item) => `${item.property}(${item.actual} -> ${item.expected})`)
+      .join(", ");
     messages.push(
-      `Notion 속성 타입을 확인해 주세요: ${wrongType
-        .map((item) => `${item.property}(${item.actual} -> ${item.expected})`)
-        .join(", ")}`,
+      formatLocaleText(
+        locale,
+        "notionDashboardService.legacySchemaValidation.wrongType",
+        { items },
+      ),
     );
   }
-  messages.push("속성을 수정한 뒤 Dirong 연결 테스트를 다시 실행해 주세요.");
+  messages.push(
+    t(locale, "notionDashboardService.legacySchemaValidation.checkAgain"),
+  );
   return messages.join(" ");
 }
 
 function buildSemanticSchemaUserAction(
   missing: NotionSemanticSchemaMissing[],
   wrongType: NotionSemanticSchemaWrongType[],
+  locale: DirongLocale,
 ): string {
   const messages: string[] = [];
   if (missing.length > 0) {
+    const items = missing
+      .map((item) => `${item.semanticKey}(${item.property})`)
+      .join(", ");
     messages.push(
-      `Notion managed DB에 필요한 semantic 속성을 확인해 주세요: ${missing
-        .map((item) => `${item.semanticKey}(${item.property})`)
-        .join(", ")}`,
+      formatLocaleText(
+        locale,
+        "notionDashboardService.legacySchemaValidation.semanticMissing",
+        { items },
+      ),
     );
   }
   if (wrongType.length > 0) {
+    const items = wrongType
+      .map(
+        (item) =>
+          `${item.semanticKey}:${item.property}(${item.actual} -> ${item.expected})`,
+      )
+      .join(", ");
     messages.push(
-      `Notion managed DB 속성 타입을 확인해 주세요: ${wrongType
-        .map(
-          (item) =>
-            `${item.semanticKey}:${item.property}(${item.actual} -> ${item.expected})`,
-        )
-        .join(", ")}`,
+      formatLocaleText(
+        locale,
+        "notionDashboardService.legacySchemaValidation.semanticWrongType",
+        { items },
+      ),
     );
   }
-  messages.push("managed DB registry와 Notion schema를 확인한 뒤 다시 시도해 주세요.");
+  messages.push(
+    t(locale, "notionDashboardService.legacySchemaValidation.semanticCheckAgain"),
+  );
   return messages.join(" ");
 }
 

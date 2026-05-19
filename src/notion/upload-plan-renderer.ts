@@ -7,6 +7,7 @@ import {
   isDirongLocale,
   type DirongLocale,
 } from "../settings/local-settings-store.js";
+import { t } from "../i18n/catalog.js";
 import {
   buildNotionPagePropertyValues,
   renderNotionPageProperties,
@@ -125,14 +126,8 @@ function notionUploadLocalStatusText(locale: DirongLocale): {
   inProgress: string;
   complete: string;
 } {
-  if (locale === "en") {
-    return {
-      inProgress: "Notion upload in progress",
-      complete: "Notion upload complete",
-    };
-  }
   return {
-    inProgress: "Notion 업로드 중",
-    complete: "Notion 업로드 완료",
+    inProgress: t(locale, "notionPageProperties.uploadInProgress"),
+    complete: t(locale, "notionPageProperties.uploadComplete"),
   };
 }

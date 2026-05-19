@@ -1,4 +1,6 @@
 import type { NotionClient } from "./client.js";
+import { formatLocaleText } from "../i18n/catalog.js";
+import type { DirongLocale } from "../settings/local-settings-store.js";
 import {
   readDataSourceProperties,
   readId,
@@ -29,9 +31,11 @@ export async function renderNotionCustomPageProperties(input: {
   draftInput: NotionDraftInput;
   rules: readonly NotionCustomPropertyRule[];
   signal?: AbortSignal;
+  locale?: DirongLocale;
 }): Promise<Record<string, unknown>> {
   const properties: Record<string, unknown> = {};
   const enabledRules = input.rules.filter((rule) => rule.enabled);
+  const locale = input.locale ?? "ko";
   if (enabledRules.length === 0) {
     return properties;
   }
@@ -45,6 +49,7 @@ export async function renderNotionCustomPageProperties(input: {
         rule,
         values,
         signal: input.signal,
+        locale,
       });
       if (relation.length > 0) {
         properties[rule.propertyName] = { relation };
@@ -94,8 +99,10 @@ export async function resolveManagedMemberRelations(input: {
   draftInput: NotionDraftInput;
   target: ManagedResolvedTarget;
   signal?: AbortSignal;
+  locale?: DirongLocale;
 }): Promise<{ pageIds: string[]; warnings: string[] }> {
   const warnings: string[] = [];
+  const locale = input.locale ?? "ko";
   if (!input.client) {
     return { pageIds: [], warnings };
   }
@@ -114,9 +121,11 @@ export async function resolveManagedMemberRelations(input: {
       signal: input.signal,
     });
     if (!pageId) {
-      warnings.push(
-        `Notion 작업자 DB에서 Discord 참가자 "${name}"를 찾지 못해 참가자 relation에서 제외했습니다.`,
-      );
+      warnings.push(formatLocaleText(
+        locale,
+        "notionWriter.managedMemberMissingWarning",
+        { name },
+      ));
       continue;
     }
     if (seenPageIds.has(pageId)) {
@@ -201,6 +210,7 @@ async function renderRelationProperty(input: {
   rule: NotionCustomPropertyRule;
   values: readonly string[];
   signal?: AbortSignal;
+  locale: DirongLocale;
 }): Promise<Array<{ id: string }>> {
   const fixedPageId = readRelationTargetPageId(input.rule);
   if (fixedPageId) {
@@ -212,7 +222,12 @@ async function renderRelationProperty(input: {
   if (input.values.length === 0) {
     return [];
   }
-  const target = await resolveRelationTarget(input.client, input.rule, input.signal);
+  const target = await resolveRelationTarget(
+    input.client,
+    input.rule,
+    input.signal,
+    input.locale,
+  );
   if (!target) {
     return [];
   }
@@ -258,11 +273,12 @@ async function resolveRelationTarget(
   client: NotionClient,
   rule: NotionCustomPropertyRule,
   signal: AbortSignal | undefined,
+  locale: DirongLocale,
 ): Promise<RemoteResolvedTarget | null> {
   if (rule.relationTargetUrl) {
     const parsed = parseNotionTargetUrl(rule.relationTargetUrl);
     if (parsed.kind !== "invalid") {
-      return await resolveTarget(client, parsed, signal);
+      return await resolveTarget(client, parsed, signal, locale);
     }
   }
   if (rule.relationDataSourceId) {

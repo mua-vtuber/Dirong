@@ -1,5 +1,6 @@
 import type { DirongLocale } from "../settings/local-settings-store.js";
-import { DEFAULT_DIRONG_LOCALE } from "../settings/local-settings-store.js";
+
+const DEFAULT_CATALOG_LOCALE: DirongLocale = "ko";
 
 export const ko = {
   statusDisplay: {
@@ -707,6 +708,8 @@ export const ko = {
     draftTitle: "회의록 초안",
     unknown: "알 수 없음",
     uploadPending: "Notion 업로드 대기 중",
+    uploadInProgress: "Notion 업로드 중",
+    uploadComplete: "Notion 업로드 완료",
     taskTitle: "작업",
     taskStatusTodo: "할 일",
     noEvidence: "근거 없음",
@@ -715,6 +718,10 @@ export const ko = {
     meetingTimeUnknownEnd: "미정",
   },
   notionWriter: {
+    disabledMessage: "Notion 업로드가 꺼져 있습니다.",
+    settingsIncompleteMessage: "Notion 설정이 아직 완료되지 않았습니다.",
+    clientUnavailableMessage: "Notion client를 사용할 수 없습니다.",
+    draftMissingMessage: "업로드할 수 있는 회의록 초안을 찾지 못했습니다.",
     apiKeyMissingAction: "Notion 업로드를 켜려면 설정 마법사에서 Notion 연결 토큰을 저장해 주세요.",
     clientMissingAction: "Notion API key 설정을 확인해 주세요.",
     draftMissingAction: "Phase 4 AI cleanup을 먼저 완료한 뒤 다시 시도해 주세요.",
@@ -725,6 +732,9 @@ export const ko = {
     duplicateSessionAction:
       "Notion 데이터베이스에서 같은 Session ID를 가진 page를 하나만 남긴 뒤 다시 시도해 주세요.",
     pageIdMissing: "Notion page id가 응답에 없습니다.",
+    blockAppendMismatchAction: "Notion upload 상태를 확인한 뒤 다시 시도해 주세요.",
+    managedMemberMissingWarning:
+      "Notion 작업자 DB에서 Discord 참가자 \"{name}\"를 찾지 못해 참가자 relation에서 제외했습니다.",
     actionItem: {
       duplicateSourceActionId:
         "{sourceActionId}: 같은 Dirong 할 일 ID를 가진 할 일 페이지가 여러 개라 업데이트를 건너뜁니다.",
@@ -827,6 +837,39 @@ export const ko = {
         registrySnapshotMissing: "{role} registry snapshot을 찾지 못했습니다.",
       },
     },
+    legacySchemaValidation: {
+      missing: "Notion 데이터베이스에 필요한 속성을 추가해 주세요: {items}",
+      wrongType: "Notion 속성 타입을 확인해 주세요: {items}",
+      checkAgain: "속성을 수정한 뒤 Dirong 연결 테스트를 다시 실행해 주세요.",
+      semanticMissing: "Notion managed DB에 필요한 semantic 속성을 확인해 주세요: {items}",
+      semanticWrongType: "Notion managed DB 속성 타입을 확인해 주세요: {items}",
+      semanticCheckAgain: "managed DB registry와 Notion schema를 확인한 뒤 다시 시도해 주세요.",
+    },
+    uploadTarget: {
+      targetMissingMessage: "Notion 업로드 대상이 설정되지 않았습니다.",
+      targetMissingAction:
+        "설정 화면에서 managed Notion DB를 생성하거나 업로드 대상을 다시 연결해 주세요.",
+      targetInvalidMessage: "Notion 업로드 대상 URL이 올바르지 않습니다.",
+      targetInvalidAction:
+        "Notion 데이터베이스 또는 data source URL을 다시 복사해 붙여넣어 주세요.",
+      legacySchemaIncompatibleMessage: "Notion data source schema가 호환되지 않습니다.",
+      managedMeetingSchemaIncompatibleMessage: "Managed Notion 회의록 DB schema가 호환되지 않습니다.",
+      managedMemberSchemaIncompatibleMessage: "Managed Notion 작업자 DB schema가 호환되지 않습니다.",
+      taskDbMissingWarning:
+        "Notion 할 일 목록 DB 연결 정보가 없어 할 일 페이지 생성을 건너뜁니다.",
+      taskDbUnhealthyWarning:
+        "Notion 할 일 목록 DB 스키마가 건강하지 않아 할 일 페이지 생성을 건너뜁니다. {action}",
+      taskDbCheckFailedWarning:
+        "Notion 할 일 목록 DB 상태를 확인하지 못해 할 일 페이지 생성을 건너뜁니다 ({error}).",
+      multipleDataSourcesAction:
+        "Notion database에 data source가 여러 개이면 업로드할 data source URL을 직접 복사해 주세요.",
+      dataSourceIdMissingAction:
+        "Notion data source URL을 다시 복사해 붙여넣어 주세요.",
+      partialRegistryAction:
+        "일부 registry 값이 있어 legacy target으로 전환하지 않았습니다. 기존 DB/필드는 자동 수정하지 않으니 Notion 설정/복구 화면에서 registry 상태를 확인해 주세요.",
+      actionItemUploadReady:
+        "할 일 목록 DB가 준비되면 업로드 시 할 일 페이지를 생성하거나 갱신합니다.",
+    },
     customProperties: {
       schemaRequiresSetup: "Notion 설정이 완료된 뒤 속성 스키마를 불러올 수 있습니다.",
       checkTokenAndManagedDb: "Notion token과 managed DB 설정을 확인해 주세요.",
@@ -842,6 +885,18 @@ export const ko = {
       createManagedDbAction: "Notion 설정에서 managed DB 세트를 먼저 생성해 주세요.",
       checkTargetOrManagedDb: "Notion target URL 또는 managed DB 설정을 확인해 주세요.",
       invalidTargetAction: "Notion 데이터베이스 또는 data source URL을 다시 복사해 붙여넣어 주세요.",
+      unsupportedTypeWarning:
+        "{property}: {type} 타입은 지원하지 않아 rich_text로 저장했습니다.",
+      participantsSourceRequiresRelationWarning:
+        "{property}: 참가자 source는 relation 속성에서만 사용할 수 있어 AI source로 저장했습니다.",
+      relationNeedsTargetWarning:
+        "{property}: relation은 대상 DB/data source URL 또는 대상 page URL이 있어야 켤 수 있습니다.",
+      unsupportedAutoWriteWarning:
+        "{property}: {type} 타입은 아직 자동 작성 대상이 아닙니다.",
+      relationPageIdInvalidWarning:
+        "{property}: relation 대상 page ID를 읽지 못했습니다.",
+      relationPageUrlInvalidWarning:
+        "{property}: relation 대상 page URL을 읽지 못했습니다.",
     },
     schema: {
       blockedApply: "자동 적용할 수 없는 Notion schema 항목이 있습니다.",
@@ -3068,6 +3123,8 @@ export const en = {
     draftTitle: "Meeting notes draft",
     unknown: "Unknown",
     uploadPending: "Notion upload pending",
+    uploadInProgress: "Notion upload in progress",
+    uploadComplete: "Notion upload complete",
     taskTitle: "Task",
     taskStatusTodo: "To do",
     noEvidence: "No evidence",
@@ -3076,6 +3133,10 @@ export const en = {
     meetingTimeUnknownEnd: "unknown",
   },
   notionWriter: {
+    disabledMessage: "Notion upload is disabled.",
+    settingsIncompleteMessage: "Notion settings are incomplete.",
+    clientUnavailableMessage: "Notion client is not available.",
+    draftMissingMessage: "No valid meeting notes draft was found.",
     apiKeyMissingAction: "Save a Notion connection token in the setup wizard before turning on Notion upload.",
     clientMissingAction: "Check the Notion API key setting.",
     draftMissingAction: "Complete Phase 4 AI cleanup first, then try again.",
@@ -3086,6 +3147,9 @@ export const en = {
     duplicateSessionAction:
       "Leave only one page with the same Session ID in the Notion database, then try again.",
     pageIdMissing: "The Notion response does not include a page ID.",
+    blockAppendMismatchAction: "Check the Notion upload status, then try again.",
+    managedMemberMissingWarning:
+      "Discord participant \"{name}\" was not found in the Notion member DB, so they were excluded from the participant relation.",
     actionItem: {
       duplicateSourceActionId:
         "{sourceActionId}: Multiple task pages have the same Dirong action item ID, so the update was skipped.",
@@ -3188,6 +3252,39 @@ export const en = {
         registrySnapshotMissing: "{role} registry snapshot was not found.",
       },
     },
+    legacySchemaValidation: {
+      missing: "Add the required properties to the Notion database: {items}",
+      wrongType: "Check the Notion property types: {items}",
+      checkAgain: "After updating the properties, run the Dirong connection test again.",
+      semanticMissing: "Check the semantic properties required by the managed Notion DB: {items}",
+      semanticWrongType: "Check the managed Notion DB property types: {items}",
+      semanticCheckAgain: "Check the managed DB registry and Notion schema, then try again.",
+    },
+    uploadTarget: {
+      targetMissingMessage: "Notion upload target is not configured.",
+      targetMissingAction:
+        "Create the managed Notion DBs from settings, or reconnect the upload target.",
+      targetInvalidMessage: "Notion upload target URL is invalid.",
+      targetInvalidAction:
+        "Copy and paste the Notion database or data source URL again.",
+      legacySchemaIncompatibleMessage: "Notion data source schema is not compatible.",
+      managedMeetingSchemaIncompatibleMessage: "Managed Notion meeting DB schema is not compatible.",
+      managedMemberSchemaIncompatibleMessage: "Managed Notion member DB schema is not compatible.",
+      taskDbMissingWarning:
+        "Action item page creation is skipped because the Notion Action Items DB connection is missing.",
+      taskDbUnhealthyWarning:
+        "Action item page creation is skipped because the Notion Action Items DB schema is unhealthy. {action}",
+      taskDbCheckFailedWarning:
+        "Action item page creation is skipped because Dirong could not check the Notion Action Items DB status ({error}).",
+      multipleDataSourcesAction:
+        "If the Notion database has multiple data sources, copy the data source URL you want to upload to.",
+      dataSourceIdMissingAction:
+        "Copy and paste the Notion data source URL again.",
+      partialRegistryAction:
+        "Some registry values already exist, so Dirong did not fall back to the legacy target. Existing DBs/properties are not modified automatically; check the registry state in Notion settings or repair.",
+      actionItemUploadReady:
+        "When the Action Items DB is ready, uploads create or update action item pages.",
+    },
     customProperties: {
       schemaRequiresSetup: "Complete Notion setup before loading the property schema.",
       checkTokenAndManagedDb: "Check the Notion token and managed DB setup.",
@@ -3203,6 +3300,18 @@ export const en = {
       createManagedDbAction: "Create the managed DB set from Notion settings first.",
       checkTargetOrManagedDb: "Check the Notion target URL or managed DB setup.",
       invalidTargetAction: "Copy and paste the Notion database or data source URL again.",
+      unsupportedTypeWarning:
+        "{property}: {type} is not supported, so it was saved as rich_text.",
+      participantsSourceRequiresRelationWarning:
+        "{property}: participant source can only be used with relation properties, so it was saved as AI source.",
+      relationNeedsTargetWarning:
+        "{property}: relation properties need a target DB/data source URL or target page URL before they can be enabled.",
+      unsupportedAutoWriteWarning:
+        "{property}: {type} is not an automatic write target yet.",
+      relationPageIdInvalidWarning:
+        "{property}: Could not read the relation target page ID.",
+      relationPageUrlInvalidWarning:
+        "{property}: Could not read the relation target page URL.",
     },
     schema: {
       blockedApply: "Some Notion schema items cannot be applied automatically.",
@@ -4729,7 +4838,7 @@ export const catalogs = {
 export type LocaleKey = LeafKey<LocaleCatalog>;
 
 export function t(locale: DirongLocale | undefined, key: LocaleKey): string {
-  const catalog = catalogs[locale ?? DEFAULT_DIRONG_LOCALE] ?? catalogs.ko;
+  const catalog = catalogs[locale ?? DEFAULT_CATALOG_LOCALE] ?? catalogs.ko;
   return lookupLocaleValue(catalog, key) ?? lookupLocaleValue(catalogs.ko, key) ?? key;
 }
 

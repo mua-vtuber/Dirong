@@ -179,7 +179,7 @@ export class NotionMemberRosterStore {
     });
     const saved = this.getSyncSnapshot(dataSourceId, projectId);
     if (!saved) {
-      throw new Error("Notion member roster sync snapshot 저장에 실패했습니다.");
+      throw new Error("Failed to save Notion member roster sync snapshot.");
     }
     return saved;
   }

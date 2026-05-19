@@ -13,7 +13,7 @@ export function readDataSourcePropertyMap(
 ): Map<string, JsonObject> {
   const rawProperties = dataSource.properties;
   if (!isRecord(rawProperties)) {
-    throw new Error("Notion data source 응답에 properties가 없습니다.");
+    throw new Error("Notion data source response does not include properties.");
   }
 
   const properties = new Map<string, JsonObject>();

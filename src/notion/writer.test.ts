@@ -1019,6 +1019,39 @@ test("runNotionUpload blocks on schema mismatch before local write creation", as
   }
 });
 
+test("runNotionUpload localizes schema mismatch actions", async () => {
+  const fixture = createFixture();
+  try {
+    const client = new FakeNotionClient({
+      properties: {
+        ...completeProperties(),
+        "Draft ID": { id: "draft-id", type: "number" },
+      },
+    });
+    const result = await runNotionUpload({
+      settings: notionSettings(),
+      selector: { kind: "draft", draftId: fixture.draftId },
+      dryRun: false,
+      force: false,
+      workerId: "writer-test",
+      leaseMs: 60000,
+      nowIso,
+      client,
+      readModel: new NotionDraftInputReadModel(fixture.runner),
+      writeStore: fixture.writeStore,
+      locale: "en",
+    });
+
+    assert.equal(result.status, "blocked");
+    assert.equal(result.message, "Notion data source schema is not compatible.");
+    assert.match(result.userAction ?? "", /Check the Notion property types/);
+    assert.doesNotMatch(result.userAction ?? "", /속성 타입/);
+    assert.equal(countNotionWrites(fixture.database), 0);
+  } finally {
+    fixture.close();
+  }
+});
+
 class FakeNotionClient implements NotionClient {
   readonly calls: Array<{ method: string; body?: unknown; pageId?: string }> = [];
   readonly createPageBodies: Array<Record<string, unknown>> = [];

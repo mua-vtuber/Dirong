@@ -63,6 +63,7 @@ export async function runHealthCheck(
     "opusscript",
   ]);
   const daveLibrary = detectFirstPackage(["@snazzah/davey"]);
+  const nodeCrcHelper = detectNodeCrcHelper();
   const nodeOk = isNodeVersionAccepted(process.versions.node);
   const aes256GcmAvailable = getCiphers().includes("aes-256-gcm");
   const dependencyReport = redactSensitiveText(generateDependencyReport());
@@ -113,11 +114,15 @@ export async function runHealthCheck(
     },
     {
       name: "OGG CRC helper",
-      status: getPackageVersion("node-crc") ? "ok" : "fail",
-      message: getPackageVersion("node-crc")
+      status: nodeCrcHelper.ok ? "ok" : "fail",
+      message: nodeCrcHelper.ok
         ? t(locale, "health.dependency.nodeCrcDetected")
-        : t(locale, "health.dependency.nodeCrcMissing"),
-      action: getPackageVersion("node-crc")
+        : nodeCrcHelper.error
+          ? formatLocaleText(locale, "health.dependency.nodeCrcLoadFailed", {
+              error: nodeCrcHelper.error,
+            })
+          : t(locale, "health.dependency.nodeCrcMissing"),
+      action: nodeCrcHelper.ok
         ? undefined
         : t(locale, "health.dependency.npmInstallAction"),
     },
@@ -219,6 +224,25 @@ function getPackageVersion(packageName: string): string | null {
     return packageJson.version ?? null;
   } catch {
     return null;
+  }
+}
+
+function detectNodeCrcHelper(): { ok: boolean; error?: string } {
+  if (!getPackageVersion("node-crc")) {
+    return { ok: false };
+  }
+
+  try {
+    const nodeCrc = require("node-crc") as { crc?: unknown };
+    if (typeof nodeCrc.crc === "function") {
+      return { ok: true };
+    }
+    return { ok: false, error: "node-crc did not expose a crc function." };
+  } catch (error) {
+    return {
+      ok: false,
+      error: redactSensitiveText(error instanceof Error ? error.message : String(error)),
+    };
   }
 }
 

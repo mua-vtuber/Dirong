@@ -619,6 +619,7 @@ export const ko = {
         "@snazzah/davey를 직접 찾지 못했습니다. @discordjs/voice 내장 의존성으로 처리될 수 있습니다.",
       nodeCrcDetected: "node-crc 감지됨",
       nodeCrcMissing: "OGG/Opus 파일 작성에 필요한 node-crc를 찾지 못했습니다.",
+      nodeCrcLoadFailed: "node-crc를 찾았지만 로드하지 못했습니다: {error}",
       aesAvailable: "Node crypto aes-256-gcm 사용 가능",
       aesUnavailable:
         "Node crypto aes-256-gcm 미감지. 대체 암호화 라이브러리가 필요할 수 있습니다.",
@@ -2979,6 +2980,7 @@ export const en = {
         "Could not find @snazzah/davey directly. It may be provided through @discordjs/voice.",
       nodeCrcDetected: "node-crc detected",
       nodeCrcMissing: "Could not find node-crc, which is required for writing OGG/Opus files.",
+      nodeCrcLoadFailed: "Found node-crc, but could not load it: {error}",
       aesAvailable: "Node crypto aes-256-gcm is available",
       aesUnavailable:
         "Node crypto aes-256-gcm was not detected. A fallback encryption library may be required.",

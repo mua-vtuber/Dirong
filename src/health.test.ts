@@ -59,6 +59,10 @@ test("runHealthCheck localizes user-facing check messages", async () => {
 
   const node = report.checks.find((check) => check.name === "Node.js");
   assert.match(node?.message ?? "", /^Node\.js v?\d+\.\d+\.\d+ is available$/);
+
+  const oggCrc = report.checks.find((check) => check.name === "OGG CRC helper");
+  assert.equal(oggCrc?.status, "ok");
+  assert.equal(oggCrc?.message, "node-crc detected");
 });
 
 function makeConfig(

@@ -129,6 +129,7 @@ export function flattenStorageContext(ctx: StorageContext): FlatStorageStore {
     upsertSpeaker: writes.upsertSpeaker.bind(writes),
     createChunkWriting: writes.createChunkWriting.bind(writes),
     finalizeRawChunk: writes.finalizeRawChunk.bind(writes),
+    ignoreChunk: writes.ignoreChunk.bind(writes),
     completeChunkTranscodeAndQueueJob:
       writes.completeChunkTranscodeAndQueueJob.bind(writes),
     markChunkTranscodeFailed: writes.markChunkTranscodeFailed.bind(writes),

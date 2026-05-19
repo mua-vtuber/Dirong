@@ -12,6 +12,7 @@ export type ChunkStatus =
   | "finalized"
   | "queued"
   | "transcode_failed"
+  | "ignored"
   | "failed";
 
 export type RepairScanSummary = {

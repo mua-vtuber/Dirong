@@ -61,9 +61,53 @@ export class ChunkFinalizer {
     }
 
     const rawStat = await stat(chunk.rawFinalPath);
-    const rawPlayback = await validatePlayable(chunk.rawFinalPath, active.ffmpegPath);
-    const rawSha256 = rawStat.size > 0 ? await sha256File(chunk.rawFinalPath) : null;
     const durationMs = Math.max(0, endedAtMs - chunk.startedAtMs);
+
+    if (rawStat.size === 0) {
+      const reason = "empty raw audio chunk skipped before STT";
+      this.store.ignoreChunk({
+        chunkId: chunk.chunkId,
+        endedAtMs,
+        durationMs,
+        rawByteSize: rawStat.size,
+        closeReason,
+        pipelineError,
+        reason,
+      });
+      this.store.recordRepairItem({
+        type: "raw_audio_not_playable",
+        status: "ignored",
+        sessionId: active.sessionId,
+        chunkId: chunk.chunkId,
+        path: chunk.rawFinalPath,
+        severity: "info",
+        details: {
+          rawByteSize: rawStat.size,
+          durationMs,
+          closeReason,
+          pipelineError,
+          reason,
+        },
+      });
+      this.store.recordConnectionEvent({
+        sessionId: active.sessionId,
+        eventType: "empty_audio_chunk_ignored",
+        endedAtMs,
+        details: {
+          chunkId: chunk.chunkId,
+          userId: chunk.userId,
+          displayNameSnapshot: chunk.displayNameSnapshot,
+          rawAudioPath: chunk.rawFinalPath,
+          durationMs,
+          closeReason,
+          pipelineError,
+        },
+      });
+      return;
+    }
+
+    const rawPlayback = await validatePlayable(chunk.rawFinalPath, active.ffmpegPath);
+    const rawSha256 = await sha256File(chunk.rawFinalPath);
 
     this.store.finalizeRawChunk({
       chunkId: chunk.chunkId,
@@ -75,7 +119,7 @@ export class ChunkFinalizer {
       pipelineError,
     });
 
-    if (rawStat.size === 0 || !rawPlayback.ok) {
+    if (!rawPlayback.ok) {
       this.store.markChunkTranscodeFailed({
         chunkId: chunk.chunkId,
         error: rawPlayback.error ?? "raw audio playback validation failed",

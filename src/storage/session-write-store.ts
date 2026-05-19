@@ -130,6 +130,18 @@ export class SessionWriteStore {
     this.chunks.finalizeRaw(input);
   }
 
+  ignoreChunk(input: {
+    chunkId: string;
+    endedAtMs: number;
+    durationMs: number;
+    rawByteSize: number;
+    closeReason: string;
+    pipelineError: unknown;
+    reason: string;
+  }): void {
+    this.chunks.ignore(input);
+  }
+
   completeChunkTranscodeAndQueueJob(input: {
     chunkId: string;
     sttAudioPath: string;

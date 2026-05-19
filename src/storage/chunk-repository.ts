@@ -112,6 +112,51 @@ export class ChunkRepository {
     });
   }
 
+  ignore(input: {
+    chunkId: string;
+    endedAtMs: number;
+    durationMs: number;
+    rawByteSize: number;
+    closeReason: string;
+    pipelineError: unknown;
+    reason: string;
+  }): void {
+    this.sql.transaction(() => {
+      const existing = this.get(input.chunkId);
+      this.sql.run(
+        `UPDATE chunks
+         SET status = 'ignored', ended_at_ms = ?, duration_ms = ?,
+             raw_byte_size = ?, raw_sha256 = NULL, close_reason = ?,
+             pipeline_error_json = ?, transcode_status = 'skipped',
+             transcode_error = ?, updated_at = ?
+         WHERE id = ?`,
+        input.endedAtMs,
+        input.durationMs,
+        input.rawByteSize,
+        input.closeReason,
+        input.pipelineError === null
+          ? null
+          : JSON.stringify(redactForJson(input.pipelineError)),
+        input.reason,
+        this.options.now(),
+        input.chunkId,
+      );
+      if (
+        existing &&
+        ["finalized", "queued", "transcode_failed"].includes(existing.status)
+      ) {
+        this.sql.run(
+          `UPDATE session_speakers
+           SET chunk_count = max(0, chunk_count - 1), last_seen_at = ?
+           WHERE session_id = ? AND user_id = ?`,
+          this.options.now(),
+          existing.session_id,
+          existing.user_id,
+        );
+      }
+    });
+  }
+
   markTranscodedAndQueued(input: {
     chunkId: string;
     sttAudioPath: string;

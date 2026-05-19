@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,9 +10,13 @@ import {
   upsertSpeakerSnapshot,
   type SpeakerSnapshot,
 } from "./recording-producer.js";
+import { ChunkFinalizer } from "./chunk-finalizer.js";
 import type { Phase1Config } from "../config.js";
 import type { HealthReport } from "../health.js";
-import type { RecordingProducerStore } from "./storage-port.js";
+import type {
+  ChunkFinalizerStore,
+  RecordingProducerStore,
+} from "./storage-port.js";
 
 test("speaker snapshot cache never grows beyond its cap", () => {
   const cache = new Map<string, SpeakerSnapshot>();
@@ -114,6 +118,85 @@ test("RecordingProducer localizes direct user-facing errors", async () => {
     );
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("ChunkFinalizer ignores zero-byte raw chunks without opening repair errors", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "dirong-empty-chunk-"));
+  try {
+    const rawPartPath = path.join(dir, "chunk.part.ogg");
+    const rawFinalPath = path.join(dir, "chunk.ogg");
+    writeFileSync(rawPartPath, "");
+
+    const ignoredChunks: Array<Parameters<ChunkFinalizerStore["ignoreChunk"]>[0]> = [];
+    const repairItems: Array<Parameters<ChunkFinalizerStore["recordRepairItem"]>[0]> = [];
+    const connectionEvents: Array<
+      Parameters<ChunkFinalizerStore["recordConnectionEvent"]>[0]
+    > = [];
+    let finalizedRawCount = 0;
+    let transcodeFailedCount = 0;
+    const store: ChunkFinalizerStore = {
+      ignoreChunk(input) {
+        ignoredChunks.push(input);
+      },
+      recordRepairItem(input) {
+        repairItems.push(input);
+      },
+      recordConnectionEvent(input) {
+        connectionEvents.push(input);
+      },
+      finalizeRawChunk() {
+        finalizedRawCount += 1;
+      },
+      markChunkTranscodeFailed() {
+        transcodeFailedCount += 1;
+      },
+      markChunkFailed() {},
+      completeChunkTranscodeAndQueueJob() {},
+    };
+    const finalizer = new ChunkFinalizer(store, {
+      sttMaxAttempts: 3,
+      sttSafeFormat: "webm",
+    });
+
+    await finalizer.finalize(
+      {
+        sessionId: "session-1",
+        sttAudioDir: dir,
+        startedAtMs: Date.now() - 10,
+        ffmpegPath: "ffmpeg",
+      },
+      {
+        chunkId: "chunk-1",
+        userId: "user-1",
+        displayNameSnapshot: "User One",
+        startedAtMs: 0,
+        rawPartPath,
+        rawFinalPath,
+        baseName: "chunk",
+      },
+      "after_silence",
+      {
+        message: "Failed to decrypt: DecryptionFailed(UnencryptedWhenPassthroughDisabled)",
+      },
+    );
+
+    assert.equal(existsSync(rawPartPath), false);
+    assert.equal(existsSync(rawFinalPath), true);
+    assert.equal(finalizedRawCount, 0);
+    assert.equal(transcodeFailedCount, 0);
+    assert.equal(ignoredChunks.length, 1);
+    assert.equal(ignoredChunks[0]?.chunkId, "chunk-1");
+    assert.equal(ignoredChunks[0]?.rawByteSize, 0);
+    assert.equal(ignoredChunks[0]?.reason, "empty raw audio chunk skipped before STT");
+    assert.equal(repairItems.length, 1);
+    assert.equal(repairItems[0]?.type, "raw_audio_not_playable");
+    assert.equal(repairItems[0]?.status, "ignored");
+    assert.equal(repairItems[0]?.severity, "info");
+    assert.equal(connectionEvents.length, 1);
+    assert.equal(connectionEvents[0]?.eventType, "empty_audio_chunk_ignored");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
@@ -277,6 +360,7 @@ function createRecordingStoreSpy(
     upsertSpeaker() {},
     createChunkWriting() {},
     finalizeRawChunk() {},
+    ignoreChunk() {},
     markChunkTranscodeFailed() {},
     markChunkFailed() {},
     completeChunkTranscodeAndQueueJob() {},

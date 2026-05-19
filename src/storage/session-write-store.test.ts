@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import type { Phase1Config } from "../config.js";
+import { runStartupRepair } from "./repair-scan.js";
 import { createStorageContext } from "./storage-context.js";
 import { DirongDatabase } from "./sqlite.js";
 
@@ -141,6 +143,171 @@ test("SessionWriteStore chunk lifecycle (create/finalize/transcode) queues STT j
   }
 });
 
+test("SessionWriteStore.ignoreChunk marks empty chunks skipped without speaker counts", () => {
+  const fixture = makeFixture();
+  try {
+    const sessionId = "sess-empty";
+    const chunkId = "chunk-empty";
+    fixture.ctx.writes.createSession({
+      id: sessionId,
+      guildId: "guild-1",
+      guildName: "Guild One",
+      textChannelId: "text-1",
+      voiceChannelId: "voice-1",
+      voiceChannelName: "Voice One",
+      startedByUserId: "user-1",
+      startedByDisplayName: "User One",
+      dataDir: "/tmp/data",
+    });
+    fixture.ctx.writes.upsertSpeaker({
+      sessionId,
+      userId: "user-1",
+      displayNameSnapshot: "User One",
+      isBot: false,
+      seenAtMs: 0,
+    });
+    fixture.ctx.writes.createChunkWriting({
+      chunkId,
+      sessionId,
+      chunkIndex: 1,
+      userId: "user-1",
+      displayNameSnapshot: "User One",
+      startedAtMs: 100,
+      rawAudioPath: "/tmp/data/empty.ogg",
+    });
+    fixture.ctx.writes.finalizeRawChunk({
+      chunkId,
+      endedAtMs: 104,
+      durationMs: 4,
+      rawByteSize: 0,
+      rawSha256: null,
+      closeReason: "after_silence",
+      pipelineError: { message: "Failed to decrypt" },
+    });
+    const countedSpeaker = fixture.ctx.database.db
+      .prepare(
+        "SELECT chunk_count FROM session_speakers WHERE session_id = ? AND user_id = ?",
+      )
+      .get(sessionId, "user-1") as { chunk_count: number } | undefined;
+    assert.equal(countedSpeaker?.chunk_count, 1);
+    fixture.ctx.writes.ignoreChunk({
+      chunkId,
+      endedAtMs: 104,
+      durationMs: 4,
+      rawByteSize: 0,
+      closeReason: "after_silence",
+      pipelineError: { message: "Failed to decrypt" },
+      reason: "empty raw audio chunk skipped before STT",
+    });
+
+    const chunk = fixture.ctx.reads.getChunk(chunkId);
+    assert.ok(chunk);
+    assert.equal(chunk.status, "ignored");
+    assert.equal(chunk.transcode_status, "skipped");
+    assert.equal(chunk.transcode_error, "empty raw audio chunk skipped before STT");
+
+    const speaker = fixture.ctx.database.db
+      .prepare(
+        "SELECT chunk_count FROM session_speakers WHERE session_id = ? AND user_id = ?",
+      )
+      .get(sessionId, "user-1") as { chunk_count: number } | undefined;
+    assert.equal(speaker?.chunk_count, 0);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("startup repair ignores existing zero-byte chunks without reopening STT repair", async () => {
+  const fixture = makeFixture();
+  try {
+    const sessionId = "sess-empty-repair";
+    const chunkId = "chunk-empty-repair";
+    const sessionDir = path.join(fixture.tmpDir, sessionId);
+    const chunksDir = path.join(sessionDir, "chunks");
+    const rawAudioPath = path.join(chunksDir, "empty.ogg");
+    mkdirSync(chunksDir, { recursive: true });
+    writeFileSync(rawAudioPath, "");
+
+    fixture.ctx.writes.createSession({
+      id: sessionId,
+      guildId: "guild-1",
+      guildName: "Guild One",
+      textChannelId: "text-1",
+      voiceChannelId: "voice-1",
+      voiceChannelName: "Voice One",
+      startedByUserId: "user-1",
+      startedByDisplayName: "User One",
+      dataDir: sessionDir,
+    });
+    fixture.ctx.writes.upsertSpeaker({
+      sessionId,
+      userId: "user-1",
+      displayNameSnapshot: "User One",
+      isBot: false,
+      seenAtMs: 0,
+    });
+    fixture.ctx.writes.createChunkWriting({
+      chunkId,
+      sessionId,
+      chunkIndex: 1,
+      userId: "user-1",
+      displayNameSnapshot: "User One",
+      startedAtMs: 100,
+      rawAudioPath,
+    });
+    fixture.ctx.writes.finalizeRawChunk({
+      chunkId,
+      endedAtMs: 104,
+      durationMs: 4,
+      rawByteSize: 0,
+      rawSha256: null,
+      closeReason: "after_silence",
+      pipelineError: { message: "Failed to decrypt" },
+    });
+    fixture.ctx.writes.markChunkTranscodeFailed({
+      chunkId,
+      error: "파일 크기가 0바이트입니다.",
+    });
+    fixture.ctx.writes.recordRepairItem({
+      type: "raw_audio_not_playable",
+      status: "open",
+      severity: "error",
+      sessionId,
+      chunkId,
+      path: rawAudioPath,
+    });
+
+    await runStartupRepair(
+      fixture.ctx,
+      createRepairConfig(fixture.tmpDir, fixture.ctx.database.dbPath),
+    );
+
+    const chunk = fixture.ctx.reads.getChunk(chunkId);
+    assert.ok(chunk);
+    assert.equal(chunk.status, "ignored");
+    assert.equal(chunk.transcode_status, "skipped");
+
+    const repair = fixture.ctx.database.db
+      .prepare(
+        "SELECT status, severity FROM repair_items WHERE item_type = ? AND chunk_id = ?",
+      )
+      .get("raw_audio_not_playable", chunkId) as
+      | { status: string; severity: string }
+      | undefined;
+    assert.equal(repair?.status, "ignored");
+    assert.equal(repair?.severity, "info");
+
+    const speaker = fixture.ctx.database.db
+      .prepare(
+        "SELECT chunk_count FROM session_speakers WHERE session_id = ? AND user_id = ?",
+      )
+      .get(sessionId, "user-1") as { chunk_count: number } | undefined;
+    assert.equal(speaker?.chunk_count, 0);
+  } finally {
+    fixture.close();
+  }
+});
+
 test("SessionWriteStore.recordRepairItem inserts a repair_items row with stored path", () => {
   const fixture = makeFixture();
   try {
@@ -167,6 +334,34 @@ test("SessionWriteStore.recordRepairItem inserts a repair_items row with stored 
     fixture.close();
   }
 });
+
+function createRepairConfig(dataDir: string, dbPath: string): Phase1Config {
+  return {
+    discordBotToken: "token",
+    discordClientId: "client",
+    guildId: "guild-1",
+    guildIds: ["guild-1"],
+    dataDir,
+    dbPath,
+    dbBusyTimeoutMs: 1000,
+    silenceMs: 1000,
+    softRolloverMs: 60000,
+    maxChunkMs: 120000,
+    sttSafeFormat: "webm",
+    sttMaxAttempts: 3,
+    sttLeaseMs: 1000,
+    partRepairAgeMs: 0,
+    enableDave: true,
+    decryptionFailureTolerance: 24,
+    debugVoice: false,
+    autoRegisterCommands: false,
+    dashboardHost: "127.0.0.1",
+    dashboardPort: 0,
+    openDashboard: false,
+    aloneFinalizeEnabled: false,
+    aloneFinalizeGraceMs: 1000,
+  };
+}
 
 test("SessionWriteStore.completeSttJob writes a transcript segment + marks job done", () => {
   const fixture = makeFixture();

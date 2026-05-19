@@ -85,6 +85,15 @@ export type ChunkWriteStore = {
     closeReason: string;
     pipelineError: unknown;
   }): void;
+  ignoreChunk(input: {
+    chunkId: string;
+    endedAtMs: number;
+    durationMs: number;
+    rawByteSize: number;
+    closeReason: string;
+    pipelineError: unknown;
+    reason: string;
+  }): void;
   markChunkTranscodeFailed(input: {
     chunkId: string;
     error: string;
@@ -109,6 +118,7 @@ export type ChunkFinalizerStore =
   & Pick<
     ChunkWriteStore,
     | "finalizeRawChunk"
+    | "ignoreChunk"
     | "markChunkTranscodeFailed"
     | "markChunkFailed"
     | "completeChunkTranscodeAndQueueJob"

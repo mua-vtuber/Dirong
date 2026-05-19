@@ -88,6 +88,16 @@ async function repairStaleWritingChunks(
     if (existsSync(chunk.raw_audio_path)) {
       const rawStat = statSync(chunk.raw_audio_path);
       const session = ctx.reads.getSession(chunk.session_id);
+      if (rawStat.size === 0) {
+        ignoreZeroByteRawChunk(ctx, chunk, {
+          closeReason: "startup_repair_stale_writing_empty_final_file",
+          fileMtimeMs: rawStat.mtimeMs,
+          pipelineError: { repairedBy: "startup_repair" },
+          sessionStartedAt: session?.started_at ?? null,
+        });
+        repaired += 1;
+        continue;
+      }
       const endedAtMs = estimateEndedAtMs(chunk, session?.started_at ?? null, rawStat.mtimeMs);
       const rawSha256 = rawStat.size > 0 ? await sha256File(chunk.raw_audio_path) : null;
 
@@ -247,7 +257,21 @@ async function transcodeRawAndQueue(
     return false;
   }
 
+  const rawStat = statSync(chunk.raw_audio_path);
   const session = ctx.reads.getSession(chunk.session_id);
+  if (rawStat.size === 0) {
+    ignoreZeroByteRawChunk(ctx, chunk, {
+      closeReason: chunk.close_reason ?? "startup_repair_empty_audio_chunk",
+      fileMtimeMs: rawStat.mtimeMs,
+      pipelineError: {
+        repairedBy: "startup_repair",
+        previousPipelineError: chunk.pipeline_error_json,
+      },
+      sessionStartedAt: session?.started_at ?? null,
+    });
+    return false;
+  }
+
   const sttAudioDir = path.join(session?.data_dir ?? path.dirname(chunk.raw_audio_path), "stt-audio");
   mkdirSync(sttAudioDir, { recursive: true });
   const baseName = path.basename(chunk.raw_audio_path, path.extname(chunk.raw_audio_path));
@@ -297,6 +321,47 @@ async function transcodeRawAndQueue(
     path: transcode.outputPath,
   });
   return true;
+}
+
+function ignoreZeroByteRawChunk(
+  ctx: StorageContext,
+  chunk: ChunkRow,
+  input: {
+    closeReason: string;
+    fileMtimeMs: number;
+    pipelineError: unknown;
+    sessionStartedAt: string | null;
+  },
+): void {
+  const endedAtMs =
+    chunk.ended_at_ms ??
+    estimateEndedAtMs(chunk, input.sessionStartedAt, input.fileMtimeMs);
+  const durationMs = chunk.duration_ms ?? Math.max(0, endedAtMs - chunk.started_at_ms);
+  const reason = "empty raw audio chunk skipped before STT";
+  ctx.writes.ignoreChunk({
+    chunkId: chunk.id,
+    endedAtMs,
+    durationMs,
+    rawByteSize: 0,
+    closeReason: input.closeReason,
+    pipelineError: input.pipelineError,
+    reason,
+  });
+  ctx.writes.recordRepairItem({
+    type: "raw_audio_not_playable",
+    status: "ignored",
+    severity: "info",
+    sessionId: chunk.session_id,
+    chunkId: chunk.id,
+    path: chunk.raw_audio_path,
+    details: {
+      rawByteSize: 0,
+      durationMs,
+      closeReason: input.closeReason,
+      pipelineError: input.pipelineError,
+      reason,
+    },
+  });
 }
 
 function scanOrphanAudioFiles(ctx: StorageContext, dataDir: string): number {

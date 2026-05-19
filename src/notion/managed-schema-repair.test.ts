@@ -75,6 +75,21 @@ test("managed schema repair plan creates missing meeting action item relation", 
   assert.equal(plan.operations[0]?.patch, null);
 });
 
+test("managed schema repair plan syncs stale relation mapping without Notion schema edits", () => {
+  const properties = propertiesForRole("meeting");
+  properties["할 일 목록"] = {
+    ...properties["할 일 목록"],
+    id: "remote-action-items-id",
+  };
+  const plan = planFor("meeting", properties, staleActionItemsMappings());
+
+  assert.deepEqual(
+    plan.operations.map((operation) => [operation.kind, operation.semanticKey]),
+    [["sync_mapping", "meeting.actionItems"]],
+  );
+  assert.equal(plan.body, null);
+});
+
 test("managed schema repair plan blocks missing title properties", () => {
   const properties = propertiesForRole("meeting");
   delete properties["회의록"];
@@ -247,6 +262,41 @@ test("managed schema repair apply creates meeting action items from task relatio
   }
 });
 
+test("managed schema repair apply syncs stale relation mapping without updating Notion", async () => {
+  const fixture = createFixture();
+  try {
+    seedCompleteRegistry(fixture.store);
+    const properties = propertiesForRole("meeting");
+    properties["할 일 목록"] = {
+      ...properties["할 일 목록"],
+      id: "remote-action-items-id",
+    };
+    const plan = planFor("meeting", properties);
+    const client = fakeClient([properties, properties]);
+
+    const result = await applyManagedSchemaRepair({
+      client,
+      registryStore: fixture.store,
+      role: "meeting",
+      expectedPlanHash: plan.planHash,
+      nowIso: "2026-05-12T00:01:00.000Z",
+    });
+
+    assert.equal(result.status, "done");
+    assert.deepEqual(result.appliedOperationIds, [
+      "sync_mapping:meeting.actionItems",
+    ]);
+    assert.equal(client.updateCalls.length, 0);
+    assert.equal(
+      fixture.store.getPropertyMapping("meeting", "meeting.actionItems")
+        ?.propertyId,
+      "remote-action-items-id",
+    );
+  } finally {
+    fixture.close();
+  }
+});
+
 test("managed schema repair apply fails when Notion response still misses selected property", async () => {
   const fixture = createFixture();
   try {
@@ -280,17 +330,18 @@ test("managed schema repair apply fails when Notion response still misses select
 function planFor(
   role: NotionDatabaseRole,
   properties: NotionDataSourceProperties,
+  mappings: NotionPropertyMapping[] = mappingsForAllRoles(),
 ) {
   const diff = buildManagedSchemaDiff({
     databaseRole: role,
     properties,
-    mappings: mappingsForAllRoles(),
+    mappings,
     managedDatabases: managedDatabases(),
   });
   return buildManagedSchemaRepairPlan({
     role,
     diff,
-    mappings: mappingsForAllRoles(),
+    mappings,
     managedDatabases: managedDatabases(),
   });
 }
@@ -420,6 +471,14 @@ function mappingsForAllRoles(): NotionPropertyMapping[] {
       createdAt: "2026-05-12T00:00:00.000Z",
       updatedAt: "2026-05-12T00:00:00.000Z",
     })),
+  );
+}
+
+function staleActionItemsMappings(): NotionPropertyMapping[] {
+  return mappingsForAllRoles().map((mapping) =>
+    mapping.semanticKey === "meeting.actionItems"
+      ? { ...mapping, propertyId: "stale-action-items-id" }
+      : mapping,
   );
 }
 

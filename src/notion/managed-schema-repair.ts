@@ -253,12 +253,15 @@ export function buildManagedSchemaRepairPlan(input: {
       continue;
     }
 
-    if (issue.code === "mapping_missing") {
-      if (input.diff.issues.some(
-        (entry) =>
-          entry.semanticKey === issue.semanticKey &&
-          entry.code === "remote_missing",
-      )) {
+    if (issue.code === "mapping_missing" || issue.code === "mapping_stale") {
+      if (
+        issue.code === "mapping_missing" &&
+        input.diff.issues.some(
+          (entry) =>
+            entry.semanticKey === issue.semanticKey &&
+            entry.code === "remote_missing",
+        )
+      ) {
         continue;
       }
       const resolved = resolvedByKey.get(issue.semanticKey);
@@ -519,6 +522,7 @@ function upsertResolvedMappings(input: {
       const property = presetProperty(input.role, operation.semanticKey, input.preset);
       const remainingIssues = (blockingByKey.get(operation.semanticKey) ?? [])
         .filter((issue) => issue.code !== "mapping_missing")
+        .filter((issue) => issue.code !== "mapping_stale")
         .filter((issue) => !(issue.code === "remote_missing" && resolved));
       if (!resolved || !property || remainingIssues.length > 0) {
         continue;
@@ -686,6 +690,7 @@ function unresolvedIssuesForOperations(input: {
       operatedKeys.has(issue.semanticKey) &&
       issue.severity !== "warning" &&
       issue.code !== "mapping_missing" &&
+      issue.code !== "mapping_stale" &&
       !(issue.code === "remote_missing" && resolvedKeys.has(issue.semanticKey)),
   );
 }

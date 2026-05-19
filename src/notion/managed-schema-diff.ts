@@ -28,6 +28,7 @@ import type { DirongLocale } from "../settings/local-settings-store.js";
 
 export type ManagedSchemaIssueCode =
   | "mapping_missing"
+  | "mapping_stale"
   | "remote_missing"
   | "name_drift"
   | "wrong_type"
@@ -229,7 +230,7 @@ export function validateManagedDataSourceSchemaForUpload(input: {
     if (!issue.semanticKey || !required.has(issue.semanticKey)) {
       continue;
     }
-    if (issue.code === "extra") {
+    if (issue.code === "extra" || issue.code === "mapping_stale") {
       continue;
     }
     if (issue.code === "mapping_missing" || issue.code === "remote_missing") {
@@ -375,8 +376,8 @@ function collectRequiredPropertyIssues(input: {
 
   if (mapping?.propertyId && input.match.match === "name") {
     input.issues.push({
-      code: "remote_missing",
-      severity: expected.type === "title" ? "manual" : "repairable",
+      code: "mapping_stale",
+      severity: "repairable",
       databaseRole: input.databaseRole,
       semanticKey: expected.key,
       propertyName: actual.name,

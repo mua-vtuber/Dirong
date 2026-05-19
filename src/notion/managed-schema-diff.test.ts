@@ -131,6 +131,50 @@ test("managed schema diff marks relation target mismatch as manual required", ()
   );
 });
 
+test("managed schema diff treats stale mapping ids as repairable without recreating relations", () => {
+  const properties = propertiesForRole("meeting");
+  properties["할 일 목록"] = {
+    ...properties["할 일 목록"],
+    id: "remote-action-items-id",
+    relation: {
+      data_source_id: "task-ds",
+      type: "dual_property",
+      dual_property: {
+        synced_property_name: "회의록",
+        synced_property_id: propertyId("task.meeting"),
+      },
+    },
+  };
+  const mappings = mappingsForAllRoles().map((mapping) =>
+    mapping.semanticKey === "meeting.actionItems"
+      ? { ...mapping, propertyId: "stale-action-items-id" }
+      : mapping,
+  );
+
+  const diff = buildManagedSchemaDiff({
+    databaseRole: "meeting",
+    properties,
+    mappings,
+    managedDatabases: managedDatabases(),
+  });
+
+  assert.equal(diff.status, "needs_repair");
+  assert.deepEqual(
+    diff.issues
+      .filter((issue) => issue.semanticKey === "meeting.actionItems")
+      .map((issue) => [issue.code, issue.severity, issue.actual]),
+    [["mapping_stale", "repairable", "remote-action-items-id"]],
+  );
+  assert.equal(
+    diff.issues.some(
+      (issue) =>
+        issue.semanticKey === "meeting.actionItems" &&
+        issue.code === "remote_missing",
+    ),
+    false,
+  );
+});
+
 test("managed schema diff keeps extra properties as warnings only", () => {
   const properties = {
     ...propertiesForRole("meeting"),
@@ -208,6 +252,35 @@ test("managed schema upload validation supports required semantic subsets", () =
       { semanticKey: "meeting.draftId", property: "Dirong 초안 ID" },
     ]);
     assert.match(missing.userAction, /DB 설정 화면/);
+  }
+});
+
+test("managed schema upload validation allows stale mapping ids when relation shape is valid", () => {
+  const properties = propertiesForRole("meeting");
+  properties["할 일 목록"] = {
+    ...properties["할 일 목록"],
+    id: "remote-action-items-id",
+  };
+  const mappings = mappingsForAllRoles().map((mapping) =>
+    mapping.semanticKey === "meeting.actionItems"
+      ? { ...mapping, propertyId: "stale-action-items-id" }
+      : mapping,
+  );
+
+  const validation = validateManagedDataSourceSchemaForUpload({
+    databaseRole: "meeting",
+    properties,
+    mappings,
+    managedDatabases: managedDatabases(),
+    requiredSemanticKeys: ["meeting.actionItems"],
+  });
+
+  assert.equal(validation.ok, true);
+  if (validation.ok) {
+    assert.equal(
+      validation.propertyIds["meeting.actionItems"]?.id,
+      "remote-action-items-id",
+    );
   }
 });
 

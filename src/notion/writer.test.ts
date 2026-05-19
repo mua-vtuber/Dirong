@@ -430,6 +430,47 @@ test("runNotionUpload creates managed task pages for action items", async () => 
   }
 });
 
+test("runNotionUpload does not block when meeting action item reciprocal relation is absent", async () => {
+  const fixture = createFixture({ actionItems: managedActionItems() });
+  const managedMeetingProperties = koreanManagedMeetingProperties();
+  delete managedMeetingProperties["할 일 목록"];
+  seedManagedRegistry(fixture.registryStore);
+  try {
+    const client = new FakeNotionClient({ managedMeetingProperties });
+    const result = await runNotionUpload({
+      settings: notionSettings({ targetUrl: null }),
+      selector: { kind: "draft", draftId: fixture.draftId },
+      dryRun: false,
+      force: false,
+      workerId: "writer-test",
+      leaseMs: 60000,
+      nowIso,
+      client,
+      readModel: new NotionDraftInputReadModel(fixture.runner),
+      writeStore: fixture.writeStore,
+      registryStore: fixture.registryStore,
+    });
+    const meetingProperties = client.createPageBodies[0]?.properties as Record<
+      string,
+      unknown
+    >;
+    const firstTaskProperties = client.taskCreatePageBodies[0]?.properties as Record<
+      string,
+      unknown
+    >;
+
+    assert.equal(result.status, "done");
+    assert.equal(client.createPageBodies.length, 1);
+    assert.equal(client.taskCreatePageBodies.length, 2);
+    assert.equal("할 일 목록" in meetingProperties, false);
+    assert.deepEqual(firstTaskProperties["회의록"], {
+      relation: [{ id: "page-1" }],
+    });
+  } finally {
+    fixture.close();
+  }
+});
+
 test("runNotionUpload updates existing managed task pages by source action id", async () => {
   const fixture = createFixture({ actionItems: managedActionItems() });
   seedManagedRegistry(fixture.registryStore);

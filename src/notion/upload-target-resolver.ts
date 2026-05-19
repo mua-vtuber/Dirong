@@ -83,7 +83,6 @@ const MANAGED_MEETING_UPLOAD_SEMANTIC_KEYS = [
   "meeting.channel",
   "meeting.memberRelation",
   "meeting.participants",
-  "meeting.actionItems",
   "meeting.status",
   "meeting.sessionId",
   "meeting.draftId",

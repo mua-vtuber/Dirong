@@ -987,7 +987,7 @@ export const ko = {
   },
   runtimeCli: {
     main: {
-      dashboardHeartbeatExpired: "대시보드 연결이 닫혀 서버를 종료합니다.",
+      dashboardHeartbeatExpired: "대시보드 heartbeat가 지연되었습니다. 서버는 계속 실행 중입니다.",
       dashboardStarted: "디롱이 Recording + STT dashboard 시작: {url}",
       setupStatusApi: "설정 상태 API: {url}",
       sttAutomationSkipped: "STT 자동 실행 대기 안 함: {message}",
@@ -1545,7 +1545,7 @@ export const ko = {
           done: {
             message: "프로젝트 이름을 저장했습니다.",
             action:
-              "디롱이를 재시작해 주세요. 대시보드 창을 닫으면 서버가 자동으로 종료됩니다.",
+              "디롱이를 재시작해 주세요. 대시보드를 닫아도 서버는 계속 실행됩니다. 종료하려면 실행 콘솔에서 exit를 입력해 주세요.",
           },
         },
         error: {
@@ -1910,7 +1910,7 @@ export const ko = {
         placeholder: "예: 주간 운영 회의",
         restartTitle: "설정이 끝났습니다",
         restartDescription:
-          "변경된 설정을 적용하려면 디롱이를 재시작해 주세요. 대시보드 창을 닫으면 서버도 자동으로 종료됩니다.",
+          "변경된 설정을 적용하려면 디롱이를 재시작해 주세요. 대시보드를 닫아도 서버는 계속 실행됩니다. 종료하려면 실행 콘솔에서 exit를 입력해 주세요.",
       },
       features: {
         discord: "Discord",
@@ -3577,7 +3577,7 @@ export const en = {
   },
   runtimeCli: {
     main: {
-      dashboardHeartbeatExpired: "Dashboard connection closed, so the server is shutting down.",
+      dashboardHeartbeatExpired: "Dashboard heartbeat is delayed. The server is still running.",
       dashboardStarted: "Dirong Recording + STT dashboard started: {url}",
       setupStatusApi: "Setup status API: {url}",
       sttAutomationSkipped: "STT automation not started: {message}",
@@ -4137,7 +4137,7 @@ export const en = {
           done: {
             message: "Project name saved.",
             action:
-              "Restart Dirong. Closing the dashboard window will stop the server automatically.",
+              "Restart Dirong. The server keeps running if the dashboard is closed; type exit in the running console to quit.",
           },
         },
         error: {
@@ -4502,7 +4502,7 @@ export const en = {
         placeholder: "Example: Weekly operations meeting",
         restartTitle: "Setup is complete",
         restartDescription:
-          "Restart Dirong to apply the saved setup. Closing the dashboard window will also stop the server automatically.",
+          "Restart Dirong to apply the saved setup. The server keeps running if the dashboard is closed; type exit in the running console to quit.",
       },
       features: {
         discord: "Discord",

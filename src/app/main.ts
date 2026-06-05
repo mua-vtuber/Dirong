@@ -265,12 +265,6 @@ const dashboard = new DashboardServer(config, store, producer, {
   setupWizard,
   settingsReset,
   sttAutomation,
-}, {
-  clientHeartbeatTimeoutMs: 20000,
-  onClientHeartbeatExpired: () => {
-    console.log(t(resolveAppLocale(), "runtimeCli.main.dashboardHeartbeatExpired"));
-    void shutdown("dashboard_closed").finally(() => process.exit(0));
-  },
 });
 const dashboardUrl = await startDashboardOrExit();
 const initialSetupStatus = setupStatus.getSnapshot();

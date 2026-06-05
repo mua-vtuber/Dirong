@@ -37,6 +37,8 @@ Default dashboard:
 http://127.0.0.1:3095/
 ```
 
+The dashboard is a status and control screen. Dirong keeps running if the dashboard tab is closed, minimized, or covered; keep the launcher console running, and type `exit` there when you want to quit the app.
+
 ### Manual start
 
 ```bash
@@ -248,6 +250,8 @@ Dirong Start.bat
 ```text
 http://127.0.0.1:3095/
 ```
+
+대시보드는 상태 확인과 조작 화면입니다. 대시보드 탭을 닫거나 최소화하거나 다른 화면에 가려도 디롱이는 계속 실행됩니다. 앱을 계속 쓰려면 실행 콘솔을 열어두고, 종료하려면 그 콘솔에서 `exit`를 입력해 주세요.
 
 ### 수동 실행
 

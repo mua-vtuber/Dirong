@@ -338,6 +338,28 @@ test("DashboardServer root serves the dashboard HTML without caching", async () 
   }
 });
 
+test("DashboardServer accepts dashboard heartbeat without owning process shutdown", async () => {
+  const fixture = await startDashboardFixture();
+  try {
+    const heartbeat = await postJson(
+      fixture.baseUrl,
+      "/api/dashboard/heartbeat",
+      {},
+    );
+    const heartbeatBody = await heartbeat.json() as {
+      ok: boolean;
+      status: string;
+    };
+    const dashboard = await fetch(`${fixture.baseUrl}/`);
+
+    assert.equal(heartbeat.status, 200);
+    assert.deepEqual(heartbeatBody, { ok: true, status: "done" });
+    assert.equal(dashboard.status, 200);
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("DashboardServer setup status API returns redacted configuration state", async () => {
   const fixture = await startDashboardFixture({
     setupStatus: makeSetupStatusSource(),

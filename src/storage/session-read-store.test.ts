@@ -5,6 +5,8 @@ import path from "node:path";
 import test from "node:test";
 import { createStorageContext } from "./storage-context.js";
 import { DirongDatabase } from "./sqlite.js";
+import { SqlRunner } from "./sql-runner.js";
+import { ProjectStore } from "../projects/project-store.js";
 
 // SessionReadStore — one positive case per method group:
 //   1. session reads (getSession, getLatestSession, listFinalizedSessionsForAiCleanupAutomation)
@@ -235,13 +237,16 @@ test("SessionReadStore composite read-models build without throwing", () => {
   const fixture = makeFixture();
   try {
     seedTwoSessions(fixture.ctx);
-    const dashboard = fixture.ctx.reads.getDashboardState({
-      isRecording: false,
-      sessionId: null,
-      voiceChannelId: null,
-      voiceChannelName: null,
-      openChunks: 0,
-    });
+    const dashboard = fixture.ctx.reads.getDashboardState(
+      {
+        isRecording: false,
+        sessionId: null,
+        voiceChannelId: null,
+        voiceChannelName: null,
+        openChunks: 0,
+      },
+      null,
+    );
     assert.ok(dashboard, "dashboard state should be produced");
 
     const status = fixture.ctx.reads.statusText(
@@ -256,6 +261,69 @@ test("SessionReadStore composite read-models build without throwing", () => {
     );
     assert.equal(typeof status, "string");
     assert.ok(status.length > 0, "status text should be non-empty");
+  } finally {
+    fixture.close();
+  }
+});
+
+test("SessionReadStore.getLatestSessionForProject filters by project + tie-breaks by rowid", () => {
+  const fixture = makeFixture();
+  try {
+    const projects = new ProjectStore(new SqlRunner(fixture.ctx.database));
+    projects.createReadyProject({ id: "proj-a", name: "Project A" });
+    projects.createReadyProject({ id: "proj-b", name: "Project B" });
+
+    // Two sessions for project A and one for project B. With ms-precision
+    // started_at the two A sessions can tie; rowid DESC must pick the later one.
+    fixture.ctx.writes.createSession({
+      id: "a-old",
+      projectId: "proj-a",
+      guildId: "guild-a",
+      guildName: null,
+      textChannelId: null,
+      voiceChannelId: "voice-a",
+      voiceChannelName: null,
+      startedByUserId: "user-1",
+      startedByDisplayName: "User One",
+      dataDir: "/tmp/data",
+    });
+    fixture.ctx.writes.createSession({
+      id: "a-new",
+      projectId: "proj-a",
+      guildId: "guild-a",
+      guildName: null,
+      textChannelId: null,
+      voiceChannelId: "voice-a",
+      voiceChannelName: null,
+      startedByUserId: "user-1",
+      startedByDisplayName: "User One",
+      dataDir: "/tmp/data",
+    });
+    fixture.ctx.writes.createSession({
+      id: "b-only",
+      projectId: "proj-b",
+      guildId: "guild-b",
+      guildName: null,
+      textChannelId: null,
+      voiceChannelId: "voice-b",
+      voiceChannelName: null,
+      startedByUserId: "user-1",
+      startedByDisplayName: "User One",
+      dataDir: "/tmp/data",
+    });
+
+    const latestA = fixture.ctx.reads.getLatestSessionForProject("proj-a");
+    assert.ok(latestA);
+    assert.equal(latestA.id, "a-new");
+
+    const latestB = fixture.ctx.reads.getLatestSessionForProject("proj-b");
+    assert.ok(latestB);
+    assert.equal(latestB.id, "b-only");
+
+    // A project with no sessions returns null (no global fallback).
+    const latestMissing =
+      fixture.ctx.reads.getLatestSessionForProject("proj-missing");
+    assert.equal(latestMissing, null);
   } finally {
     fixture.close();
   }

@@ -253,8 +253,31 @@ export async function routeDashboardRequest(
   }
 
   if (url.pathname === "/api/state") {
+    // Active project id comes from the same source `/api/projects/active` reads
+    // (context.runtimeSources.projects). Two distinct null causes must NOT be
+    // collapsed:
+    //   (a) source present but no active project set -> getActiveProject()
+    //       returns null -> legitimate empty state, kept as null so the read
+    //       model produces the empty dashboard.
+    //   (b) source absent (wiring/configuration failure) -> fail loud with the
+    //       missing identifier, mirroring handleProjectsListGet /
+    //       handleActiveProjectGet, instead of masking it as an empty state.
+    // Never substituted with DEFAULT_PROJECT_ID (that would leak another
+    // project's records).
+    if (!context.runtimeSources.projects) {
+      sendJson(response, withMessageKeys(locale, {
+        ok: false,
+        status: "not_configured",
+        messageKey: "error.dashboard.setupStatusSourceMissing.message",
+        userActionKey: "error.dashboard.setupStatusSourceMissing.action",
+      }), 500);
+      return;
+    }
+    const activeProjectId =
+      context.runtimeSources.projects.getActiveProject()?.id ?? null;
     const state = context.store.getDashboardState(
       context.producer.getRuntimeState(),
+      activeProjectId,
     );
     const withRuntime = appendDashboardRuntimeSnapshots(
       state,

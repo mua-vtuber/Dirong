@@ -100,6 +100,13 @@ export class SessionRepository {
     );
   }
 
+  getLatestForProject(projectId: string): SessionRow | null {
+    return this.sql.get<SessionRow>(
+      "SELECT * FROM sessions WHERE project_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1",
+      projectId,
+    );
+  }
+
   listFinalizedForAiCleanupAutomation(
     input:
       | number

@@ -9,6 +9,10 @@ import {
   type StorageContext,
 } from "./storage-context.js";
 import { DirongDatabase } from "./sqlite.js";
+import { SqlRunner } from "./sql-runner.js";
+import { ProjectStore } from "../projects/project-store.js";
+
+const DASHBOARD_PROJECT_ID = "proj-dashboard";
 
 test("SessionStore dashboard read model returns current session slices", () => {
   const fixture = createFixture();
@@ -22,7 +26,10 @@ test("SessionStore dashboard read model returns current session slices", () => {
       openChunks: 0,
     };
 
-    const state = fixture.ctx.reads.getDashboardState(runtime) as {
+    const state = fixture.ctx.reads.getDashboardState(
+      runtime,
+      DASHBOARD_PROJECT_ID,
+    ) as {
       currentSession?: { id: string };
       speakers?: Array<{ user_id: string }>;
       recentChunks?: Array<{ id: string; stt_job_id: string }>;
@@ -54,7 +61,10 @@ test("SessionStore dashboard read model returns latest Notion write without secr
       openChunks: 0,
     };
 
-    const state = fixture.ctx.reads.getDashboardState(runtime) as {
+    const state = fixture.ctx.reads.getDashboardState(
+      runtime,
+      DASHBOARD_PROJECT_ID,
+    ) as {
       latestNotionWrite?: {
         id: string;
         status: string;
@@ -105,8 +115,14 @@ function createFixture(): DashboardFixture {
 }
 
 function seedDashboardSession(fixture: DashboardFixture): void {
+  const projects = new ProjectStore(new SqlRunner(fixture.database));
+  projects.createReadyProject({
+    id: DASHBOARD_PROJECT_ID,
+    name: "Dashboard Project",
+  });
   fixture.ctx.writes.createSession({
     id: fixture.sessionId,
+    projectId: DASHBOARD_PROJECT_ID,
     guildId: "guild",
     guildName: "Guild",
     textChannelId: "text",
@@ -200,3 +216,273 @@ function seedNotionWrite(fixture: DashboardFixture): void {
     )
     .run(fixture.sessionId, now, now, now);
 }
+
+type ProjectScopeFixture = {
+  dir: string;
+  database: DirongDatabase;
+  ctx: StorageContext;
+  close: () => void;
+};
+
+function createProjectScopeFixture(): ProjectScopeFixture {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-dashboard-scope-"));
+  const database = new DirongDatabase(path.join(dir, "dirong.sqlite"), 1000);
+  const ctx = createStorageContext(database);
+  return {
+    dir,
+    database,
+    ctx,
+    close: () => {
+      ctx.close();
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
+
+// Seed one project with: a session, a chunk that produces a queued stt_job, and
+// a repair item bound to that session. Returns the session id.
+function seedProjectWithData(
+  fixture: ProjectScopeFixture,
+  projects: ProjectStore,
+  projectId: string,
+): string {
+  projects.createReadyProject({ id: projectId, name: projectId });
+  const sessionId = `sess-${projectId}`;
+  const chunkId = `${sessionId}_000001_speaker`;
+  fixture.ctx.writes.createSession({
+    id: sessionId,
+    projectId,
+    guildId: `guild-${projectId}`,
+    guildName: null,
+    textChannelId: null,
+    voiceChannelId: `voice-${projectId}`,
+    voiceChannelName: null,
+    startedByUserId: "starter",
+    startedByDisplayName: "Taniar",
+    dataDir: fixture.dir,
+  });
+  fixture.ctx.writes.upsertSpeaker({
+    sessionId,
+    userId: "speaker",
+    displayNameSnapshot: "Taniar",
+    isBot: false,
+    seenAtMs: 0,
+  });
+  fixture.ctx.writes.createChunkWriting({
+    chunkId,
+    sessionId,
+    chunkIndex: 1,
+    userId: "speaker",
+    displayNameSnapshot: "Taniar",
+    startedAtMs: 0,
+    rawAudioPath: path.join(fixture.dir, `${chunkId}.ogg`),
+  });
+  fixture.ctx.writes.finalizeRawChunk({
+    chunkId,
+    endedAtMs: 1000,
+    durationMs: 1000,
+    rawByteSize: 10,
+    rawSha256: "raw-sha",
+    closeReason: "test",
+    pipelineError: null,
+  });
+  fixture.ctx.writes.completeChunkTranscodeAndQueueJob({
+    chunkId,
+    sttAudioPath: path.join(fixture.dir, `${chunkId}.webm`),
+    sttAudioFormat: "webm",
+    sttByteSize: 10,
+    sttSha256: "stt-sha",
+    maxAttempts: 3,
+  });
+  fixture.ctx.writes.recordRepairItem({
+    type: "chunk_missing_audio",
+    status: "open",
+    severity: "warn",
+    sessionId,
+    chunkId,
+  });
+  return sessionId;
+}
+
+type ScopedDashboardState = {
+  currentSession: { id: string; project_id: string | null } | null;
+  recentSttJobs: Array<{ id: string; session_id: string }>;
+  recentRepairItems: Array<{ id: number; session_id: string | null }>;
+  queueStats: Array<{ status: string; count: number }>;
+  recentChunks: unknown[];
+  recentConnectionEvents: Array<{
+    session_id: string | null;
+    event_type: string;
+  }>;
+  speakers: unknown[];
+  latestMeetingNotesDraft: unknown | null;
+  latestNotionWrite: unknown | null;
+};
+
+const NO_RUNTIME_SESSION: RecordingRuntimeState = {
+  isRecording: false,
+  sessionId: null,
+  voiceChannelId: null,
+  voiceChannelName: null,
+  openChunks: 0,
+};
+
+test("dashboard read model scopes panels to the active project only", () => {
+  const fixture = createProjectScopeFixture();
+  try {
+    const projects = new ProjectStore(new SqlRunner(fixture.database));
+    const sessionA = seedProjectWithData(fixture, projects, "proj-a");
+    seedProjectWithData(fixture, projects, "proj-b");
+
+    const state = fixture.ctx.reads.getDashboardState(
+      NO_RUNTIME_SESSION,
+      "proj-a",
+    ) as ScopedDashboardState;
+
+    // currentSession is project A's latest session, never B's, never global.
+    assert.equal(state.currentSession?.id, sessionA);
+
+    // Every stt_job / repair item belongs to project A's session only.
+    assert.equal(state.recentSttJobs.length, 1);
+    assert.equal(state.recentSttJobs[0]?.session_id, sessionA);
+    assert.equal(state.recentRepairItems.length, 1);
+    assert.equal(state.recentRepairItems[0]?.session_id, sessionA);
+
+    // queueStats counts only project A's one queued job (not 2 across A + B).
+    assert.deepEqual(state.queueStats, [{ status: "queued", count: 1 }]);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("dashboard read model excludes orphan repair items from every project", () => {
+  const fixture = createProjectScopeFixture();
+  try {
+    const projects = new ProjectStore(new SqlRunner(fixture.database));
+    seedProjectWithData(fixture, projects, "proj-a");
+    // Orphan repair item: no session (session_id stays null). It belongs to no
+    // project and must not surface under any active project.
+    fixture.ctx.writes.recordRepairItem({
+      type: "startup_repair_failed",
+      status: "open",
+      severity: "error",
+      sessionId: null,
+    });
+
+    const state = fixture.ctx.reads.getDashboardState(
+      NO_RUNTIME_SESSION,
+      "proj-a",
+    ) as ScopedDashboardState;
+
+    // The orphan is excluded by the INNER JOIN; only A's session-bound item shows.
+    assert.equal(state.recentRepairItems.length, 1);
+    assert.equal(state.recentRepairItems[0]?.session_id, "sess-proj-a");
+    assert.ok(
+      state.recentRepairItems.every((item) => item.session_id !== null),
+      "no orphan (session_id=null) repair item leaks into a project view",
+    );
+  } finally {
+    fixture.close();
+  }
+});
+
+test("dashboard read model scopes connection events to the active project's session", () => {
+  const fixture = createProjectScopeFixture();
+  try {
+    const projects = new ProjectStore(new SqlRunner(fixture.database));
+    const sessionA = seedProjectWithData(fixture, projects, "proj-a");
+    const sessionB = seedProjectWithData(fixture, projects, "proj-b");
+    // A connection event bound to each project's session.
+    fixture.ctx.writes.recordConnectionEvent({
+      sessionId: sessionA,
+      eventType: "voice_connected",
+    });
+    fixture.ctx.writes.recordConnectionEvent({
+      sessionId: sessionB,
+      eventType: "voice_connected",
+    });
+
+    const state = fixture.ctx.reads.getDashboardState(
+      NO_RUNTIME_SESSION,
+      "proj-a",
+    ) as ScopedDashboardState;
+
+    // Project A's session event surfaces; project B's never leaks in.
+    assert.equal(state.recentConnectionEvents.length, 1);
+    assert.equal(state.recentConnectionEvents[0]?.session_id, sessionA);
+    assert.equal(state.recentConnectionEvents[0]?.event_type, "voice_connected");
+    assert.ok(
+      state.recentConnectionEvents.every(
+        (event) => event.session_id === sessionA,
+      ),
+      "no other project's connection event leaks into a project view",
+    );
+  } finally {
+    fixture.close();
+  }
+});
+
+test("dashboard read model excludes orphan connection events from every project", () => {
+  const fixture = createProjectScopeFixture();
+  try {
+    const projects = new ProjectStore(new SqlRunner(fixture.database));
+    const sessionA = seedProjectWithData(fixture, projects, "proj-a");
+    // A real session-bound connection event for project A.
+    fixture.ctx.writes.recordConnectionEvent({
+      sessionId: sessionA,
+      eventType: "voice_connected",
+    });
+    // Orphan system event: no session (session_id stays null), e.g. a startup
+    // repair failure. It belongs to no project and must not surface under any
+    // active project's connection-events panel.
+    fixture.ctx.writes.recordConnectionEvent({
+      sessionId: null,
+      eventType: "startup_repair_failed",
+      level: "error",
+    });
+
+    const state = fixture.ctx.reads.getDashboardState(
+      NO_RUNTIME_SESSION,
+      "proj-a",
+    ) as ScopedDashboardState;
+
+    // Only A's session-bound event shows; the orphan is excluded by the
+    // strict session-scope filter (session_id = ? never matches NULL).
+    assert.equal(state.recentConnectionEvents.length, 1);
+    assert.equal(state.recentConnectionEvents[0]?.session_id, sessionA);
+    assert.equal(state.recentConnectionEvents[0]?.event_type, "voice_connected");
+    assert.ok(
+      state.recentConnectionEvents.every((event) => event.session_id !== null),
+      "no orphan (session_id=null) connection event leaks into a project view",
+    );
+  } finally {
+    fixture.close();
+  }
+});
+
+test("dashboard read model returns empty state when no active project", () => {
+  const fixture = createProjectScopeFixture();
+  try {
+    const projects = new ProjectStore(new SqlRunner(fixture.database));
+    // Seed real data for a project, then ask with activeProjectId = null.
+    seedProjectWithData(fixture, projects, "proj-a");
+
+    const state = fixture.ctx.reads.getDashboardState(
+      NO_RUNTIME_SESSION,
+      null,
+    ) as ScopedDashboardState;
+
+    // No global fallback: every project-scoped panel is empty / null.
+    assert.equal(state.currentSession, null);
+    assert.deepEqual(state.recentSttJobs, []);
+    assert.deepEqual(state.recentRepairItems, []);
+    assert.deepEqual(state.queueStats, []);
+    assert.deepEqual(state.recentChunks, []);
+    assert.deepEqual(state.recentConnectionEvents, []);
+    assert.deepEqual(state.speakers, []);
+    assert.equal(state.latestMeetingNotesDraft, null);
+    assert.equal(state.latestNotionWrite, null);
+  } finally {
+    fixture.close();
+  }
+});

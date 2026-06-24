@@ -88,6 +88,13 @@ export class SessionReadStore {
     );
   }
 
+  getLatestSessionForProject(projectId: string): SessionRow | null {
+    return mapSessionRow(
+      this.sessions.getLatestForProject(projectId),
+      (filePath) => this.paths.resolveStoredPath(filePath),
+    );
+  }
+
   listFinalizedSessionsForAiCleanupAutomation(
     input:
       | number
@@ -259,13 +266,19 @@ export class SessionReadStore {
     });
   }
 
-  getDashboardState(runtime: RecordingRuntimeState): unknown {
+  getDashboardState(
+    runtime: RecordingRuntimeState,
+    activeProjectId: string | null,
+  ): unknown {
     return buildDashboardReadModel({
       database: this.database,
       runtime,
+      activeProjectId,
       queries: {
         getSession: (sessionId) => this.getSession(sessionId),
         getLatestSession: () => this.getLatestSession(),
+        getLatestSessionForProject: (projectId) =>
+          this.getLatestSessionForProject(projectId),
         listRecentTranscriptSegments: (sessionId, limit) =>
           this.listRecentTranscriptSegments(sessionId, limit),
         listRecentAiCleanupJobs: (sessionId, limit) =>

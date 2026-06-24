@@ -90,7 +90,7 @@
         ['customDb', 'dashboard.db.tabs.customDb']
       ], activeDbTab, 'setDbTab'));
       setHtml('settingsTabs', renderTabs([
-        ['language', 'dashboard.settings.tabs.language'],
+        ['general', 'dashboard.settings.tabs.general'],
         ['discord', 'dashboard.settings.tabs.discord'],
         ['stt', 'dashboard.settings.tabs.stt'],
         ['ai', 'dashboard.settings.tabs.ai'],
@@ -673,6 +673,14 @@
           renderSettingsResetMode(entry, blocker)
         ).join('') + '</div>' + result;
     }
+    function renderResetItemList(text) {
+      // catalog의 deletes/keeps 텍스트는 항목을 쉼표로 나열한다(항목 내부에는 쉼표가 없음).
+      // 가독성을 위해 쉼표 기준으로 분해해 목록으로 표시한다(텍스트 자체는 그대로).
+      const items = String(text).split(/,\s*/).map((s) => s.trim()).filter(Boolean);
+      if (items.length === 0) return '';
+      return '<ul class="settings-reset-items">' +
+        items.map((item) => '<li>' + escapeHtml(item) + '</li>').join('') + '</ul>';
+    }
     function renderSettingsResetMode(entry, blocker) {
       const mode = entry.mode;
       const checked = settingsResetLocalState.confirmations[mode] === true;
@@ -680,10 +688,10 @@
       const disabled = Boolean(blocker || settingsResetLocalState.busyMode || !checked);
       return '<section class="settings-reset-card">' +
         '<div class="section-heading"><h3>' + i18n(entry.title) + '</h3></div>' +
-        '<div class="settings-reset-list"><strong>' + i18n('dashboard.settings.reset.deletesLabel') + '</strong><span>' +
-        i18n(entry.deletes) + '</span></div>' +
-        '<div class="settings-reset-list"><strong>' + i18n('dashboard.settings.reset.keepsLabel') + '</strong><span>' +
-        i18n(entry.keeps) + '</span></div>' +
+        '<div class="settings-reset-list"><strong>' + i18n('dashboard.settings.reset.deletesLabel') + '</strong>' +
+        renderResetItemList(i18n(entry.deletes)) + '</div>' +
+        '<div class="settings-reset-list"><strong>' + i18n('dashboard.settings.reset.keepsLabel') + '</strong>' +
+        renderResetItemList(i18n(entry.keeps)) + '</div>' +
         '<label class="settings-reset-confirm"><input type="checkbox" ' +
         (checked ? 'checked ' : '') +
         'onchange="setSettingsResetConfirm(\'' + mode + '\', this.checked)">' +
@@ -701,15 +709,49 @@
         ? i18n('dashboard.settings.reset.success')
         : reason || escapeHtml(result.message ?? result.status ?? 'failed');
       const details = ok && result.deleted
-        ? '<div class="muted">' +
-          i18n('dashboard.settings.reset.deletedSummary', {
-            secrets: result.deleted.secretRefs?.length ?? 0,
-            writes: result.deleted.blockedNotionWrites ?? 0
-          }) + '</div>'
+        ? renderResetDeletedDetails(result.deleted)
         : '';
       return '<div class="setup-result ' + (ok ? 'is-ok' : 'is-error') + '">' +
         '<div class="value ' + (ok ? 'status' : 'error') + '">' + message + '</div>' +
         details + '</div>';
+    }
+    function renderResetDeletedDetails(deleted) {
+      // reset-service가 실제로 반환한 deleted 구조만 사용한다(추정값 없음).
+      // 0인 항목은 표시하지 않는다(진짜 빈 상태 = 정상).
+      const settingsKeys = Array.isArray(deleted.settingsKeys) ? deleted.settingsKeys : [];
+      const rows = deleted.sqliteRows ?? {};
+      const items = [];
+      const secrets = deleted.secretRefs?.length ?? 0;
+      if (secrets > 0) {
+        items.push(i18n('dashboard.settings.reset.deleted.secrets', { count: secrets }));
+      }
+      const writes = deleted.blockedNotionWrites ?? 0;
+      if (writes > 0) {
+        items.push(i18n('dashboard.settings.reset.deleted.blockedWrites', { count: writes }));
+      }
+      if (settingsKeys.includes('discord.guildIds')) {
+        items.push(i18n('dashboard.settings.reset.deleted.discordGuild'));
+      }
+      if (settingsKeys.includes('discord.applicationId')) {
+        items.push(i18n('dashboard.settings.reset.deleted.discordApp'));
+      }
+      if (settingsKeys.includes('notion.tokenSecretRef')) {
+        items.push(i18n('dashboard.settings.reset.deleted.notionToken'));
+      }
+      const projectsArchived = rows.projectsArchived ?? 0;
+      if (projectsArchived > 0) {
+        items.push(i18n('dashboard.settings.reset.deleted.projectsArchived', { count: projectsArchived }));
+      }
+      const managedRecords = (rows.notionManagedDatabases ?? 0) + (rows.notionPropertyMappings ?? 0);
+      if (managedRecords > 0) {
+        items.push(i18n('dashboard.settings.reset.deleted.managedRecords'));
+      }
+      if (items.length === 0) {
+        return '';
+      }
+      return '<div class="muted"><strong>' + i18n('dashboard.settings.reset.deletedHeading') + '</strong>' +
+        '<ul class="settings-reset-items">' +
+        items.map((item) => '<li>' + escapeHtml(item) + '</li>').join('') + '</ul></div>';
     }
     function setSettingsResetConfirm(mode, checked) {
       if (mode !== 'full' && mode !== 'current_project_connection') return;

@@ -12,6 +12,7 @@ import {
   type RetentionDeletionOutcome,
   type RetentionDeletionExecutionResult,
   type RetentionDeletionPlan,
+  type RetentionPolicy,
 } from "../storage/file-retention.js";
 import type {
   SessionPurgeCandidate,
@@ -40,10 +41,20 @@ try {
 
   try {
     if (options.operation === "expired-text-artifacts") {
+      // 자동 정리 스케줄러와 같은 settings.retention을 사용해 수동/자동 cutoff를 일치시킨다.
+      const retention = productRuntime.localSettings.retention;
+      const policy: RetentionPolicy = {
+        deleteAudioAfterNotionUpload:
+          retention.deleteAudioAfterNotionUpload ??
+          DEFAULT_RETENTION_POLICY.deleteAudioAfterNotionUpload,
+        textDraftRetentionDays:
+          retention.textDraftRetentionDays ??
+          DEFAULT_RETENTION_POLICY.textDraftRetentionDays,
+      };
       const plans = buildExpiredTextArtifactDeletionPlans({
         database,
         storageRoot: config.dataDir,
-        policy: DEFAULT_RETENTION_POLICY,
+        policy,
       });
       const results = options.dryRun
         ? []

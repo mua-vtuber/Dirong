@@ -22,6 +22,10 @@ import {
   DEFAULT_RETENTION_SETTINGS,
   DEFAULT_SETUP_AI_SETTINGS,
   DEFAULT_STT_SETTINGS,
+  RETENTION_DAYS_MAX,
+  RETENTION_DAYS_MIN,
+  STT_TIMEOUT_MS_MAX,
+  STT_TIMEOUT_MS_MIN,
 } from "../settings/defaults.js";
 import { SetupWizardService } from "../setup/wizard-service.js";
 import type {
@@ -883,6 +887,67 @@ test("DashboardServer setup STT route lets the wizard apply server defaults", as
   }
 });
 
+test("DashboardServer setup STT route saves language and timeout", async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-dashboard-stt-lang-"));
+  const paths = getDirongUserDataPaths(dir);
+  const settingsStore = new LocalSettingsStore(paths.settingsFile);
+  const secretStore = new LocalSecretStore(paths.secretsFile);
+  const fixture = await startDashboardFixture({
+    setupWizard: new SetupWizardService({
+      paths,
+      settingsStore,
+      secretStore,
+    }),
+  });
+  try {
+    const response = await postJson(fixture.baseUrl, "/api/setup/stt", {
+      provider: "local-whisper",
+      language: "en",
+      timeoutMs: 180000,
+    });
+    const body = await response.json() as { ok: boolean };
+
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(settingsStore.read().stt.language, "en");
+    assert.equal(settingsStore.read().stt.timeoutMs, 180000);
+  } finally {
+    await fixture.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("DashboardServer setup STT route rejects an out-of-range timeout", async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-dashboard-stt-bad-"));
+  const paths = getDirongUserDataPaths(dir);
+  const settingsStore = new LocalSettingsStore(paths.settingsFile);
+  const secretStore = new LocalSecretStore(paths.secretsFile);
+  const fixture = await startDashboardFixture({
+    setupWizard: new SetupWizardService({
+      paths,
+      settingsStore,
+      secretStore,
+    }),
+  });
+  try {
+    const response = await postJson(fixture.baseUrl, "/api/setup/stt", {
+      provider: "local-whisper",
+      timeoutMs: 1,
+    });
+    const body = await response.json() as { ok: boolean; messageKey?: string };
+
+    assert.equal(response.status, 400);
+    assert.equal(body.ok, false);
+    assert.equal(
+      body.messageKey,
+      "setup.stt.settings.error.invalidTimeout.message",
+    );
+  } finally {
+    await fixture.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("DashboardServer setup recording route saves alone finalize wait time", async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-dashboard-recording-"));
   const paths = getDirongUserDataPaths(dir);
@@ -917,6 +982,70 @@ test("DashboardServer setup recording route saves alone finalize wait time", asy
       aloneFinalizeEnabled: true,
       aloneFinalizeGraceMs: 120000,
     });
+  } finally {
+    await fixture.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("DashboardServer setup retention route saves draft days and keeps audio policy", async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-dashboard-retention-"));
+  const paths = getDirongUserDataPaths(dir);
+  const settingsStore = new LocalSettingsStore(paths.settingsFile);
+  const secretStore = new LocalSecretStore(paths.secretsFile);
+  const fixture = await startDashboardFixture({
+    setupWizard: new SetupWizardService({
+      paths,
+      settingsStore,
+      secretStore,
+    }),
+  });
+  try {
+    const response = await postJson(fixture.baseUrl, "/api/setup/retention", {
+      textDraftRetentionDays: 14,
+    });
+    const body = await response.json() as { ok: boolean };
+
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(settingsStore.read().retention.textDraftRetentionDays, 14);
+    // audio 정책은 읽기전용이므로 저장 후에도 절대 바뀌지 않는다.
+    assert.equal(
+      settingsStore.read().retention.deleteAudioAfterNotionUpload,
+      true,
+    );
+  } finally {
+    await fixture.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("DashboardServer setup retention route rejects out-of-range draft days", async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-dashboard-retention-bad-"));
+  const paths = getDirongUserDataPaths(dir);
+  const settingsStore = new LocalSettingsStore(paths.settingsFile);
+  const secretStore = new LocalSecretStore(paths.secretsFile);
+  const fixture = await startDashboardFixture({
+    setupWizard: new SetupWizardService({
+      paths,
+      settingsStore,
+      secretStore,
+    }),
+  });
+  try {
+    const response = await postJson(fixture.baseUrl, "/api/setup/retention", {
+      textDraftRetentionDays: 400,
+    });
+    const body = await response.json() as { ok: boolean; messageKey?: string };
+
+    assert.equal(response.status, 400);
+    assert.equal(body.ok, false);
+    assert.equal(
+      body.messageKey,
+      "setup.dataRetention.error.invalidDays.message",
+    );
+    // 거부 시 기존 보관 일수(기본 30일)는 그대로 유지된다.
+    assert.equal(settingsStore.read().retention.textDraftRetentionDays, 30);
   } finally {
     await fixture.close();
     rmSync(dir, { recursive: true, force: true });
@@ -2084,6 +2213,8 @@ function makeSetupStatusSource(): DashboardSetupStatusSource {
           provider: DEFAULT_STT_SETTINGS.provider,
           language: DEFAULT_STT_SETTINGS.language,
           timeoutMs: DEFAULT_STT_SETTINGS.timeoutMs,
+          timeoutMsMin: STT_TIMEOUT_MS_MIN,
+          timeoutMsMax: STT_TIMEOUT_MS_MAX,
           openAiModel: DEFAULT_STT_SETTINGS.openai.model,
           localWhisper: {
             profile: DEFAULT_STT_SETTINGS.localWhisper.profile,
@@ -2093,7 +2224,11 @@ function makeSetupStatusSource(): DashboardSetupStatusSource {
           },
         },
         ai: DEFAULT_SETUP_AI_SETTINGS,
-        retention: DEFAULT_RETENTION_SETTINGS,
+        retention: {
+          ...DEFAULT_RETENTION_SETTINGS,
+          daysMin: RETENTION_DAYS_MIN,
+          daysMax: RETENTION_DAYS_MAX,
+        },
         dashboard: {
           locale: DEFAULT_DASHBOARD_SETTINGS.locale,
           theme: DEFAULT_DASHBOARD_SETTINGS.theme,
@@ -2316,6 +2451,7 @@ function makeSetupWizardSource(calls: unknown[]): DashboardSetupWizardSource {
     listDiscordGuilds: async () => ({ ...action({}), guilds: [] }),
     saveDiscordGuildAllowlist: async (body) => action(body),
     saveSttSettings: action,
+    saveRetentionSettings: action,
     saveClaudeSettings: action,
     testClaudeConnection: async () => action({}),
     saveNotionToken: action,

@@ -11,7 +11,7 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
     let activeView = normalizeActiveView(window.localStorage.getItem('dirong.dashboard.view') ?? 'dashboard');
     document.body.dataset.view = activeView;
     let activeDbTab = normalizeDbTab(window.localStorage.getItem('dirong.dashboard.dbTab') ?? 'meeting');
-    let activeSettingsTab = window.localStorage.getItem('dirong.dashboard.settingsTab') ?? 'discord';
+    let activeSettingsTab = normalizeSettingsTab(window.localStorage.getItem('dirong.dashboard.settingsTab') ?? 'discord');
     let activeLogFilter = window.localStorage.getItem('dirong.dashboard.logFilter') ?? 'all';
     function tr(key, params = {}) {
       const template = i18nMessages[key] ?? key;
@@ -144,6 +144,10 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
       if (tab === 'customFields') return 'meeting';
       return ['meeting', 'members', 'actionItems', 'customDb'].includes(tab) ? tab : 'meeting';
     }
+    function normalizeSettingsTab(tab) {
+      // 언어 탭은 '일반(general)' 탭으로 통합되었다. 이전에 저장된 'language' 값은 'general'로 매핑한다.
+      return tab === 'language' ? 'general' : tab;
+    }
     function setDbTab(tab) {
       const normalized = normalizeDbTab(tab);
       if (activeDbTab !== normalized) {
@@ -158,8 +162,9 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
       refresh();
     }
     function setSettingsTab(tab) {
-      activeSettingsTab = tab;
-      window.localStorage.setItem('dirong.dashboard.settingsTab', tab);
+      const normalized = normalizeSettingsTab(tab);
+      activeSettingsTab = normalized;
+      window.localStorage.setItem('dirong.dashboard.settingsTab', normalized);
       if (typeof settingsEditorState !== 'undefined') {
         settingsEditorState.forceRender = true;
       }

@@ -494,6 +494,23 @@ export const ko = {
       renderingDraft: "회의록 draft 저장 중",
       completed: "회의록 초안 생성 완료",
     },
+    retentionAutomation: {
+      idle: {
+        message: "정리할 만료 텍스트·초안이 없습니다.",
+      },
+      running: {
+        message: "만료된 텍스트·초안을 정리하는 중입니다.",
+      },
+      done: {
+        message: "만료된 텍스트·초안을 정리했습니다.",
+      },
+      failed: {
+        message: "텍스트·초안 자동 정리에 실패했습니다.",
+      },
+      stopped: {
+        message: "텍스트·초안 자동 정리를 멈췄습니다.",
+      },
+    },
     notionAutomation: {
       disabled: {
         message: "Notion 자동 업로드가 꺼져 있습니다.",
@@ -1015,6 +1032,8 @@ export const ko = {
       sttAutomationStopFailed: "STT 자동화 종료 실패",
       aiCleanupAutomationStopFailed: "AI cleanup 자동화 종료 실패",
       notionAutomationStopFailed: "Notion 자동 업로드 종료 실패",
+      retentionAutomationStarted: "텍스트 보관 자동 정리를 시작했습니다.",
+      retentionAutomationStopFailed: "텍스트 보관 자동 정리 중지 실패",
       aiLifecycleStopFailed: "AI lifecycle 종료 실패",
       aiPreparing: "AI 준비 중: {provider} / {model}",
       recordingCanStart: "녹음은 바로 시작할 수 있습니다.",
@@ -1374,6 +1393,14 @@ export const ko = {
             message: "허용되지 않는 STT 실행 command입니다.",
             action: "대시보드에서는 기본 local-whisper profile만 사용할 수 있습니다.",
           },
+          invalidLanguage: {
+            message: "받아쓰기·회의록 언어 값이 올바르지 않습니다.",
+            action: "한국어(ko) 또는 영어(en) 중 하나를 선택해 주세요.",
+          },
+          invalidTimeout: {
+            message: "STT 처리 제한 시간 값이 올바르지 않습니다.",
+            action: "5000ms부터 600000ms 사이의 값을 입력해 주세요.",
+          },
         },
       },
       openAiTest: {
@@ -1570,6 +1597,17 @@ export const ko = {
       status: {
         ready: {
           message: "기본 보관 정책이 적용되어 있습니다.",
+        },
+      },
+      save: {
+        done: {
+          message: "텍스트·초안 보관 일수를 저장했습니다.",
+        },
+      },
+      error: {
+        invalidDays: {
+          message: "보관 일수는 1일부터 365일 사이여야 합니다.",
+          action: "1에서 365 사이의 숫자를 입력해 주세요.",
         },
       },
     },
@@ -2327,6 +2365,7 @@ export const ko = {
     settings: {
       tabs: {
         language: "언어",
+        general: "일반",
         discord: "Discord",
         stt: "STT",
         ai: "AI",
@@ -2369,13 +2408,19 @@ export const ko = {
           localWhisperModel: "Whisper 모델",
           openAiModel: "OpenAI STT 모델",
           openAiApiKey: "OpenAI API key",
+          language: "받아쓰기·회의록 언어",
+          languageHint: "받아쓰기 결과와 회의록을 어떤 언어로 정리할지 정합니다(ko/en).",
+          timeoutMs: "처리 제한 시간(ms)",
+          timeoutHint: "STT 한 건을 처리할 때 기다리는 최대 시간입니다. 기본 120000ms(2분).",
+          test: "OpenAI 연결 테스트",
+          testHint: "테스트가 성공하면 입력한 STT 설정이 함께 저장됩니다.",
         },
         discord: {
           credentialsTitle: "Discord 봇 자격증명",
           guildTitle: "녹음 허용 서버",
           currentGuild: "현재 선택된 서버",
           tokenKeepHint:
-            "봇 토큰을 바꿀 때만 입력하세요. 비워 두면 저장하지 않습니다.",
+            "봇 토큰을 새로 넣거나 교체할 때만 입력하세요. 입력란을 비워 두면 기존 토큰이 그대로 유지됩니다(저장 버튼을 누르지 않으면 됩니다).",
           noActiveProject: "활성 프로젝트가 있어야 서버를 저장할 수 있습니다.",
         },
         ai: {
@@ -2386,6 +2431,8 @@ export const ko = {
           modeCli: "터미널 CLI",
           modeApi: "Claude API",
           apiKey: "Claude API key",
+          test: "AI 연결 테스트",
+          testHint: "현재 저장된 AI 설정으로 테스트합니다. 바꾼 값을 테스트하려면 먼저 저장하세요.",
         },
         notion: {
           title: "Notion 페이지 URL",
@@ -2395,7 +2442,7 @@ export const ko = {
           tokenLabel: "Notion token",
           tokenConfigured: "토큰이 저장되어 있습니다",
           tokenMissing: "토큰이 아직 없습니다",
-          tokenKeepHint: "토큰을 교체할 때만 입력하세요.",
+          tokenKeepHint: "토큰을 새로 넣거나 교체할 때만 입력하세요. 비워 두면 기존 토큰이 그대로 유지됩니다.",
           managedTitle: "관리 DB",
           managedCreate: "관리 DB 생성",
           managedRepairLink: "DB 점검·복구 화면 열기",
@@ -2404,7 +2451,7 @@ export const ko = {
         aloneFinalize: {
           enabled: "자동 종료 사용",
           graceSeconds: "대기시간(초)",
-          help: "5초부터 3600초까지 저장할 수 있습니다.",
+          help: "음성 채널에 마지막 사람까지 나간 뒤, 자동으로 녹음을 끝낼 때까지 기다리는 시간입니다. 예: 90초로 두면 모두 나간 뒤 90초 동안 아무도 안 들어오면 녹음을 종료합니다. 5초~3600초(최대 1시간) 사이로 정할 수 있습니다.",
         },
       },
       resetDanger: "삭제와 초기화는 실제 파일 확인 뒤 별도 구현합니다.",
@@ -2422,6 +2469,16 @@ export const ko = {
           "초기화가 완료되었습니다. Discord 봇 로그인은 유지될 수 있지만, 활성 프로젝트 서버가 없으면 Dirong 명령은 실행되지 않습니다.",
         deletedSummary:
           "삭제한 secret {secrets}개, 차단한 Notion write {writes}개",
+        deletedHeading: "정리한 항목",
+        deleted: {
+          secrets: "삭제한 비밀값 {count}개",
+          blockedWrites: "차단한 Notion 업로드 {count}개",
+          discordGuild: "Discord 서버 연결 해제",
+          discordApp: "Discord 앱 ID·토큰 삭제",
+          notionToken: "Notion 토큰 삭제",
+          projectsArchived: "보관 처리된 프로젝트 {count}개",
+          managedRecords: "Notion 관리 데이터 정리됨",
+        },
         full: {
           title: "완전 초기화",
           button: "완전 초기화 실행",
@@ -2467,6 +2524,10 @@ export const ko = {
         audioDeleteAfterNotion: "오디오 파일은 Notion 업로드 성공 후 삭제합니다.",
         audioKept: "오디오 파일 자동 삭제가 꺼져 있습니다.",
         textDraftDays: "STT 텍스트와 AI draft는 {days}일 동안 보관합니다.",
+        editTitle: "텍스트·초안 보관",
+        textDraftLabel: "보관 일수(일)",
+        audioReadOnly: "오디오 자동 삭제 정책은 안전을 위해 항상 켜져 있으며 변경할 수 없습니다.",
+        consumeHint: "설정한 일수가 지나면, 오래된 STT 텍스트와 AI 초안이 자동으로 정리됩니다(다음 정리 주기에 반영). 즉시 정리하려면 session-purge --expired-text-artifacts 명령도 쓸 수 있습니다.",
       },
       aloneFinalize: {
         title: "자동 종료",
@@ -3118,6 +3179,23 @@ export const en = {
       renderingDraft: "Saving meeting-note draft",
       completed: "Meeting-note draft created",
     },
+    retentionAutomation: {
+      idle: {
+        message: "No expired text or drafts to clean up.",
+      },
+      running: {
+        message: "Cleaning up expired text and drafts.",
+      },
+      done: {
+        message: "Cleaned up expired text and drafts.",
+      },
+      failed: {
+        message: "Automatic text/draft cleanup failed.",
+      },
+      stopped: {
+        message: "Stopped automatic text/draft cleanup.",
+      },
+    },
     notionAutomation: {
       disabled: {
         message: "Notion auto-upload is turned off.",
@@ -3641,6 +3719,8 @@ export const en = {
       sttAutomationStopFailed: "Failed to stop STT automation",
       aiCleanupAutomationStopFailed: "Failed to stop AI cleanup automation",
       notionAutomationStopFailed: "Failed to stop Notion auto-upload",
+      retentionAutomationStarted: "Started automatic text retention cleanup.",
+      retentionAutomationStopFailed: "Failed to stop retention cleanup",
       aiLifecycleStopFailed: "Failed to stop AI lifecycle",
       aiPreparing: "Preparing AI: {provider} / {model}",
       recordingCanStart: "Recording can start right away.",
@@ -4000,6 +4080,14 @@ export const en = {
             message: "The STT command is not allowed.",
             action: "The dashboard can only use the default local-whisper profile.",
           },
+          invalidLanguage: {
+            message: "The transcription & notes language value is invalid.",
+            action: "Choose either Korean (ko) or English (en).",
+          },
+          invalidTimeout: {
+            message: "The STT processing timeout value is invalid.",
+            action: "Enter a value between 5000ms and 600000ms.",
+          },
         },
       },
       openAiTest: {
@@ -4198,6 +4286,17 @@ export const en = {
       status: {
         ready: {
           message: "Default retention policy is applied.",
+        },
+      },
+      save: {
+        done: {
+          message: "Saved the text & draft retention period.",
+        },
+      },
+      error: {
+        invalidDays: {
+          message: "Retention days must be between 1 and 365.",
+          action: "Enter a number between 1 and 365.",
         },
       },
     },
@@ -4955,6 +5054,7 @@ export const en = {
     settings: {
       tabs: {
         language: "Language",
+        general: "General",
         discord: "Discord",
         stt: "STT",
         ai: "AI",
@@ -4997,13 +5097,19 @@ export const en = {
           localWhisperModel: "Whisper model",
           openAiModel: "OpenAI STT model",
           openAiApiKey: "OpenAI API key",
+          language: "Transcription & notes language",
+          languageHint: "Sets the language for transcription and meeting notes (ko/en).",
+          timeoutMs: "Processing timeout (ms)",
+          timeoutHint: "Max time to wait for one STT job. Default 120000ms (2 min).",
+          test: "Test OpenAI connection",
+          testHint: "If the test succeeds, the STT settings are saved too.",
         },
         discord: {
           credentialsTitle: "Discord bot credentials",
           guildTitle: "Allowed recording server",
           currentGuild: "Currently selected server",
           tokenKeepHint:
-            "Enter only to change the bot token. Leave blank to skip saving.",
+            "Enter only when adding or replacing the bot token. Leaving it blank keeps the existing token (just don't press save).",
           noActiveProject: "An active project is required to save a server.",
         },
         ai: {
@@ -5014,6 +5120,8 @@ export const en = {
           modeCli: "Terminal CLI",
           modeApi: "Claude API",
           apiKey: "Claude API key",
+          test: "Test AI connection",
+          testHint: "Tests the currently saved AI settings. Save first to test changes.",
         },
         notion: {
           title: "Notion page URL",
@@ -5023,7 +5131,7 @@ export const en = {
           tokenLabel: "Notion token",
           tokenConfigured: "A token is saved",
           tokenMissing: "No token yet",
-          tokenKeepHint: "Enter only to replace the token.",
+          tokenKeepHint: "Enter only when adding or replacing the token. Leaving it blank keeps the existing token.",
           managedTitle: "Managed databases",
           managedCreate: "Create managed DBs",
           managedRepairLink: "Open DB check & repair",
@@ -5032,7 +5140,7 @@ export const en = {
         aloneFinalize: {
           enabled: "Use auto-stop",
           graceSeconds: "Wait time (seconds)",
-          help: "You can save a value from 5 to 3600 seconds.",
+          help: "How long to wait before automatically stopping the recording after the last person leaves the voice channel. Example: with 90 seconds, recording stops if nobody rejoins within 90 seconds. You can set 5 to 3600 seconds (up to 1 hour).",
         },
       },
       resetDanger: "Delete and reset actions will be implemented with file verification.",
@@ -5050,6 +5158,16 @@ export const en = {
           "Reset completed. The Discord bot may stay logged in, but Dirong commands will not run without an active project server.",
         deletedSummary:
           "Deleted {secrets} secret(s), blocked {writes} Notion write(s)",
+        deletedHeading: "Cleaned up",
+        deleted: {
+          secrets: "Deleted {count} secret(s)",
+          blockedWrites: "Blocked {count} Notion write(s)",
+          discordGuild: "Discord server connection cleared",
+          discordApp: "Discord app ID/token deleted",
+          notionToken: "Notion token deleted",
+          projectsArchived: "{count} project(s) archived",
+          managedRecords: "Managed Notion data cleared",
+        },
         full: {
           title: "Full Reset",
           button: "Run Full Reset",
@@ -5095,6 +5213,10 @@ export const en = {
         audioDeleteAfterNotion: "Audio files are deleted after a successful Notion upload.",
         audioKept: "Audio auto-delete is currently off.",
         textDraftDays: "STT text and AI drafts are kept for {days} days.",
+        editTitle: "Text & draft retention",
+        textDraftLabel: "Retention days",
+        audioReadOnly: "Audio auto-delete is always on for safety and cannot be changed.",
+        consumeHint: "Older STT text and AI drafts are cleaned up automatically once the retention period passes (applied on the next cleanup cycle). You can also run session-purge --expired-text-artifacts to clean up immediately.",
       },
       aloneFinalize: {
         title: "Auto Stop",

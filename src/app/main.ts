@@ -86,6 +86,7 @@ import { ProjectStore } from "../projects/project-store.js";
 import { RecordingProducer } from "../recording/recording-producer.js";
 import { runStartupRepair } from "../storage/repair-scan.js";
 import {
+  DEFAULT_RETENTION_POLICY,
   buildRetentionDeletionPlan,
   executeRetentionDeletionPlan,
   type RetentionDeletionExecutionResult,
@@ -97,6 +98,7 @@ import {
 } from "../storage/storage-context.js";
 import { SqlRunner } from "../storage/sql-runner.js";
 import { DirongDatabase } from "../storage/sqlite.js";
+import { RetentionAutomationService } from "../storage/retention-automation-service.js";
 import {
   SttAutomationService,
   formatSttAutomationForStatus,
@@ -104,6 +106,7 @@ import {
 import { createPhase3SttProvider } from "../stt/provider-factory.js";
 import type { SttProvider } from "../stt/provider.js";
 import { backupDatabaseSnapshot } from "../storage/sqlite-backup.js";
+import { RETENTION_SWEEP_INTERVAL_MS } from "../settings/defaults.js";
 
 const productRuntime = loadProductRuntimeSettings();
 const resolveAppLocale = createAppLocaleResolver({
@@ -156,6 +159,11 @@ const client = new Client({
 const producer = new RecordingProducer(client, config, store, {
   localeResolver: resolveAppLocale,
 });
+// 자동 retention 정리와 Notion 업로드 후 audio 삭제 경로가 매번 최신 보관 설정을
+// 읽도록 전용 settingsStore 인스턴스를 둔다(currentRetentionPolicy가 참조).
+const retentionSettingsStore = new LocalSettingsStore(
+  productRuntime.paths.settingsFile,
+);
 const aloneFinalize = createAloneFinalizeService();
 const sttAutomation = createSttAutomationService(
   sttProviderSelection.provider,
@@ -203,6 +211,14 @@ const notionDashboard = new NotionDashboardService({
   localeResolver: resolveAppLocale,
 });
 const notionAutomation = createNotionAutomationService(notionSqlRunner);
+const retentionAutomation = new RetentionAutomationService({
+  database,
+  storageRoot: config.dataDir,
+  getRetentionPolicy: () => currentRetentionPolicy(),
+  intervalMs: RETENTION_SWEEP_INTERVAL_MS,
+  isRecording: () => producer.getRuntimeState().isRecording,
+  localeResolver: resolveAppLocale,
+});
 const activeProjectService = new ActiveProjectService({
   projectStore,
   getRecordingRuntimeState: () => producer.getRuntimeState(),
@@ -319,6 +335,8 @@ if (canStartAiAutomation(initialSetupStatus)) {
   }));
 }
 startNotionAutomation();
+retentionAutomation.start();
+console.log(t(resolveAppLocale(), "runtimeCli.main.retentionAutomationStarted"));
 if (canStartDiscordRuntime(initialSetupStatus)) {
   startAloneFinalizeService();
 } else {
@@ -682,6 +700,11 @@ async function shutdown(reason: string): Promise<void> {
       printCliError(error, { prefix: t(resolveAppLocale(), "runtimeCli.main.notionAutomationStopFailed") });
     }
     try {
+      await retentionAutomation.stop();
+    } catch (error) {
+      printCliError(error, { prefix: t(resolveAppLocale(), "runtimeCli.main.retentionAutomationStopFailed") });
+    }
+    try {
       await aiLifecycle.stop();
     } catch (error) {
       printCliError(error, { prefix: t(resolveAppLocale(), "runtimeCli.main.aiLifecycleStopFailed") });
@@ -871,11 +894,17 @@ function createNotionUploadRetentionHandler(): NotionUploadRetentionHandler {
 }
 
 function currentRetentionPolicy(): RetentionPolicy {
-  const retention = productRuntime.localSettings.retention;
+  // settingsStore에서 매번 다시 읽어야 사용자가 설정 화면에서 바꾼 보관 일수가
+  // 자동 정리 스케줄러와 Notion 업로드 후 audio 삭제 경로에 반영된다.
+  // 부팅 시점 스냅샷(productRuntime.localSettings)에 고정하면 변경이 무시된다.
+  const retention = retentionSettingsStore.read().retention;
   return {
     deleteAudioAfterNotionUpload:
-      retention.deleteAudioAfterNotionUpload ?? true,
-    textDraftRetentionDays: retention.textDraftRetentionDays ?? 30,
+      retention.deleteAudioAfterNotionUpload ??
+      DEFAULT_RETENTION_POLICY.deleteAudioAfterNotionUpload,
+    textDraftRetentionDays:
+      retention.textDraftRetentionDays ??
+      DEFAULT_RETENTION_POLICY.textDraftRetentionDays,
   };
 }
 

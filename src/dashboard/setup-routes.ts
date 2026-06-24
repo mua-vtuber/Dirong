@@ -340,6 +340,19 @@ export async function handleSetupWizardPost(
       sendWizardResult(response, setupWizard.saveRecordingSettings(body));
       return;
     }
+    if (pathname === "/api/setup/retention") {
+      if (!setupWizard.saveRetentionSettings) {
+        sendJson(response, withMessageKeys(locale, {
+          ok: false,
+          status: "not_configured",
+          messageKey: "error.dashboard.setupWizardSourceMissing.message",
+          userActionKey: "error.dashboard.setupWizardSourceMissing.action",
+        }), 500);
+        return;
+      }
+      sendWizardResult(response, setupWizard.saveRetentionSettings(body));
+      return;
+    }
     if (pathname === "/api/setup/notion/token") {
       sendWizardResult(response, setupWizard.saveNotionToken(body));
       return;

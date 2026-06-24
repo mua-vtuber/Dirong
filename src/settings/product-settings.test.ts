@@ -14,6 +14,10 @@ import {
   DEFAULT_RETENTION_SETTINGS,
   DEFAULT_SETUP_AI_SETTINGS,
   DEFAULT_STT_SETTINGS,
+  RETENTION_DAYS_MAX,
+  RETENTION_DAYS_MIN,
+  STT_TIMEOUT_MS_MAX,
+  STT_TIMEOUT_MS_MIN,
 } from "./defaults.js";
 import { NOTION_MANAGED_SCHEMA_VERSION } from "../notion/managed-schema.js";
 import { NotionRegistryStore } from "../notion/registry-store.js";
@@ -400,6 +404,8 @@ test("buildProductSetupStatus localizes setup messages and exposes locale keys",
         provider: DEFAULT_STT_SETTINGS.provider,
         language: DEFAULT_STT_SETTINGS.language,
         timeoutMs: DEFAULT_STT_SETTINGS.timeoutMs,
+        timeoutMsMin: STT_TIMEOUT_MS_MIN,
+        timeoutMsMax: STT_TIMEOUT_MS_MAX,
         openAiModel: DEFAULT_STT_SETTINGS.openai.model,
         localWhisper: {
           profile: DEFAULT_STT_SETTINGS.localWhisper.profile,
@@ -409,7 +415,11 @@ test("buildProductSetupStatus localizes setup messages and exposes locale keys",
         },
       },
       ai: DEFAULT_SETUP_AI_SETTINGS,
-      retention: DEFAULT_RETENTION_SETTINGS,
+      retention: {
+        ...DEFAULT_RETENTION_SETTINGS,
+        daysMin: RETENTION_DAYS_MIN,
+        daysMax: RETENTION_DAYS_MAX,
+      },
       dashboard: {
         locale: DEFAULT_DASHBOARD_SETTINGS.locale,
         theme: DEFAULT_DASHBOARD_SETTINGS.theme,

@@ -51,6 +51,10 @@ import {
   DEFAULT_SETUP_AI_SETTINGS,
   DEFAULT_STT_SETTINGS,
   DEFAULT_SETUP_AI_MODEL_BY_PROVIDER,
+  RETENTION_DAYS_MAX,
+  RETENTION_DAYS_MIN,
+  STT_TIMEOUT_MS_MAX,
+  STT_TIMEOUT_MS_MIN,
 } from "./defaults.js";
 import {
   DEFAULT_SECRET_REFS,
@@ -221,6 +225,8 @@ export type ProductSetupDefaultsSnapshot = {
     provider: typeof DEFAULT_STT_SETTINGS.provider;
     language: string;
     timeoutMs: number;
+    timeoutMsMin: number;
+    timeoutMsMax: number;
     openAiModel: string;
     localWhisper: {
       profile: typeof DEFAULT_LOCAL_WHISPER_TOOL_PROFILE;
@@ -230,7 +236,10 @@ export type ProductSetupDefaultsSnapshot = {
     };
   };
   ai: typeof DEFAULT_SETUP_AI_SETTINGS;
-  retention: typeof DEFAULT_RETENTION_SETTINGS;
+  retention: typeof DEFAULT_RETENTION_SETTINGS & {
+    daysMin: number;
+    daysMax: number;
+  };
   dashboard: {
     locale: DirongLocale;
     theme: DirongDashboardTheme;
@@ -1165,6 +1174,8 @@ function buildProductSetupDefaults(): ProductSetupDefaultsSnapshot {
       provider: DEFAULT_STT_SETTINGS.provider,
       language: DEFAULT_STT_SETTINGS.language,
       timeoutMs: DEFAULT_STT_SETTINGS.timeoutMs,
+      timeoutMsMin: STT_TIMEOUT_MS_MIN,
+      timeoutMsMax: STT_TIMEOUT_MS_MAX,
       openAiModel: DEFAULT_STT_SETTINGS.openai.model,
       localWhisper: {
         profile: DEFAULT_STT_SETTINGS.localWhisper.profile,
@@ -1174,7 +1185,11 @@ function buildProductSetupDefaults(): ProductSetupDefaultsSnapshot {
       },
     },
     ai: { ...DEFAULT_SETUP_AI_SETTINGS },
-    retention: { ...DEFAULT_RETENTION_SETTINGS },
+    retention: {
+      ...DEFAULT_RETENTION_SETTINGS,
+      daysMin: RETENTION_DAYS_MIN,
+      daysMax: RETENTION_DAYS_MAX,
+    },
     dashboard: {
       locale: DEFAULT_DASHBOARD_SETTINGS.locale,
       theme: DEFAULT_DASHBOARD_SETTINGS.theme,

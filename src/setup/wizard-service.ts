@@ -52,9 +52,14 @@ import {
   DEFAULT_MEETING_NOTES_LANGUAGE,
   DEFAULT_NOTION_SETTINGS,
   DEFAULT_RECORDING_SETTINGS,
+  DEFAULT_RETENTION_SETTINGS,
   DEFAULT_SETUP_AI_MODEL_BY_PROVIDER,
   DEFAULT_SETUP_AI_SETTINGS,
   DEFAULT_STT_SETTINGS,
+  RETENTION_DAYS_MAX,
+  RETENTION_DAYS_MIN,
+  STT_TIMEOUT_MS_MAX,
+  STT_TIMEOUT_MS_MIN,
   SUPPORTED_CLAUDE_SETUP_MODELS,
   type ClaudeSetupModel,
 } from "../settings/defaults.js";
@@ -520,10 +525,11 @@ export class SetupWizardService {
       });
     }
 
-    const language =
-      readCleanString(body, ["language"]) ?? DEFAULT_MEETING_NOTES_LANGUAGE;
-    const timeoutMs =
-      readPositiveInteger(body, "timeoutMs") ?? DEFAULT_STT_SETTINGS.timeoutMs;
+    const validated = this.validateSttLanguageAndTimeout(body);
+    if (!validated.ok) {
+      return this.result(validated.error);
+    }
+    const { language, timeoutMs } = validated;
     const currentSettings = this.options.settingsStore.read();
     const settingsUpdate =
       provider === "openai"
@@ -643,10 +649,11 @@ export class SetupWizardService {
       });
     }
 
-    const language =
-      readCleanString(body, ["language"]) ?? DEFAULT_MEETING_NOTES_LANGUAGE;
-    const timeoutMs =
-      readPositiveInteger(body, "timeoutMs") ?? DEFAULT_STT_SETTINGS.timeoutMs;
+    const validated = this.validateSttLanguageAndTimeout(body);
+    if (!validated.ok) {
+      return this.result(validated.error);
+    }
+    const { language, timeoutMs } = validated;
     const currentSettings = this.options.settingsStore.read();
     const apiKeyInput = readCleanString(body, ["apiKey", "openAiApiKey"]);
     const existingApiKey = this.options.secretStore.get(
@@ -882,6 +889,83 @@ export class SetupWizardService {
         aloneFinalizeGraceMs: graceMs,
       },
     });
+  }
+
+  saveRetentionSettings(body: unknown): SetupWizardActionResult {
+    const current = this.options.settingsStore.read();
+    const textDraftRetentionDays =
+      readPositiveInteger(body, "textDraftRetentionDays") ??
+      current.retention.textDraftRetentionDays ??
+      DEFAULT_RETENTION_SETTINGS.textDraftRetentionDays;
+
+    if (
+      textDraftRetentionDays < RETENTION_DAYS_MIN ||
+      textDraftRetentionDays > RETENTION_DAYS_MAX
+    ) {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.dataRetention.error.invalidDays.message",
+        userActionKey: "setup.dataRetention.error.invalidDays.action",
+      });
+    }
+
+    this.options.settingsStore.update((settings) => ({
+      ...settings,
+      retention: {
+        // deleteAudioAfterNotionUpload은 읽기전용 정책이므로 그대로 보존한다.
+        ...settings.retention,
+        textDraftRetentionDays,
+      },
+    }));
+
+    return this.result({
+      ok: true,
+      status: "done",
+      messageKey: "setup.dataRetention.save.done.message",
+      userActionKey: null,
+      retention: { textDraftRetentionDays },
+    });
+  }
+
+  private validateSttLanguageAndTimeout(
+    body: unknown,
+  ):
+    | { ok: true; language: DirongLocale; timeoutMs: number }
+    | { ok: false; error: ResultInput } {
+    const languageInput = readCleanString(body, ["language"]);
+    if (languageInput !== null && !isDirongLocale(languageInput)) {
+      return {
+        ok: false,
+        error: {
+          ok: false,
+          status: "failed",
+          httpStatus: 400,
+          messageKey: "setup.stt.settings.error.invalidLanguage.message",
+          userActionKey: "setup.stt.settings.error.invalidLanguage.action",
+        },
+      };
+    }
+    const language = (languageInput ?? DEFAULT_MEETING_NOTES_LANGUAGE) as DirongLocale;
+    const timeoutMsInput = readPositiveInteger(body, "timeoutMs");
+    if (
+      timeoutMsInput !== null &&
+      (timeoutMsInput < STT_TIMEOUT_MS_MIN || timeoutMsInput > STT_TIMEOUT_MS_MAX)
+    ) {
+      return {
+        ok: false,
+        error: {
+          ok: false,
+          status: "failed",
+          httpStatus: 400,
+          messageKey: "setup.stt.settings.error.invalidTimeout.message",
+          userActionKey: "setup.stt.settings.error.invalidTimeout.action",
+        },
+      };
+    }
+    const timeoutMs = timeoutMsInput ?? DEFAULT_STT_SETTINGS.timeoutMs;
+    return { ok: true, language, timeoutMs };
   }
 
   async testAiConnection(): Promise<SetupWizardActionResult> {

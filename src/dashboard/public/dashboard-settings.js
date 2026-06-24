@@ -4,9 +4,12 @@
       lastResultScope: null,
       sttProvider: null,
       sttModel: null,
+      sttLanguage: null,
+      sttTimeoutMs: null,
       aiProvider: null,
       aiMode: null,
       aiModel: null,
+      retentionDays: null,
       settingsLocale: null,
       discordGuilds: null,
       discordSelectedGuildId: null,
@@ -14,6 +17,7 @@
     };
     const settingsWhisperModels = ['tiny', 'base', 'small', 'medium', 'large-v3'];
     const settingsOpenAiSttModels = ['gpt-4o-mini-transcribe', 'gpt-4o-transcribe', 'whisper-1'];
+    const settingsSttLanguages = ['ko', 'en'];
     const settingsAiProviders = ['claude', 'codex', 'gemini'];
     const settingsAiModelsByProvider = {
       claude: ['haiku', 'sonnet', 'opus'],
@@ -37,8 +41,10 @@
         setup?.dashboardTheme ??
         setup?.defaults?.dashboard?.theme ??
         document.body.dataset.theme;
-      const body = activeSettingsTab === 'language'
-        ? renderLanguageSettings(setup)
+      // 'general' 탭에 언어와 테마를 함께 묶는다(발견성 통합). 테마는 더 이상
+      // 모든 탭 하단에 상시 렌더하지 않고 general 탭 안에서만 보인다.
+      const body = activeSettingsTab === 'general'
+        ? renderLanguageSettings(setup) + renderThemeSettings(theme, setup)
         : activeSettingsTab === 'discord'
           ? renderDiscordSettings(setup)
           : activeSettingsTab === 'retention'
@@ -55,7 +61,7 @@
                       renderHumanDisplay(featureMap[activeSettingsTab]) +
                       renderRuntimeEffect(featureMap[activeSettingsTab]?.runtimeEffect) +
                       '<div class="muted">' + i18n('dashboard.settings.secretsHidden') + '</div></div>';
-      return body + renderThemeSettings(theme, setup) + renderSettingsCredits();
+      return body + renderSettingsCredits();
     }
     function renderLanguageSettings(setup) {
       const defaults = setup?.defaults?.dashboard ?? {};
@@ -225,10 +231,27 @@
       const modelLabel = provider === 'openai'
         ? 'dashboard.settings.editor.stt.openAiModel'
         : 'dashboard.settings.editor.stt.localWhisperModel';
+      const language = settingsSelectValue(
+        settingsEditorState.sttLanguage ?? current.language ?? defaults.language,
+        settingsSttLanguages,
+        defaults.language ?? 'ko'
+      );
+      const timeoutMs = settingsEditorState.sttTimeoutMs ?? current.timeoutMs ?? defaults.timeoutMs ?? 120000;
+      const timeoutMin = defaults.timeoutMsMin ?? 5000;
+      const timeoutMax = defaults.timeoutMsMax ?? 600000;
       const secret = provider === 'openai'
         ? '<label>' + i18n('dashboard.settings.editor.stt.openAiApiKey') +
           '<input id="settingsOpenAiApiKey" type="password" autocomplete="off">' +
           '<span class="muted">' + i18n('dashboard.settings.editor.optionalSecret') + '</span></label>'
+        : '';
+      const testButton = provider === 'openai'
+        ? '<button type="button" onclick="testSettingsStt()"' +
+          (settingsEditorState.busy === 'sttTest' ? ' disabled' : '') + '>' +
+          (settingsEditorState.busy === 'sttTest' ? i18n('dashboard.settings.editor.testing') : i18n('dashboard.settings.editor.stt.test')) +
+          '</button>'
+        : '';
+      const testHint = provider === 'openai'
+        ? '<div class="muted">' + i18n('dashboard.settings.editor.stt.testHint') + '</div>'
         : '';
       return '<div class="metric"><div class="label">' + i18n('dashboard.settings.tabs.stt') + '</div>' +
         renderHumanDisplay(feature) +
@@ -242,11 +265,32 @@
         '<label>' + i18n(modelLabel) +
         '<select id="settingsSttModel" onchange="settingsRememberSttModel(this.value)">' +
         renderOptions(provider === 'openai' ? settingsOpenAiSttModels : settingsWhisperModels, model) +
-        '</select></label>' + secret + '</div>' +
+        '</select></label>' +
+        '<label>' + i18n('dashboard.settings.editor.stt.language') +
+        '<select id="settingsSttLanguage" onchange="settingsRememberSttLanguage(this.value)">' +
+        renderSttLanguageOptions(language) + '</select></label>' +
+        '<label>' + i18n('dashboard.settings.editor.stt.timeoutMs') +
+        '<input id="settingsSttTimeoutMs" type="number" min="' + timeoutMin + '" max="' + timeoutMax +
+        '" step="1000" value="' + escapeHtml(timeoutMs) + '"></label>' +
+        secret + '</div>' +
+        '<div class="muted">' + i18n('dashboard.settings.editor.stt.languageHint') + '</div>' +
+        '<div class="muted">' + i18n('dashboard.settings.editor.stt.timeoutHint') + '</div>' +
+        testHint +
         '<div class="toolbar"><button type="button" onclick="saveSettingsStt()"' +
         (settingsEditorState.busy === 'stt' ? ' disabled' : '') + '>' +
         (settingsEditorState.busy === 'stt' ? i18n('dashboard.settings.editor.saving') : i18n('dashboard.settings.editor.save')) +
-        '</button></div>' + renderSettingsEditorResult('stt') + '</div>';
+        '</button>' + testButton + '</div>' +
+        renderSettingsEditorResult('stt') + renderSettingsEditorResult('sttTest') + '</div>';
+    }
+    function renderSttLanguageOptions(current) {
+      const labels = {
+        ko: 'dashboard.setupWizard.language.korean.title',
+        en: 'dashboard.setupWizard.language.english.title'
+      };
+      return settingsSttLanguages.map((value) =>
+        '<option value="' + escapeHtml(value) + '"' + (current === value ? ' selected' : '') + '>' +
+        i18n(labels[value] ?? value) + '</option>'
+      ).join('');
     }
     function renderAiSettings(setup) {
       const current = setup?.editableSettings?.ai ?? {};
@@ -285,10 +329,14 @@
         '<label>' + i18n('dashboard.settings.editor.model') +
         '<select id="settingsAiModel" onchange="settingsRememberAiModel(this.value)">' +
         renderAiSettingsOptions(provider, model) + '</select></label>' + secret + '</div>' +
+        '<div class="muted">' + i18n('dashboard.settings.editor.ai.testHint') + '</div>' +
         '<div class="toolbar"><button type="button" onclick="saveSettingsAi()"' +
         (settingsEditorState.busy === 'ai' ? ' disabled' : '') + '>' +
         (settingsEditorState.busy === 'ai' ? i18n('dashboard.settings.editor.saving') : i18n('dashboard.settings.editor.save')) +
-        '</button></div>' + renderSettingsEditorResult('ai') + '</div>';
+        '</button><button type="button" onclick="testSettingsAi()"' +
+        (settingsEditorState.busy === 'aiTest' ? ' disabled' : '') + '>' +
+        (settingsEditorState.busy === 'aiTest' ? i18n('dashboard.settings.editor.testing') : i18n('dashboard.settings.editor.ai.test')) +
+        '</button></div>' + renderSettingsEditorResult('ai') + renderSettingsEditorResult('aiTest') + '</div>';
     }
     function renderNotionConnectionSettings(setup) {
       const feature = setup?.features?.notion;
@@ -425,6 +473,9 @@
     function settingsRememberSttModel(value) {
       settingsEditorState.sttModel = value;
     }
+    function settingsRememberSttLanguage(value) {
+      settingsEditorState.sttLanguage = settingsSttLanguages.includes(value) ? value : 'ko';
+    }
     function settingsRememberAiMode(value) {
       const provider = settingsEditorState.aiProvider ?? lastSetupSnapshot?.editableSettings?.ai?.provider ?? 'claude';
       settingsEditorState.aiMode = provider === 'claude' && value === 'api' ? 'api' : 'cli';
@@ -473,14 +524,23 @@
         rerenderSettingsPanel();
       }
     }
+    function readSettingsSttLanguage() {
+      const value = document.getElementById('settingsSttLanguage')?.value;
+      return settingsSttLanguages.includes(value) ? value : undefined;
+    }
+    function readSettingsSttTimeoutMs() {
+      const raw = document.getElementById('settingsSttTimeoutMs')?.value;
+      const parsed = Number(raw);
+      return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : undefined;
+    }
     async function saveSettingsStt() {
       const setup = lastSetupSnapshot ?? {};
       const current = setup.editableSettings?.stt ?? {};
       const defaults = setup.defaults?.stt ?? {};
       const provider = document.getElementById('settingsSttProvider')?.value ?? current.provider ?? defaults.provider ?? 'local-whisper';
       const model = document.getElementById('settingsSttModel')?.value ?? '';
-      const language = current.language ?? defaults.language ?? 'ko';
-      const timeoutMs = current.timeoutMs ?? defaults.timeoutMs ?? 120000;
+      const language = readSettingsSttLanguage() ?? current.language ?? defaults.language ?? 'ko';
+      const timeoutMs = readSettingsSttTimeoutMs() ?? current.timeoutMs ?? defaults.timeoutMs ?? 120000;
       if (provider === 'openai') {
         await postSettingsEditor('stt', '/api/setup/stt', {
           provider,
@@ -500,6 +560,17 @@
         language,
         timeoutMs
       });
+    }
+    async function testSettingsStt() {
+      await postSettingsEditor('sttTest', '/api/setup/stt/openai/test', {
+        model: document.getElementById('settingsSttModel')?.value ?? '',
+        apiKey: document.getElementById('settingsOpenAiApiKey')?.value ?? '',
+        language: readSettingsSttLanguage(),
+        timeoutMs: readSettingsSttTimeoutMs()
+      });
+    }
+    async function testSettingsAi() {
+      await postSettingsEditor('aiTest', '/api/setup/ai/test', {});
     }
     async function saveSettingsAi() {
       const setup = lastSetupSnapshot ?? {};
@@ -537,13 +608,42 @@
       const audioPolicy = retention?.deleteAudioAfterNotionUpload === false
         ? 'dashboard.settings.retention.audioKept'
         : 'dashboard.settings.retention.audioDeleteAfterNotion';
-      return '<div class="metric"><div class="label">' + i18n('dashboard.settings.tabs.retention') + '</div>' +
+      const days = settingsEditorState.retentionDays ??
+        retention?.textDraftRetentionDays ??
+        defaultRetention?.textDraftRetentionDays ?? 30;
+      const daysMin = defaultRetention?.daysMin ?? 1;
+      const daysMax = defaultRetention?.daysMax ?? 365;
+      const statusCard = '<div class="metric"><div class="label">' + i18n('dashboard.settings.tabs.retention') + '</div>' +
         renderHumanDisplay(retention) +
         '<div class="muted">' + i18n(audioPolicy) + '<br>' +
-        i18n('dashboard.settings.retention.textDraftDays', {
-          days: retention?.textDraftRetentionDays ??
-            defaultRetention?.textDraftRetentionDays ?? '-'
-        }) + '</div></div>';
+        i18n('dashboard.settings.retention.audioReadOnly') + '</div></div>';
+      const editCard = '<div class="metric"><div class="label">' + i18n('dashboard.settings.retention.editTitle') + '</div>' +
+        '<div class="settings-grid">' +
+        '<label>' + i18n('dashboard.settings.retention.textDraftLabel') +
+        '<input id="settingsRetentionDays" type="number" min="' + daysMin + '" max="' + daysMax +
+        '" step="1" value="' + escapeHtml(days) + '"></label></div>' +
+        '<div class="muted">' + i18n('dashboard.settings.retention.consumeHint') + '</div>' +
+        '<div class="toolbar"><button type="button" onclick="saveSettingsRetention()"' +
+        (settingsEditorState.busy === 'retention' ? ' disabled' : '') + '>' +
+        (settingsEditorState.busy === 'retention' ? i18n('dashboard.settings.editor.saving') : i18n('dashboard.settings.editor.save')) +
+        '</button></div>' + renderSettingsEditorResult('retention') + '</div>';
+      return statusCard + editCard;
+    }
+    async function saveSettingsRetention() {
+      const raw = document.getElementById('settingsRetentionDays')?.value;
+      const parsed = Number(raw);
+      const textDraftRetentionDays = Number.isFinite(parsed) && parsed > 0
+        ? Math.trunc(parsed)
+        : undefined;
+      await postSettingsEditor('retention', '/api/setup/retention', {
+        textDraftRetentionDays
+      });
+    }
+    function settingsRememberRetentionDays(value) {
+      const parsed = Number(value);
+      settingsEditorState.retentionDays = Number.isFinite(parsed) && parsed > 0
+        ? Math.trunc(parsed)
+        : null;
     }
     function renderThemeSettings(theme, setup) {
       const values = setup?.defaults?.dashboard?.themes ?? [];

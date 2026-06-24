@@ -116,6 +116,19 @@ export const DEFAULT_RETENTION_SETTINGS = {
   textDraftRetentionDays: 30,
 } as const;
 
+// STT timeoutMs 허용 범위. 백엔드 저장 검증 + 대시보드 입력 min/max 공용.
+// readPositiveInteger가 양의 정수만 통과시키므로 0/음수/소수는 이미 거부되며,
+// 아래 상한/하한은 비정상값(예: 1ms, 무한대 timeout) 저장을 막는다.
+export const STT_TIMEOUT_MS_MIN = 5000;
+export const STT_TIMEOUT_MS_MAX = 600000;
+
+// 자동 retention sweep 폴링 간격. 만료 cutoff는 일 단위라 분 단위 정밀도가 불필요.
+// 6시간이면 하루 4회 점검으로 충분히 적시 + SQLite 조회 부하 최소.
+export const RETENTION_SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1000;
+// textDraftRetentionDays 허용 범위. 저장 검증 + 대시보드 입력 min/max 공용.
+export const RETENTION_DAYS_MIN = 1;
+export const RETENTION_DAYS_MAX = 365;
+
 export const DEFAULT_DASHBOARD_SETTINGS = {
   locale: DEFAULT_MEETING_NOTES_LANGUAGE,
   theme: "system" satisfies DirongDashboardTheme,

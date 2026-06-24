@@ -186,7 +186,7 @@ export const ko = {
       manual: {
         title: "Notion 업로드가 수동 모드예요",
         description: "회의록은 자동으로 올라가지 않고 사용자가 업로드 버튼을 눌러야 합니다.",
-        nextAction: "자동 업로드를 원하면 Notion 업로드 방식을 자동으로 바꿔 주세요.",
+        nextAction: "회의록을 확인한 뒤 상태 카드의 회의록 올리기 버튼으로 직접 업로드해 주세요. 자동 업로드를 원하면 설정에서 업로드 방식을 자동으로 바꿀 수 있습니다.",
       },
       idle: {
         title: "Notion에 올릴 회의록을 기다리고 있어요",
@@ -518,7 +518,7 @@ export const ko = {
       },
       manual: {
         message: "Notion 업로드가 수동 모드입니다.",
-        action: "자동 업로드를 쓰려면 NOTION_UPLOAD_MODE=automatic_after_ai_cleanup으로 설정해 주세요.",
+        action: "회의록을 확인한 뒤 상태 카드의 회의록 올리기 버튼으로 직접 업로드해 주세요.",
       },
       notConfigured: {
         message: "Notion 자동 업로드 설정이 아직 완성되지 않았습니다.",
@@ -1543,6 +1543,19 @@ export const ko = {
           },
         },
       },
+      uploadMode: {
+        save: {
+          done: {
+            message: "Notion 업로드 모드를 저장했습니다.",
+          },
+        },
+        error: {
+          invalid: {
+            message: "Notion 업로드 모드 값이 올바르지 않습니다.",
+            action: "자동 또는 수동 중 하나를 골라 다시 저장해 주세요.",
+          },
+        },
+      },
       managedDatabases: {
         create: {
           done: {
@@ -2031,6 +2044,10 @@ export const ko = {
       retry: "다시 시도",
       failureReason: "업로드 실패 원인",
       pageReady: "페이지 준비됨",
+    },
+    notionManual: {
+      review: "회의록 확인",
+      upload: "회의록 올리기",
     },
     status: {
       recording: { label: "녹음 연결" },
@@ -2529,6 +2546,12 @@ export const ko = {
         audioReadOnly: "오디오 자동 삭제 정책은 안전을 위해 항상 켜져 있으며 변경할 수 없습니다.",
         consumeHint: "설정한 일수가 지나면, 오래된 STT 텍스트와 AI 초안이 자동으로 정리됩니다(다음 정리 주기에 반영). 즉시 정리하려면 session-purge --expired-text-artifacts 명령도 쓸 수 있습니다.",
       },
+      notionUploadMode: {
+        title: "Notion 업로드 모드",
+        optionAutomatic: "자동 (AI 정리 후 업로드)",
+        optionManual: "수동 (사람이 확인 후 업로드)",
+        save: "업로드 모드 저장",
+      },
       aloneFinalize: {
         title: "자동 종료",
         countdown: "자동 종료까지 {seconds}초",
@@ -2871,7 +2894,7 @@ export const en = {
       manual: {
         title: "Notion upload is in manual mode",
         description: "Meeting notes will not upload automatically; use the upload button when needed.",
-        nextAction: "Switch the upload mode to automatic if you want automatic uploads.",
+        nextAction: "Review the meeting notes, then upload them yourself with the Upload notes button on the status card. Switch the upload mode to automatic in settings if you want automatic uploads.",
       },
       idle: {
         title: "Waiting for meeting notes to upload",
@@ -3203,7 +3226,7 @@ export const en = {
       },
       manual: {
         message: "Notion upload is in manual mode.",
-        action: "Set NOTION_UPLOAD_MODE=automatic_after_ai_cleanup to use automatic uploads.",
+        action: "Review the meeting notes, then upload them yourself with the Upload notes button on the status card.",
       },
       notConfigured: {
         message: "Notion automatic upload settings are incomplete.",
@@ -4232,6 +4255,19 @@ export const en = {
           },
         },
       },
+      uploadMode: {
+        save: {
+          done: {
+            message: "Notion upload mode has been saved.",
+          },
+        },
+        error: {
+          invalid: {
+            message: "The Notion upload mode value is invalid.",
+            action: "Pick automatic or manual and save again.",
+          },
+        },
+      },
       managedDatabases: {
         create: {
           done: {
@@ -4720,6 +4756,10 @@ export const en = {
       retry: "Retry",
       failureReason: "Upload failure reason",
       pageReady: "Page ready",
+    },
+    notionManual: {
+      review: "Review notes",
+      upload: "Upload notes",
     },
     status: {
       recording: { label: "Recording" },
@@ -5217,6 +5257,12 @@ export const en = {
         textDraftLabel: "Retention days",
         audioReadOnly: "Audio auto-delete is always on for safety and cannot be changed.",
         consumeHint: "Older STT text and AI drafts are cleaned up automatically once the retention period passes (applied on the next cleanup cycle). You can also run session-purge --expired-text-artifacts to clean up immediately.",
+      },
+      notionUploadMode: {
+        title: "Notion upload mode",
+        optionAutomatic: "Automatic (after AI cleanup)",
+        optionManual: "Manual (review then upload)",
+        save: "Save upload mode",
       },
       aloneFinalize: {
         title: "Auto Stop",

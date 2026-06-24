@@ -126,6 +126,7 @@ export type DashboardSetupWizardSource = {
   testClaudeConnection(): Promise<SetupWizardActionResult>;
   saveNotionToken(body: unknown): SetupWizardActionResult;
   saveNotionParentPageUrl(body: unknown): SetupWizardActionResult;
+  saveNotionUploadMode(body: unknown): SetupWizardActionResult;
   verifyNotionParentPage(): Promise<SetupWizardActionResult>;
   createManagedDatabases(): Promise<SetupWizardActionResult>;
   saveProjectName(body: unknown): SetupWizardActionResult;

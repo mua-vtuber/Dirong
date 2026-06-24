@@ -10,11 +10,13 @@
       aiMode: null,
       aiModel: null,
       retentionDays: null,
+      notionUploadMode: null,
       settingsLocale: null,
       discordGuilds: null,
       discordSelectedGuildId: null,
       forceRender: false
     };
+    const settingsNotionUploadModes = ['automatic_after_ai_cleanup', 'manual'];
     const settingsWhisperModels = ['tiny', 'base', 'small', 'medium', 'large-v3'];
     const settingsOpenAiSttModels = ['gpt-4o-mini-transcribe', 'gpt-4o-transcribe', 'whisper-1'];
     const settingsSttLanguages = ['ko', 'en'];
@@ -372,7 +374,40 @@
         (settingsEditorState.busy === 'notionVerify' ? ' disabled' : '') + '>' +
         (settingsEditorState.busy === 'notionVerify' ? i18n('dashboard.settings.editor.testing') : i18n('dashboard.settings.editor.verify')) +
         '</button></div>' + renderSettingsEditorResult('notion') + renderSettingsEditorResult('notionVerify') + '</div>';
-      return statusCard + tokenCard + parentCard + renderSettingsManagedDb(setup);
+      return statusCard + tokenCard + parentCard + renderNotionUploadModeSettings(setup) + renderSettingsManagedDb(setup);
+    }
+    function renderNotionUploadModeSettings(setup) {
+      const notion = setup?.editableSettings?.notion ?? {};
+      const current = settingsSelectValue(
+        settingsEditorState.notionUploadMode ?? notion.uploadMode,
+        settingsNotionUploadModes,
+        settingsNotionUploadModes[0]
+      );
+      const optionLabels = {
+        automatic_after_ai_cleanup: 'dashboard.settings.notionUploadMode.optionAutomatic',
+        manual: 'dashboard.settings.notionUploadMode.optionManual'
+      };
+      const options = settingsNotionUploadModes.map((value) =>
+        '<option value="' + escapeHtml(value) + '"' + (current === value ? ' selected' : '') + '>' +
+        i18n(optionLabels[value]) + '</option>'
+      ).join('');
+      return '<div class="metric"><div class="label">' + i18n('dashboard.settings.notionUploadMode.title') + '</div>' +
+        '<div class="settings-grid"><label>' + i18n('dashboard.settings.notionUploadMode.title') +
+        '<select id="settingsNotionUploadMode" onchange="settingsRememberNotionUploadMode(this.value)">' +
+        options + '</select></label></div>' +
+        '<div class="toolbar"><button type="button" onclick="saveSettingsNotionUploadMode()"' +
+        (settingsEditorState.busy === 'notionUploadMode' ? ' disabled' : '') + '>' +
+        (settingsEditorState.busy === 'notionUploadMode' ? i18n('dashboard.settings.editor.saving') : i18n('dashboard.settings.notionUploadMode.save')) +
+        '</button></div>' + renderSettingsEditorResult('notionUploadMode') + '</div>';
+    }
+    function settingsRememberNotionUploadMode(value) {
+      settingsEditorState.notionUploadMode = settingsNotionUploadModes.includes(value)
+        ? value
+        : settingsNotionUploadModes[0];
+    }
+    async function saveSettingsNotionUploadMode() {
+      const value = document.getElementById('settingsNotionUploadMode')?.value;
+      await postSettingsEditor('notionUploadMode', '/api/setup/notion/upload-mode', { uploadMode: value });
     }
     function renderSettingsManagedDb(setup) {
       const feature = setup?.features?.notion;

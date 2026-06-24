@@ -573,6 +573,14 @@ test("DashboardServer setup routes forward settings Discord and Notion edits to 
     assert.equal(notionToken.status, 200);
     assert.equal(((await notionToken.json()) as { ok: boolean }).ok, true);
 
+    const uploadMode = await postJson(
+      fixture.baseUrl,
+      "/api/setup/notion/upload-mode",
+      { uploadMode: "manual" },
+    );
+    assert.equal(uploadMode.status, 200);
+    assert.equal(((await uploadMode.json()) as { ok: boolean }).ok, true);
+
     const managed = await postJson(
       fixture.baseUrl,
       "/api/setup/notion/managed-databases",
@@ -587,6 +595,7 @@ test("DashboardServer setup routes forward settings Discord and Notion edits to 
       {},
       { guildIds: ["876543210987654321"] },
       { token: "ntn_settings_token" },
+      { uploadMode: "manual" },
       {},
     ]);
   } finally {
@@ -1338,6 +1347,7 @@ test("DashboardServer audio endpoint serves full and ranged raw audio", async ()
         format: "ogg-opus",
       },
     },
+    projects: makeProjectsSource(),
   });
   try {
     const unsigned = await fetch(`${fixture.baseUrl}/audio/chunk_audio_test/raw`);
@@ -1369,6 +1379,7 @@ test("DashboardServer audio endpoint rejects unsatisfiable ranges", async () => 
         format: "ogg-opus",
       },
     },
+    projects: makeProjectsSource(),
   });
   try {
     const rawUrl = await readSignedAudioUrl(fixture.baseUrl, "raw");
@@ -1396,6 +1407,7 @@ test("DashboardServer audio endpoint serves STT-safe audio separately", async ()
         format: "webm",
       },
     },
+    projects: makeProjectsSource(),
   });
   try {
     const sttUrl = await readSignedAudioUrl(fixture.baseUrl, "stt");
@@ -1404,6 +1416,64 @@ test("DashboardServer audio endpoint serves STT-safe audio separately", async ()
     assert.equal(response.status, 200);
     assert.match(response.headers.get("content-type") ?? "", /audio\/webm/);
     assert.equal(Buffer.from(await response.arrayBuffer()).toString("utf8"), "stt");
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("DashboardServer /api/state fails loud when projects source is absent", async () => {
+  // Wiring failure: the projects source itself is missing. This is a
+  // configuration defect, not an empty dashboard, so /api/state must surface
+  // the missing identifier (mirroring /api/projects, /api/projects/active)
+  // instead of masking it as an empty state.
+  const fixture = await startDashboardFixture();
+  try {
+    const response = await fetch(`${fixture.baseUrl}/api/state`);
+    const body = await response.json() as {
+      ok: boolean;
+      status: string;
+      messageKey: string;
+      userActionKey: string;
+    };
+
+    assert.equal(response.status, 500);
+    assert.equal(body.ok, false);
+    assert.equal(body.status, "not_configured");
+    assert.equal(
+      body.messageKey,
+      "error.dashboard.setupStatusSourceMissing.message",
+    );
+    assert.equal(
+      body.userActionKey,
+      "error.dashboard.setupStatusSourceMissing.action",
+    );
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("DashboardServer /api/state keeps empty state when no active project is set", async () => {
+  // Legitimate empty state: the projects source is present and ran
+  // successfully, but no active project is set, so getActiveProject() returns
+  // null. /api/state must pass null through and return the empty dashboard
+  // (status 200) rather than failing loud.
+  const projects: DashboardProjectsSource = {
+    listProjects: () => [],
+    getActiveProject: () => null,
+    createDraftProject: () => {
+      throw new Error("createDraftProject must not be called in this test");
+    },
+    switchActiveProject: () => {
+      throw new Error("switchActiveProject must not be called in this test");
+    },
+  };
+  const fixture = await startDashboardFixture({ projects });
+  try {
+    const response = await fetch(`${fixture.baseUrl}/api/state`);
+    const body = await response.json() as { recentChunks?: unknown };
+
+    assert.equal(response.status, 200);
+    assert.ok(Array.isArray(body.recentChunks));
   } finally {
     await fixture.close();
   }
@@ -2456,6 +2526,7 @@ function makeSetupWizardSource(calls: unknown[]): DashboardSetupWizardSource {
     testClaudeConnection: async () => action({}),
     saveNotionToken: action,
     saveNotionParentPageUrl: action,
+    saveNotionUploadMode: action,
     verifyNotionParentPage: async () => action({}),
     createManagedDatabases: async () => action({}),
     saveProjectName: action,
@@ -2562,7 +2633,10 @@ function makeDashboardConfig(): Phase1Config {
 
 function makeStore(audio?: AudioFixture): FlatStorageStore {
   return {
-    getDashboardState: () => ({
+    getDashboardState: (
+      _runtime: unknown,
+      _activeProjectId: string | null,
+    ) => ({
       generatedAt: "2026-05-07T00:00:00.000Z",
       runtime: { isRecording: false },
       recentChunks: audio

@@ -394,11 +394,7 @@ export class NotionAutomationService {
   }
 
   private getRuntime(): NotionAutomationRuntime {
-    const rawSettings = this.options.getSettings?.() ?? this.options.settings;
-    const settings = {
-      ...rawSettings,
-      uploadMode: "automatic_after_ai_cleanup" as const,
-    };
+    const settings = this.options.getSettings?.() ?? this.options.settings;
     const client = this.options.getClient
       ? this.options.getClient(settings)
       : this.options.client ?? null;

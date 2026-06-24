@@ -6,7 +6,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import type { NotionUploadMode } from "../notion/settings.js";
+import {
+  readNotionUploadMode,
+  type NotionUploadMode,
+} from "../notion/settings.js";
 import type { SttProviderName } from "./app-settings.js";
 import {
   isAiProviderMode,
@@ -288,12 +291,6 @@ function readAiProvider(value: unknown): AiProviderName | undefined {
 
 function readAiMode(value: unknown): AiProviderMode | undefined {
   return isAiProviderMode(value) ? value : undefined;
-}
-
-function readNotionUploadMode(value: unknown): NotionUploadMode | undefined {
-  return value === "manual" || value === "automatic_after_ai_cleanup"
-    ? value
-    : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

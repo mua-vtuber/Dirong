@@ -562,6 +562,43 @@ test("createProductNotionRuntimeSettingsProvider prefers the active project Noti
   }
 });
 
+test("active project manual upload mode flows into runtime and editable settings", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-product-"));
+  const database = new DirongDatabase(path.join(dir, "dirong.sqlite"), 1000);
+  try {
+    const paths = getDirongUserDataPaths(dir);
+    const settingsStore = new LocalSettingsStore(paths.settingsFile);
+    const secretStore = new LocalSecretStore(paths.secretsFile);
+    const projectStore = new ProjectStore(new SqlRunner(database));
+    projectStore.createReadyProject({
+      id: "project-manual",
+      notionTokenSecretRef: "notion.project.project-manual.token",
+      notionParentPageUrl:
+        "https://www.notion.so/workspace/Manual-cccccccccccccccccccccccccccccccc",
+      notionUploadMode: "manual",
+    });
+    projectStore.setActiveProjectId("project-manual");
+    secretStore.set("notion.project.project-manual.token", "project-manual-secret");
+
+    const getSettings = createProductNotionRuntimeSettingsProvider({
+      paths,
+      projectStore,
+    });
+    assert.equal(getSettings().uploadMode, "manual");
+
+    const status = buildProductSetupStatus({
+      paths,
+      settings: settingsStore.read(),
+      secretStore,
+      projectStore,
+    });
+    assert.equal(status.editableSettings.notion.uploadMode, "manual");
+  } finally {
+    database.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("buildProductSetupStatus reports partial Notion registry as blocked", () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-product-"));
   const database = new DirongDatabase(path.join(dir, "dirong.sqlite"), 1000);

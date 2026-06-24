@@ -104,7 +104,7 @@ test("formatNotionAutomationForStatus localizes text labels", () => {
   );
 });
 
-test("NotionAutomationService treats manual upload mode as automatic", async () => {
+test("NotionAutomationService blocks manual upload mode and never auto-uploads", async () => {
   const fixture = createFixture();
   try {
     const client = new FakeNotionClient();
@@ -115,10 +115,30 @@ test("NotionAutomationService treats manual upload mode as automatic", async () 
 
     const snapshot = await service.runOnce();
 
-    assert.equal(snapshot.status, "done");
-    assert.equal(snapshot.uploadMode, "automatic_after_ai_cleanup");
-    assert.equal(countNotionWrites(fixture.database), 1);
-    assert.equal(client.calls.length > 0, true);
+    assert.equal(snapshot.status, "manual");
+    assert.equal(snapshot.uploadMode, "manual");
+    assert.equal(countNotionWrites(fixture.database), 0);
+    assert.equal(client.calls.length, 0);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("NotionAutomationService reads manual upload mode from the settings provider", async () => {
+  const fixture = createFixture();
+  try {
+    const client = new FakeNotionClient();
+    const service = createService(fixture, {
+      getSettings: () => notionSettings({ uploadMode: "manual" }),
+      client,
+    });
+
+    const snapshot = await service.runOnce();
+
+    assert.equal(snapshot.status, "manual");
+    assert.equal(snapshot.uploadMode, "manual");
+    assert.equal(countNotionWrites(fixture.database), 0);
+    assert.equal(client.calls.length, 0);
   } finally {
     fixture.close();
   }
@@ -358,7 +378,7 @@ test("NotionAutomationService starts polling before Notion settings are complete
   }
 });
 
-test("NotionAutomationService clears stale run details after stop and automatic reconfiguration", async () => {
+test("NotionAutomationService clears stale run details after stop and manual reconfiguration", async () => {
   const fixture = createFixture();
   try {
     let currentSettings = notionSettings();
@@ -377,8 +397,8 @@ test("NotionAutomationService clears stale run details after stop and automatic 
     service.start();
     const idle = await service.runOnce();
 
-    assert.equal(idle.status, "idle");
-    assert.equal(idle.uploadMode, "automatic_after_ai_cleanup");
+    assert.equal(idle.status, "manual");
+    assert.equal(idle.uploadMode, "manual");
     assert.equal(idle.sessionId, null);
     assert.equal(idle.draftId, null);
     assert.equal(idle.writeId, null);

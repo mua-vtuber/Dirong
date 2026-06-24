@@ -361,6 +361,10 @@ export async function handleSetupWizardPost(
       sendWizardResult(response, setupWizard.saveNotionParentPageUrl(body));
       return;
     }
+    if (pathname === "/api/setup/notion/upload-mode") {
+      sendWizardResult(response, setupWizard.saveNotionUploadMode(body));
+      return;
+    }
     if (pathname === "/api/setup/notion/verify-parent-page") {
       sendWizardResult(response, await setupWizard.verifyNotionParentPage());
       return;

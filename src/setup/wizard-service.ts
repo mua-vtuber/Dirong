@@ -22,6 +22,7 @@ import { createManagedNotionSchema } from "../notion/managed-schema.js";
 import { readManagedNotionRegistrySnapshot } from "../notion/managed-registry.js";
 import type { NotionLocale } from "../notion/schema-presets.js";
 import { parseNotionPageUrl } from "../notion/target.js";
+import { readNotionUploadMode } from "../notion/settings.js";
 import type { NotionRegistryStore } from "../notion/registry-store.js";
 import type { ProjectStore } from "../projects/project-store.js";
 import {
@@ -1033,12 +1034,10 @@ export class SetupWizardService {
       this.options.projectStore.updateProjectNotionFields({
         projectId: activeProject.project.id,
         notionTokenSecretRef: secretRef,
-        notionUploadMode: DEFAULT_NOTION_SETTINGS.uploadMode,
         nowIso: this.now().toISOString(),
       });
       this.writeProjectCompatibilityProjection({
         notionTokenSecretRef: secretRef,
-        notionUploadMode: DEFAULT_NOTION_SETTINGS.uploadMode,
       });
     } else {
       this.options.settingsStore.update((settings) => ({
@@ -1046,7 +1045,6 @@ export class SetupWizardService {
         notion: {
           ...settings.notion,
           tokenSecretRef: secretRef,
-          uploadMode: DEFAULT_NOTION_SETTINGS.uploadMode,
         },
       }));
     }
@@ -1098,12 +1096,10 @@ export class SetupWizardService {
       this.options.projectStore.updateProjectNotionFields({
         projectId: activeProject.project.id,
         notionParentPageUrl: normalizedUrl,
-        notionUploadMode: DEFAULT_NOTION_SETTINGS.uploadMode,
         nowIso: this.now().toISOString(),
       });
       this.writeProjectCompatibilityProjection({
         notionParentPageUrl: normalizedUrl,
-        notionUploadMode: DEFAULT_NOTION_SETTINGS.uploadMode,
       });
     } else {
       this.options.settingsStore.update((settings) => ({
@@ -1111,7 +1107,6 @@ export class SetupWizardService {
         notion: {
           ...settings.notion,
           parentPageUrl: normalizedUrl,
-          uploadMode: DEFAULT_NOTION_SETTINGS.uploadMode,
         },
       }));
     }
@@ -1123,6 +1118,50 @@ export class SetupWizardService {
       userActionKey: null,
       runtimeEffectScope: "notion",
       notion: { parentPageConfigured: true },
+    });
+  }
+
+  saveNotionUploadMode(body: unknown): SetupWizardActionResult {
+    const mode = readNotionUploadMode(readCleanString(body, ["uploadMode", "mode"]));
+    if (!mode) {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.notion.uploadMode.error.invalid.message",
+        userActionKey: "setup.notion.uploadMode.error.invalid.action",
+      });
+    }
+
+    const activeProject = this.readActiveProjectForSetup();
+    if (!activeProject.ok) {
+      return this.result(activeProject.error);
+    }
+
+    if (activeProject.project && this.options.projectStore) {
+      this.options.projectStore.updateProjectNotionFields({
+        projectId: activeProject.project.id,
+        notionUploadMode: mode,
+        nowIso: this.now().toISOString(),
+      });
+      this.writeProjectCompatibilityProjection({ notionUploadMode: mode });
+    } else {
+      this.options.settingsStore.update((settings) => ({
+        ...settings,
+        notion: {
+          ...settings.notion,
+          uploadMode: mode,
+        },
+      }));
+    }
+
+    return this.result({
+      ok: true,
+      status: "done",
+      messageKey: "setup.notion.uploadMode.save.done.message",
+      userActionKey: null,
+      runtimeEffectScope: "notion",
+      notion: { uploadMode: mode },
     });
   }
 

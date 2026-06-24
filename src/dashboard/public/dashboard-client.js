@@ -1404,7 +1404,34 @@
       return displayTitle(state.notionAutomation, displayTitle(state.notion));
     }
     function renderNotionButtons(state) {
-      return renderNotionRetryButton(state);
+      const latest = state.latestNotionWrite;
+      const failed = ['failed', 'blocked'].includes(String(latest?.status ?? state.notionAutomation?.status ?? ''));
+      if (failed) {
+        return renderNotionRetryButton(state);
+      }
+      return renderNotionManualButtons(state);
+    }
+    function renderNotionManualButtons(state) {
+      const isManual = String(state.notionAutomation?.uploadMode ?? '') === 'manual'
+                    || state.notionAutomation?.status === 'manual';
+      const draft = state.latestMeetingNotesDraft;
+      if (!isManual || !draft) return '';
+      const latest = state.latestNotionWrite;
+      const alreadyUploaded = latest?.status === 'done' && latest?.draft_id === draft.id;
+      if (alreadyUploaded) return '';
+      const ready = state.notion?.status === 'ready';
+      const disabledAttr = ready ? '' : ' disabled';
+      return '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">' +
+        '<button type="button" onclick="reviewMeetingNotes()">' + i18n('dashboard.notionManual.review') + '</button>' +
+        '<button type="button"' + disabledAttr + ' onclick="postNotionAction(\'send\')">' + i18n('dashboard.notionManual.upload') + '</button>' +
+        '<span class="muted" id="notionActionStatus"></span>' +
+        '</div>';
+    }
+    function reviewMeetingNotes() {
+      const target = document.getElementById('draftPreview');
+      if (target && typeof target.scrollIntoView === 'function') {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
     }
     function renderNotionRetryButton(state) {
       const latest = state.latestNotionWrite;

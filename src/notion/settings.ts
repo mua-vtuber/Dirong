@@ -2,6 +2,15 @@ import { t } from "../i18n/catalog.js";
 import type { DirongLocale } from "../settings/local-settings-store.js";
 
 export type NotionUploadMode = "manual" | "automatic_after_ai_cleanup";
+
+export function readNotionUploadMode(
+  value: unknown,
+): NotionUploadMode | undefined {
+  return value === "manual" || value === "automatic_after_ai_cleanup"
+    ? value
+    : undefined;
+}
+
 export type NotionTemplateType = "app";
 export type NotionIncludeTranscript = "never";
 export type NotionTargetType = "data_source";

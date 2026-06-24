@@ -662,10 +662,87 @@ test("SetupWizardService stores project-scoped Discord and Notion setup values",
       fixture.settings.read().notion.tokenSecretRef,
       "notion.project.project-active.token",
     );
+    // 토큰/parent page 저장은 더 이상 settings.notion.uploadMode를 강제로
+    // automatic으로 덮어쓰지 않는다(프로젝트별 모드 보존). compatibility
+    // projection은 기존 settings 값을 그대로 보존하므로 여기서는 미설정 상태다.
+    assert.equal(fixture.settings.read().notion.uploadMode, undefined);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("SetupWizardService saves the Notion upload mode on the active project", () => {
+  const fixture = createFixture({ withProjectStore: true });
+  try {
+    if (!fixture.projectStore) {
+      throw new Error("expected project store");
+    }
+    fixture.projectStore.createDraftProject({
+      id: "project-active",
+      nowIso: "2026-05-10T00:00:00.000Z",
+    });
+    fixture.projectStore.setActiveProjectId("project-active");
+
+    const result = fixture.service.saveNotionUploadMode({ uploadMode: "manual" });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.status, "done");
     assert.equal(
-      fixture.settings.read().notion.uploadMode,
+      fixture.projectStore.getProject("project-active")?.notion_upload_mode,
+      "manual",
+    );
+    assert.equal(fixture.settings.read().notion.uploadMode, "manual");
+  } finally {
+    fixture.close();
+  }
+});
+
+test("SetupWizardService rejects an invalid Notion upload mode value", () => {
+  const fixture = createFixture({ withProjectStore: true });
+  try {
+    if (!fixture.projectStore) {
+      throw new Error("expected project store");
+    }
+    fixture.projectStore.createDraftProject({
+      id: "project-active",
+      nowIso: "2026-05-10T00:00:00.000Z",
+    });
+    fixture.projectStore.setActiveProjectId("project-active");
+
+    const result = fixture.service.saveNotionUploadMode({ uploadMode: "nonsense" });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.httpStatus, 400);
+    assert.equal(
+      fixture.projectStore.getProject("project-active")?.notion_upload_mode,
       "automatic_after_ai_cleanup",
     );
+  } finally {
+    fixture.close();
+  }
+});
+
+test("SetupWizardService preserves a manual upload mode when re-saving token and parent page", () => {
+  const fixture = createFixture({ withProjectStore: true });
+  try {
+    if (!fixture.projectStore) {
+      throw new Error("expected project store");
+    }
+    fixture.projectStore.createDraftProject({
+      id: "project-active",
+      nowIso: "2026-05-10T00:00:00.000Z",
+    });
+    fixture.projectStore.setActiveProjectId("project-active");
+    fixture.service.saveNotionUploadMode({ uploadMode: "manual" });
+
+    fixture.service.saveNotionToken({ token: "notion-secret-raw-value" });
+    fixture.service.saveNotionParentPageUrl({ parentPageUrl });
+
+    assert.equal(
+      fixture.projectStore.getProject("project-active")?.notion_upload_mode,
+      "manual",
+    );
+    assert.equal(fixture.settings.read().notion.uploadMode, "manual");
   } finally {
     fixture.close();
   }

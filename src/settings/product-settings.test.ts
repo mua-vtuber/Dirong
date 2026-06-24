@@ -192,6 +192,11 @@ test("buildProductSetupStatus reports ready Discord without exposing token value
     assert.equal(status.features.discord.runtimeEffect?.kind, "restart_required");
     assert.match(status.features.discord.runtimeEffect?.message ?? "", /자동 반영되지 않습니다/);
     assert.equal(status.secrets.discordBot.displayValue, "[REDACTED]");
+    assert.equal(status.editableSettings.discord.applicationId, "app-1");
+    assert.equal(status.editableSettings.discord.guildId, "guild-1");
+    assert.equal(status.editableSettings.discord.guildName, null);
+    assert.equal(status.editableSettings.discord.botCredentialConfigured, true);
+    assert.equal(status.editableSettings.notion.credentialConfigured, false);
     assert.doesNotMatch(serialized, /discord-secret-raw-value/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -678,6 +683,11 @@ test("buildProductSetupStatus projects Discord and Notion status from the active
     assert.equal(status.secrets.notion.configured, true);
     assert.equal(status.features.notion.managedRegistryStatus, "partial");
     assert.equal(status.features.notion.managedRegistry?.databaseCount, 1);
+    assert.equal(status.editableSettings.discord.applicationId, "app-1");
+    assert.equal(status.editableSettings.discord.guildId, "project-guild");
+    assert.equal(status.editableSettings.discord.botCredentialConfigured, true);
+    assert.equal(status.editableSettings.notion.credentialConfigured, true);
+    assert.doesNotMatch(JSON.stringify(status.editableSettings), /project-notion-secret/);
   } finally {
     database.close();
     rmSync(dir, { recursive: true, force: true });

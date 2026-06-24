@@ -526,6 +526,99 @@ test("DashboardServer setup wizard routes read state and post actions through th
   }
 });
 
+test("DashboardServer setup routes forward settings Discord and Notion edits to the wizard source", async () => {
+  const calls: unknown[] = [];
+  const fixture = await startDashboardFixture({
+    setupStatus: makeMutableSetupStatusSource(),
+    setupWizard: makeSetupWizardSource(calls),
+  });
+  try {
+    const applicationId = await postJson(
+      fixture.baseUrl,
+      "/api/setup/discord/application-id",
+      { applicationId: "123456789012345678" },
+    );
+    assert.equal(applicationId.status, 200);
+    assert.equal(((await applicationId.json()) as { ok: boolean }).ok, true);
+
+    const botToken = await postJson(
+      fixture.baseUrl,
+      "/api/setup/discord/bot-token",
+      { botToken: "discord-bot-token" },
+    );
+    assert.equal(botToken.status, 200);
+    assert.equal(((await botToken.json()) as { ok: boolean }).ok, true);
+
+    const tested = await postJson(fixture.baseUrl, "/api/setup/discord/test", {});
+    assert.equal(tested.status, 200);
+    assert.equal(((await tested.json()) as { ok: boolean }).ok, true);
+
+    const guild = await postJson(
+      fixture.baseUrl,
+      "/api/setup/discord/guild-allowlist",
+      { guildIds: ["876543210987654321"] },
+    );
+    assert.equal(guild.status, 200);
+    assert.equal(((await guild.json()) as { ok: boolean }).ok, true);
+
+    const notionToken = await postJson(
+      fixture.baseUrl,
+      "/api/setup/notion/token",
+      { token: "ntn_settings_token" },
+    );
+    assert.equal(notionToken.status, 200);
+    assert.equal(((await notionToken.json()) as { ok: boolean }).ok, true);
+
+    const managed = await postJson(
+      fixture.baseUrl,
+      "/api/setup/notion/managed-databases",
+      {},
+    );
+    assert.equal(managed.status, 200);
+    assert.equal(((await managed.json()) as { ok: boolean }).ok, true);
+
+    assert.deepEqual(calls, [
+      { applicationId: "123456789012345678" },
+      { botToken: "discord-bot-token" },
+      {},
+      { guildIds: ["876543210987654321"] },
+      { token: "ntn_settings_token" },
+      {},
+    ]);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("DashboardServer exposes Discord and Notion editable settings in the setup state", async () => {
+  const fixture = await startDashboardFixture({
+    setupStatus: makeMutableSetupStatusSource(),
+    setupWizard: makeSetupWizardSource([]),
+  });
+  try {
+    const state = await fetch(`${fixture.baseUrl}/api/setup/state`);
+    assert.equal(state.status, 200);
+    const body = (await state.json()) as {
+      editableSettings: {
+        discord: {
+          applicationId: string | null;
+          guildId: string | null;
+          guildName: string | null;
+          botCredentialConfigured: boolean;
+        };
+        notion: { credentialConfigured: boolean };
+      };
+    };
+    assert.equal(body.editableSettings.discord.applicationId, "123456789012345678");
+    assert.equal(body.editableSettings.discord.guildId, null);
+    assert.equal(body.editableSettings.discord.guildName, null);
+    assert.equal(body.editableSettings.discord.botCredentialConfigured, true);
+    assert.equal(body.editableSettings.notion.credentialConfigured, false);
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("DashboardServer project APIs list active project and create reusable draft", async () => {
   const projects = makeProjectsSource();
   const fixture = await startDashboardFixture({ projects });
@@ -2021,9 +2114,16 @@ function makeSetupStatusSource(): DashboardSetupStatusSource {
           },
         },
         ai: DEFAULT_SETUP_AI_SETTINGS,
+        discord: {
+          applicationId: "123456789012345678",
+          guildId: null,
+          guildName: null,
+          botCredentialConfigured: true,
+        },
         notion: {
           parentPageUrl: null,
           uploadMode: DEFAULT_NOTION_SETTINGS.uploadMode,
+          credentialConfigured: false,
         },
         recording: {
           aloneFinalizeEnabled:

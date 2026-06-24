@@ -172,9 +172,16 @@ export type ProductEditableSettingsSnapshot = {
     mode: AiProviderMode;
     model: string;
   };
+  discord: {
+    applicationId: string | null;
+    guildId: string | null;
+    guildName: string | null;
+    botCredentialConfigured: boolean;
+  };
   notion: {
     parentPageUrl: string | null;
     uploadMode: NotionRuntimeSettings["uploadMode"];
+    credentialConfigured: boolean;
   };
   recording: {
     aloneFinalizeEnabled: boolean;
@@ -479,7 +486,12 @@ export function buildProductSetupStatus(input: {
     notionSchemaLocale: locale,
   dashboardTheme,
   defaults: buildProductSetupDefaults(),
-  editableSettings: buildProductEditableSettings(settings),
+  editableSettings: buildProductEditableSettings(settings, {
+    applicationId: input.settings.discord.applicationId ?? null,
+    activeProject: projectContext.activeProject,
+    discordBotConfigured: secrets.discordBot.configured,
+    notionConfigured: secrets.notion.configured,
+  }),
   status: featureStatuses.every((status) => status === "ready")
       ? "ready"
       : featureStatuses.includes("not_configured")
@@ -1222,7 +1234,16 @@ function cleanPath(value: string | undefined): string | null {
 
 function buildProductEditableSettings(
   settings: DirongLocalSettings,
+  input: {
+    applicationId: string | null;
+    activeProject: DirongProjectRow | null;
+    discordBotConfigured: boolean;
+    notionConfigured: boolean;
+  },
 ): ProductEditableSettingsSnapshot {
+  const guildId =
+    input.activeProject?.guild_id ?? settings.discord.guildIds?.[0] ?? null;
+  const guildName = input.activeProject?.guild_name ?? null;
   return {
     stt: {
       provider: settings.stt.provider ?? DEFAULT_STT_SETTINGS.provider,
@@ -1254,9 +1275,16 @@ function buildProductEditableSettings(
           settings.ai.provider ?? DEFAULT_SETUP_AI_SETTINGS.provider
         ],
     },
+    discord: {
+      applicationId: input.applicationId,
+      guildId,
+      guildName,
+      botCredentialConfigured: input.discordBotConfigured,
+    },
     notion: {
       parentPageUrl: settings.notion.parentPageUrl ?? null,
       uploadMode: DEFAULT_NOTION_SETTINGS.uploadMode,
+      credentialConfigured: input.notionConfigured,
     },
     recording: {
       aloneFinalizeEnabled:

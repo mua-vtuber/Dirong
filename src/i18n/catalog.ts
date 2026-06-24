@@ -2326,6 +2326,7 @@ export const ko = {
     },
     settings: {
       tabs: {
+        language: "언어",
         discord: "Discord",
         stt: "STT",
         ai: "AI",
@@ -2360,11 +2361,22 @@ export const ko = {
         saving: "저장 중...",
         testing: "검사 중...",
         optionalSecret: "비워 두면 저장된 key를 유지합니다.",
+        language: {
+          title: "대시보드 언어",
+        },
         stt: {
           title: "STT provider와 모델",
           localWhisperModel: "Whisper 모델",
           openAiModel: "OpenAI STT 모델",
           openAiApiKey: "OpenAI API key",
+        },
+        discord: {
+          credentialsTitle: "Discord 봇 자격증명",
+          guildTitle: "녹음 허용 서버",
+          currentGuild: "현재 선택된 서버",
+          tokenKeepHint:
+            "봇 토큰을 바꿀 때만 입력하세요. 비워 두면 저장하지 않습니다.",
+          noActiveProject: "활성 프로젝트가 있어야 서버를 저장할 수 있습니다.",
         },
         ai: {
           title: "AI provider와 모델",
@@ -2379,6 +2391,15 @@ export const ko = {
           title: "Notion 페이지 URL",
           parentPageUrl: "관리 페이지 URL",
           parentPagePlaceholder: "https://www.notion.so/...",
+          tokenTitle: "Notion 연결 토큰",
+          tokenLabel: "Notion token",
+          tokenConfigured: "토큰이 저장되어 있습니다",
+          tokenMissing: "토큰이 아직 없습니다",
+          tokenKeepHint: "토큰을 교체할 때만 입력하세요.",
+          managedTitle: "관리 DB",
+          managedCreate: "관리 DB 생성",
+          managedRepairLink: "DB 점검·복구 화면 열기",
+          managedRepairHint: "필드 누락 복구는 DB 화면에서 진행합니다.",
         },
         aloneFinalize: {
           enabled: "자동 종료 사용",
@@ -4933,6 +4954,7 @@ export const en = {
     },
     settings: {
       tabs: {
+        language: "Language",
         discord: "Discord",
         stt: "STT",
         ai: "AI",
@@ -4967,11 +4989,22 @@ export const en = {
         saving: "Saving...",
         testing: "Verifying...",
         optionalSecret: "Leave blank to keep the saved key.",
+        language: {
+          title: "Dashboard language",
+        },
         stt: {
           title: "STT provider and model",
           localWhisperModel: "Whisper model",
           openAiModel: "OpenAI STT model",
           openAiApiKey: "OpenAI API key",
+        },
+        discord: {
+          credentialsTitle: "Discord bot credentials",
+          guildTitle: "Allowed recording server",
+          currentGuild: "Currently selected server",
+          tokenKeepHint:
+            "Enter only to change the bot token. Leave blank to skip saving.",
+          noActiveProject: "An active project is required to save a server.",
         },
         ai: {
           title: "AI provider and model",
@@ -4986,6 +5019,15 @@ export const en = {
           title: "Notion page URL",
           parentPageUrl: "Management page URL",
           parentPagePlaceholder: "https://www.notion.so/...",
+          tokenTitle: "Notion connection token",
+          tokenLabel: "Notion token",
+          tokenConfigured: "A token is saved",
+          tokenMissing: "No token yet",
+          tokenKeepHint: "Enter only to replace the token.",
+          managedTitle: "Managed databases",
+          managedCreate: "Create managed DBs",
+          managedRepairLink: "Open DB check & repair",
+          managedRepairHint: "Field repair is handled on the DB screen.",
         },
         aloneFinalize: {
           enabled: "Use auto-stop",

@@ -19,13 +19,19 @@
       lastResultScope: null,
       sttProvider: null,
       sttModel: null,
+      aiProvider: null,
       aiMode: null,
       aiModel: null,
       forceRender: false
     };
     const settingsWhisperModels = ['tiny', 'base', 'small', 'medium', 'large-v3'];
     const settingsOpenAiSttModels = ['gpt-4o-mini-transcribe', 'gpt-4o-transcribe', 'whisper-1'];
-    const settingsClaudeModels = ['haiku', 'sonnet', 'opus'];
+    const settingsAiProviders = ['claude', 'codex', 'gemini'];
+    const settingsAiModelsByProvider = {
+      claude: ['haiku', 'sonnet', 'opus'],
+      codex: ['default'],
+      gemini: ['default']
+    };
     const AUDIO_TOKEN_REFRESH_MARGIN_MS = 60 * 1000;
     let lastDashboardState = null;
     let lastSetupSnapshot = null;
@@ -828,8 +834,15 @@
       const current = setup?.editableSettings?.ai ?? {};
       const defaults = setup?.defaults?.ai ?? {};
       const feature = setup?.features?.ai;
-      const mode = settingsEditorState.aiMode ?? current.mode ?? defaults.mode ?? 'cli';
-      const model = settingsSelectValue(settingsEditorState.aiModel ?? current.model ?? defaults.model, settingsClaudeModels, defaults.model ?? 'haiku');
+      const provider = settingsSelectValue(settingsEditorState.aiProvider ?? current.provider ?? defaults.provider, settingsAiProviders, 'claude');
+      const mode = provider === 'claude'
+        ? (settingsEditorState.aiMode ?? current.mode ?? defaults.mode ?? 'cli')
+        : 'cli';
+      const model = settingsSelectValue(
+        settingsEditorState.aiModel ?? current.model ?? defaults.model,
+        settingsAiModelsByProvider[provider] ?? settingsAiModelsByProvider.claude,
+        (settingsAiModelsByProvider[provider] ?? settingsAiModelsByProvider.claude)[0]
+      );
       const secret = mode === 'api'
         ? '<label>' + i18n('dashboard.settings.editor.ai.apiKey') +
           '<input id="settingsClaudeApiKey" type="password" autocomplete="off">' +
@@ -842,16 +855,18 @@
         '<div class="metric"><div class="label">' + i18n('dashboard.settings.editor.ai.title') + '</div>' +
         '<div class="settings-grid">' +
         '<label>' + i18n('dashboard.settings.editor.provider') +
-        '<select id="settingsAiProvider"><option value="claude">' +
-        i18n('dashboard.settings.editor.ai.providerClaude') + '</option></select></label>' +
+        '<select id="settingsAiProvider" onchange="settingsRememberAiProvider(this.value)">' +
+        renderAiProviderSettingsOptions(provider) + '</select></label>' +
         '<label>' + i18n('dashboard.settings.editor.mode') +
         '<select id="settingsAiMode" onchange="settingsRememberAiMode(this.value)">' +
         '<option value="cli"' + (mode === 'cli' ? ' selected' : '') + '>' + i18n('dashboard.settings.editor.ai.modeCli') + '</option>' +
-        '<option value="api"' + (mode === 'api' ? ' selected' : '') + '>' + i18n('dashboard.settings.editor.ai.modeApi') + '</option>' +
+        (provider === 'claude'
+          ? '<option value="api"' + (mode === 'api' ? ' selected' : '') + '>' + i18n('dashboard.settings.editor.ai.modeApi') + '</option>'
+          : '') +
         '</select></label>' +
         '<label>' + i18n('dashboard.settings.editor.model') +
         '<select id="settingsAiModel" onchange="settingsRememberAiModel(this.value)">' +
-        renderClaudeSettingsOptions(model) + '</select></label>' + secret + '</div>' +
+        renderAiSettingsOptions(provider, model) + '</select></label>' + secret + '</div>' +
         '<div class="toolbar"><button type="button" onclick="saveSettingsAi()"' +
         (settingsEditorState.busy === 'ai' ? ' disabled' : '') + '>' +
         (settingsEditorState.busy === 'ai' ? i18n('dashboard.settings.editor.saving') : i18n('dashboard.settings.editor.save')) +
@@ -901,11 +916,21 @@
         escapeHtml(value) + '</option>'
       ).join('');
     }
-    function renderClaudeSettingsOptions(current) {
-      return settingsClaudeModels.map((model) =>
+    function renderAiProviderSettingsOptions(current) {
+      return settingsAiProviders.map((provider) =>
+        '<option value="' + escapeHtml(provider) + '"' + (current === provider ? ' selected' : '') + '>' +
+        i18n('dashboard.settings.editor.ai.provider' + capitalizeProvider(provider)) + '</option>'
+      ).join('');
+    }
+    function renderAiSettingsOptions(provider, current) {
+      const models = settingsAiModelsByProvider[provider] ?? settingsAiModelsByProvider.claude;
+      return models.map((model) =>
         '<option value="' + escapeHtml(model) + '"' + (current === model ? ' selected' : '') + '>' +
         i18n('dashboard.setupWizard.ai.models.' + model) + '</option>'
       ).join('');
+    }
+    function capitalizeProvider(provider) {
+      return provider.charAt(0).toUpperCase() + provider.slice(1);
     }
     function settingsSelectValue(value, values, fallback) {
       return values.includes(value) ? value : fallback;
@@ -937,13 +962,25 @@
       settingsEditorState.sttModel = value;
     }
     function settingsRememberAiMode(value) {
-      settingsEditorState.aiMode = value === 'api' ? 'api' : 'cli';
+      const provider = settingsEditorState.aiProvider ?? lastSetupSnapshot?.editableSettings?.ai?.provider ?? 'claude';
+      settingsEditorState.aiMode = provider === 'claude' && value === 'api' ? 'api' : 'cli';
+      settingsEditorState.lastResult = null;
+      settingsEditorState.lastResultScope = null;
+      rerenderSettingsPanel();
+    }
+    function settingsRememberAiProvider(value) {
+      const provider = settingsAiProviders.includes(value) ? value : 'claude';
+      settingsEditorState.aiProvider = provider;
+      settingsEditorState.aiMode = provider === 'claude' ? (settingsEditorState.aiMode ?? 'cli') : 'cli';
+      settingsEditorState.aiModel = (settingsAiModelsByProvider[provider] ?? settingsAiModelsByProvider.claude)[0];
       settingsEditorState.lastResult = null;
       settingsEditorState.lastResultScope = null;
       rerenderSettingsPanel();
     }
     function settingsRememberAiModel(value) {
-      settingsEditorState.aiModel = settingsClaudeModels.includes(value) ? value : 'haiku';
+      const provider = settingsEditorState.aiProvider ?? lastSetupSnapshot?.editableSettings?.ai?.provider ?? 'claude';
+      const models = settingsAiModelsByProvider[provider] ?? settingsAiModelsByProvider.claude;
+      settingsEditorState.aiModel = models.includes(value) ? value : models[0];
     }
     async function postSettingsEditor(scope, path, body) {
       settingsEditorState.busy = scope;
@@ -1003,11 +1040,17 @@
     async function saveSettingsAi() {
       const setup = lastSetupSnapshot ?? {};
       const defaults = setup.defaults?.ai ?? {};
-      const mode = document.getElementById('settingsAiMode')?.value === 'api' ? 'api' : 'cli';
-      const model = document.getElementById('settingsAiModel')?.value ?? defaults.model ?? 'haiku';
-      await postSettingsEditor('ai', '/api/setup/ai/claude', mode === 'api'
-        ? { mode, model, apiKey: document.getElementById('settingsClaudeApiKey')?.value ?? '' }
-        : { mode, model, profile: defaults.claudeProfile });
+      const provider = settingsAiProviders.includes(document.getElementById('settingsAiProvider')?.value)
+        ? document.getElementById('settingsAiProvider')?.value
+        : defaults.provider ?? 'claude';
+      const mode = provider === 'claude' && document.getElementById('settingsAiMode')?.value === 'api' ? 'api' : 'cli';
+      const models = settingsAiModelsByProvider[provider] ?? settingsAiModelsByProvider.claude;
+      const rawModel = document.getElementById('settingsAiModel')?.value ?? defaults.model ?? models[0];
+      const model = models.includes(rawModel) ? rawModel : models[0];
+      const profile = defaults.providerProfiles?.[provider] ?? defaults.cliProfile ?? defaults.claudeProfile;
+      await postSettingsEditor('ai', '/api/setup/ai', mode === 'api'
+        ? { provider, mode, model, apiKey: document.getElementById('settingsClaudeApiKey')?.value ?? '' }
+        : { provider, mode, model, profile });
     }
     async function saveSettingsNotionParent() {
       await postSettingsEditor('notion', '/api/setup/notion/parent-page', {

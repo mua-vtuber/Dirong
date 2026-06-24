@@ -12,7 +12,12 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
       { id: 'notionManaged', titleKey: 'steps.notionManaged' },
       { id: 'projectName', titleKey: 'steps.projectName' }
     ];
-    const setupClaudeModels = ['haiku', 'sonnet', 'opus'];
+    const setupAiProviders = ['claude', 'codex', 'gemini'];
+    const setupAiModelsByProvider = {
+      claude: ['haiku', 'sonnet', 'opus'],
+      codex: ['default'],
+      gemini: ['default']
+    };
     function setupWizardKey(key) {
       return setupWizardI18nPrefix + key;
     }
@@ -356,12 +361,21 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
     }
     function renderSetupAi(setup) {
       const defaults = setupDefaults(setup);
-      const mode = setupLocalState.aiMode ?? defaults?.ai?.mode;
-      const model = setupNormalizeClaudeModel(
+      const provider = setupNormalizeAiProvider(
+        setupLocalState.aiProvider ?? setup.features?.ai?.provider ?? defaults?.ai?.provider
+      );
+      const mode = provider === 'claude'
+        ? (setupLocalState.aiMode ?? defaults?.ai?.mode)
+        : 'cli';
+      const model = setupNormalizeAiModel(
+        provider,
         setupLocalState.aiModel ?? setup.features?.ai?.model ?? defaults?.ai?.model
       );
       return '<h3>' + setupWizardText('ai.title') + '</h3>' +
         '<p class="setup-copy">' + setupWizardText('ai.description') + '</p>' +
+        '<div class="setup-form"><label>' + setupWizardText('ai.providerLabel') +
+        '<select id="setupAiProvider" onchange="setupRememberAiProvider(this.value)">' +
+        renderAiProviderOptions(provider) + '</select></label></div>' +
         '<div class="setup-cards">' +
         setupRadioCard(
           'setupAiMode',
@@ -371,14 +385,16 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
           setupWizardRawText('ai.cli.description'),
           'setupRememberAiMode'
         ) +
-        setupRadioCard(
-          'setupAiMode',
-          'api',
-          mode,
-          setupWizardRawText('ai.api.title'),
-          setupWizardRawText('ai.api.description'),
-          'setupRememberAiMode'
-        ) +
+        (provider === 'claude'
+          ? setupRadioCard(
+              'setupAiMode',
+              'api',
+              mode,
+              setupWizardRawText('ai.api.title'),
+              setupWizardRawText('ai.api.description'),
+              'setupRememberAiMode'
+            )
+          : '') +
         '</div>' +
         '<div class="setup-form">' +
         (mode === 'cli'
@@ -388,7 +404,7 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
             setupWizardText('ai.apiKeyPlaceholder') + '"></label>') +
         '<label>' + setupWizardText('ai.modelLabel') +
         '<select id="setupClaudeModel" onchange="setupRememberClaudeModel(this.value)">' +
-        renderClaudeModelOptions(model) + '</select></label>' +
+        renderAiModelOptions(provider, model) + '</select></label>' +
         '</div><div class="setup-actions"><button type="button" onclick="setupSaveClaude()">' +
         setupWizardText('actions.saveClaude') + '</button>' +
         '<button type="button" onclick="setupTestClaude()">' + setupWizardText('actions.testConnection') +
@@ -473,15 +489,26 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
         (selected ? ' checked' : '') + onChange + '> <strong>' + escapeHtml(title) + '</strong><br>' +
         '<span class="muted">' + escapeHtml(body) + '</span></label>';
     }
-    function renderClaudeModelOptions(current) {
-      const selected = setupNormalizeClaudeModel(current);
-      return setupClaudeModels.map((model) =>
+    function renderAiProviderOptions(current) {
+      const selected = setupNormalizeAiProvider(current);
+      return setupAiProviders.map((provider) =>
+        '<option value="' + escapeHtml(provider) + '"' + (selected === provider ? ' selected' : '') + '>' +
+        setupWizardText('ai.providers.' + provider) + '</option>'
+      ).join('');
+    }
+    function renderAiModelOptions(provider, current) {
+      const selected = setupNormalizeAiModel(provider, current);
+      return (setupAiModelsByProvider[provider] ?? setupAiModelsByProvider.claude).map((model) =>
         '<option value="' + escapeHtml(model) + '"' + (selected === model ? ' selected' : '') + '>' +
         setupWizardText('ai.models.' + model) + '</option>'
       ).join('');
     }
-    function setupNormalizeClaudeModel(value) {
-      return setupClaudeModels.includes(value) ? value : 'haiku';
+    function setupNormalizeAiProvider(value) {
+      return setupAiProviders.includes(value) ? value : 'claude';
+    }
+    function setupNormalizeAiModel(provider, value) {
+      const models = setupAiModelsByProvider[provider] ?? setupAiModelsByProvider.claude;
+      return models.includes(value) ? value : models[0];
     }
     function setupNextButton(setup, id) {
       const ready = isSetupStepReady(setup, id);
@@ -566,14 +593,28 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
       setupLocalState.forceRender = false;
     }
     function setupRememberAiMode(value) {
-      setupLocalState.aiMode = value;
-      window.localStorage.setItem('dirong.setup.aiMode', value);
+      const provider = setupNormalizeAiProvider(setupLocalState.aiProvider);
+      setupLocalState.aiMode = provider === 'claude' && value === 'api' ? 'api' : 'cli';
+      window.localStorage.setItem('dirong.setup.aiMode', setupLocalState.aiMode);
+      setupLocalState.forceRender = true;
+      renderSetupWizard(setupLocalState.lastSetup);
+      setupLocalState.forceRender = false;
+    }
+    function setupRememberAiProvider(value) {
+      const provider = setupNormalizeAiProvider(value);
+      setupLocalState.aiProvider = provider;
+      setupLocalState.aiMode = provider === 'claude' ? (setupLocalState.aiMode ?? 'cli') : 'cli';
+      setupLocalState.aiModel = setupNormalizeAiModel(provider, null);
+      window.localStorage.setItem('dirong.setup.aiProvider', provider);
+      window.localStorage.setItem('dirong.setup.aiMode', setupLocalState.aiMode);
+      window.localStorage.setItem('dirong.setup.aiModel', setupLocalState.aiModel);
       setupLocalState.forceRender = true;
       renderSetupWizard(setupLocalState.lastSetup);
       setupLocalState.forceRender = false;
     }
     function setupRememberClaudeModel(value) {
-      setupLocalState.aiModel = setupNormalizeClaudeModel(value);
+      const provider = setupNormalizeAiProvider(setupLocalState.aiProvider ?? setupLocalState.lastSetup?.features?.ai?.provider);
+      setupLocalState.aiModel = setupNormalizeAiModel(provider, value);
       window.localStorage.setItem('dirong.setup.aiModel', setupLocalState.aiModel);
     }
     async function setupPost(path, body) {
@@ -756,14 +797,16 @@ const setupWizardI18nPrefix = 'dashboard.setupWizard.';
     async function setupSaveClaude() {
       const defaults = requireSetupDefaults();
       if (!defaults) return;
-      const mode = setupLocalState.aiMode ?? defaults.ai.mode;
-      const model = setupNormalizeClaudeModel(document.getElementById('setupClaudeModel')?.value ?? defaults.ai.model);
-      await setupPost('/api/setup/ai/claude', mode === 'api'
-        ? { mode, apiKey: document.getElementById('setupClaudeApiKey')?.value ?? '', model }
-        : { mode, profile: defaults.ai.claudeProfile, model });
+      const provider = setupNormalizeAiProvider(document.getElementById('setupAiProvider')?.value ?? defaults.ai.provider);
+      const mode = provider === 'claude' && setupLocalState.aiMode === 'api' ? 'api' : 'cli';
+      const model = setupNormalizeAiModel(provider, document.getElementById('setupClaudeModel')?.value ?? defaults.ai.model);
+      const profile = defaults.ai.providerProfiles?.[provider] ?? defaults.ai.cliProfile ?? defaults.ai.claudeProfile;
+      await setupPost('/api/setup/ai', mode === 'api'
+        ? { provider, mode, apiKey: document.getElementById('setupClaudeApiKey')?.value ?? '', model }
+        : { provider, mode, profile, model });
     }
     async function setupTestClaude() {
-      await setupPost('/api/setup/ai/claude/test', {});
+      await setupPost('/api/setup/ai/test', {});
     }
     async function setupSaveNotionToken() {
       await setupPost('/api/setup/notion/token', {

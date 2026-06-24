@@ -58,9 +58,9 @@ export const ko = {
     },
     claude: {
       notConfigured: {
-        title: "Claude 설정이 아직 끝나지 않았어요",
-        description: "회의록을 만들 Claude CLI 또는 API 사용 방식이 아직 저장되지 않았습니다.",
-        nextAction: "Claude 설정에서 CLI 또는 API 방식을 선택하고 연결을 확인해 주세요.",
+        title: "AI provider 설정이 아직 끝나지 않았어요",
+        description: "회의록을 만들 AI provider 사용 방식이 아직 저장되지 않았습니다.",
+        nextAction: "AI 설정에서 provider와 실행 방식을 선택하고 연결을 확인해 주세요.",
       },
       apiKeyMissing: {
         title: "Claude API key가 필요해요",
@@ -68,17 +68,17 @@ export const ko = {
         nextAction: "Claude API key를 다시 입력하거나 CLI 모드로 바꿔 주세요.",
       },
       cliCommandMissing: {
-        title: "Claude CLI 실행 명령이 필요해요",
-        description: "Claude CLI 모드를 선택했지만 실행할 command가 저장되어 있지 않습니다.",
-        nextAction: "Claude CLI command를 저장한 뒤 연결 테스트를 다시 실행해 주세요.",
+        title: "AI CLI 실행 명령이 필요해요",
+        description: "터미널 CLI 모드를 선택했지만 실행할 command가 저장되어 있지 않습니다.",
+        nextAction: "AI CLI command를 저장한 뒤 연결 테스트를 다시 실행해 주세요.",
       },
       ready: {
-        title: "Claude 설정이 준비됐어요",
-        description: "회의록 생성을 위한 Claude provider 설정이 저장되어 있습니다.",
+        title: "AI provider 설정이 준비됐어요",
+        description: "회의록 생성을 위한 AI provider 설정이 저장되어 있습니다.",
       },
       preparing: {
-        title: "Claude 준비 상태를 확인하고 있어요",
-        description: "회의록 생성을 시작하기 전에 Claude 실행 환경을 확인하는 중입니다.",
+        title: "AI provider 준비 상태를 확인하고 있어요",
+        description: "회의록 생성을 시작하기 전에 AI 실행 환경을 확인하는 중입니다.",
       },
       loginRequired: {
         title: "Claude 로그인이 필요해요",
@@ -86,18 +86,18 @@ export const ko = {
         nextAction: "터미널에서 Claude CLI 로그인을 완료한 뒤 다시 확인해 주세요.",
       },
       toolMissing: {
-        title: "Claude 도구를 찾지 못했어요",
-        description: "디롱이가 Claude CLI 또는 로컬 AI 도구를 실행하지 못했습니다.",
+        title: "AI 도구를 찾지 못했어요",
+        description: "디롱이가 선택한 AI CLI 또는 로컬 AI 도구를 실행하지 못했습니다.",
         nextAction: "선택한 AI 도구가 설치되어 있고 터미널에서 실행되는지 확인해 주세요.",
       },
       failed: {
-        title: "Claude 준비 확인에 실패했어요",
-        description: "회의록 생성 전에 Claude 상태를 확인하지 못했습니다. 녹음과 STT 결과는 보존됩니다.",
-        nextAction: "Claude 설정과 provider 상태를 확인한 뒤 다시 시도해 주세요.",
+        title: "AI provider 준비 확인에 실패했어요",
+        description: "회의록 생성 전에 AI provider 상태를 확인하지 못했습니다. 녹음과 STT 결과는 보존됩니다.",
+        nextAction: "AI 설정과 provider 상태를 확인한 뒤 다시 시도해 주세요.",
       },
       stopped: {
-        title: "Claude 준비 확인을 멈췄어요",
-        description: "Claude provider 준비 상태 확인이 중지되었습니다.",
+        title: "AI provider 준비 확인을 멈췄어요",
+        description: "AI provider 준비 상태 확인이 중지되었습니다.",
       },
     },
     aiCleanup: {
@@ -478,16 +478,16 @@ export const ko = {
         "AI cleanup job을 claim하지 못했습니다. 이미 처리 중이거나 재시도 시간이 아직 오지 않았습니다.",
       writingPromptArtifacts: "AI cleanup prompt artifact 저장 중",
       artifactWriteFailed: "AI cleanup artifact 저장 실패",
-      startingClaude: "Claude stream-json 요청 시작",
-      claudeRequestFailed: "Claude stream-json 요청 실패",
-      writingRawArtifacts: "Claude raw output artifact 저장 중",
-      emptyOutput: "Claude output이 비어 있습니다.",
+      startingClaude: "AI provider 요청 시작",
+      claudeRequestFailed: "AI provider 요청 실패",
+      writingRawArtifacts: "AI provider raw output artifact 저장 중",
+      emptyOutput: "AI provider output이 비어 있습니다.",
       parsingJson: "회의록 JSON 파싱 중",
       parsingJsonFailed: "회의록 JSON 파싱 실패",
       validatingSchema: "회의록 schema 검증 중",
       repairingSchema: "회의록 schema repair 요청 중",
       repairingSchemaFailed: "회의록 schema repair 요청 실패",
-      writingRepairRawArtifacts: "Claude repair raw output artifact 저장 중",
+      writingRepairRawArtifacts: "AI provider repair raw output artifact 저장 중",
       repairFailed: "회의록 schema repair 실패",
       validatingRepairSchema: "repair 결과 schema 검증 중",
       repairValidationFailed: "repair 결과 schema 검증 실패",
@@ -1046,7 +1046,7 @@ export const ko = {
       modelValueRequired: "--model 값이 필요합니다.",
       draftValueRequired: "--draft 값이 필요합니다.",
       sttProviderInvalid: "--provider는 local-whisper 또는 openai여야 합니다.",
-      aiProviderInvalid: "--provider 값은 fake 또는 claude-cli 중 하나여야 합니다.",
+      aiProviderInvalid: "--provider 값은 settings, fake, claude-cli, claude-api, codex-cli, gemini-cli 중 하나여야 합니다.",
       smokeTestRequiresFake: "--smoke-test는 --provider fake와 함께 사용하는 명시적 smoke test 전용 옵션입니다.",
       includeFakeSttRequiresDryRun: "--include-fake-stt는 dry-run 진단 또는 --provider fake --smoke-test에서만 사용할 수 있습니다.",
       phase5SelectorRequired: "--session 또는 --draft 중 정확히 하나가 필요합니다.",
@@ -1104,6 +1104,8 @@ export const ko = {
     aiProvider: {
       claudeCliMissing: "Claude CLI를 찾지 못했습니다. 터미널에서 {command} --version이 실행되는지 확인해 주세요. {error}",
       claudePreflightFailed: "Claude CLI preflight에 실패했습니다. 터미널에서 {command} --version을 확인해 주세요. {detail}",
+      terminalCliMissing: "{provider}를 찾지 못했습니다. 터미널에서 {command} --version이 실행되는지 확인해 주세요. {error}",
+      terminalPreflightFailed: "{provider} preflight에 실패했습니다. 터미널에서 {command} --version을 확인해 주세요. {detail}",
       streamProcessStarted: "Claude stream-json process 시작",
       firstStreamEventWaiting: "Claude 첫 stream 이벤트 대기 중",
       resultBoundaryReceived: "Claude result boundary 수신",
@@ -1394,7 +1396,7 @@ export const ko = {
       status: {
         notConfigured: {
           message: "AI 회의록 provider 설정이 아직 저장되지 않았습니다.",
-          action: "설정 위자드에서 Claude CLI 또는 Claude API 사용 방식을 선택해 주세요.",
+          action: "설정 위자드에서 Claude, Codex, Gemini 중 사용할 provider를 선택해 주세요.",
         },
         claudeApiKeyMissing: {
           message: "Claude API key가 아직 저장되지 않았습니다.",
@@ -1404,6 +1406,10 @@ export const ko = {
           message: "Claude CLI command가 아직 저장되지 않았습니다.",
           action: "Claude CLI 모드를 쓰려면 실행 command를 저장해 주세요.",
         },
+        cliCommandMissing: {
+          message: "AI provider CLI command가 아직 저장되지 않았습니다.",
+          action: "터미널 provider를 쓰려면 실행 command를 저장해 주세요.",
+        },
         ready: {
           message: "AI 회의록 provider 설정이 저장되어 있습니다.",
         },
@@ -1411,40 +1417,40 @@ export const ko = {
       claude: {
         save: {
           done: {
-            message: "Claude 설정을 저장했습니다.",
+            message: "AI provider 설정을 저장했습니다.",
           },
         },
         test: {
           done: {
-            message: "Claude 연결 테스트를 완료했습니다.",
+            message: "AI provider 연결 테스트를 완료했습니다.",
           },
           error: {
             notConfigured: {
-              message: "Claude 연결 테스트에 필요한 설정이 아직 없습니다.",
-              action: "Claude CLI 또는 API 방식을 먼저 저장해 주세요.",
+              message: "AI provider 연결 테스트에 필요한 설정이 아직 없습니다.",
+              action: "AI provider와 실행 방식을 먼저 저장해 주세요.",
             },
             failed: {
-              message: "Claude 연결 테스트에 실패했습니다.",
+              message: "AI provider 연결 테스트에 실패했습니다.",
               action: "CLI command가 실행되는지 또는 API key가 유효한지 확인해 주세요.",
             },
           },
         },
         error: {
           invalidMode: {
-            message: "지원하지 않는 Claude 사용 방식입니다.",
-            action: "cli 또는 api 중 하나를 선택해 주세요.",
+            message: "지원하지 않는 AI provider 사용 방식입니다.",
+            action: "Claude는 cli/api, Codex와 Gemini는 cli를 선택해 주세요.",
           },
           apiKeyMissing: {
             message: "Claude API key가 비어 있습니다.",
             action: "Claude API 모드를 쓰려면 API key를 입력해 주세요.",
           },
           invalidCommand: {
-            message: "허용되지 않는 Claude CLI command입니다.",
-            action: "대시보드에서는 기본 Claude CLI profile만 사용할 수 있습니다.",
+            message: "허용되지 않는 AI CLI command입니다.",
+            action: "대시보드에서는 기본 Claude, Codex, Gemini CLI profile만 사용할 수 있습니다.",
           },
           invalidModel: {
-            message: "지원하지 않는 Claude 모델입니다.",
-            action: "haiku, sonnet, opus 중 하나를 선택해 주세요.",
+            message: "지원하지 않는 AI provider 모델입니다.",
+            action: "Claude는 haiku, sonnet, opus 중 하나를, Codex/Gemini는 default 또는 안전한 모델 이름을 선택해 주세요.",
           },
         },
       },
@@ -1593,7 +1599,7 @@ export const ko = {
       },
       ai: {
         restartRequired: {
-          message: "저장은 완료됐지만 현재 Claude provider 프로세스에는 자동 반영되지 않습니다.",
+          message: "저장은 완료됐지만 현재 AI provider 프로세스에는 자동 반영되지 않습니다.",
           action: "진행 중인 AI 작업을 보존하려면 앱을 다시 시작해 적용해 주세요.",
         },
       },
@@ -1687,14 +1693,14 @@ export const ko = {
       loading: "설정 상태 API를 기다리는 중입니다.",
       fetchFailed: "설정 상태를 불러오지 못했습니다.",
       intro:
-        "처음 사용하는 사람도 토큰, 서버 선택, STT, Claude, Notion 생성을 대시보드에서 차근차근 끝낼 수 있게 안내합니다.",
+        "처음 사용하는 사람도 토큰, 서버 선택, STT, AI provider, Notion 생성을 대시보드에서 차근차근 끝낼 수 있게 안내합니다.",
       progress: "{completed} / {total}",
       steps: {
         language: "언어 선택",
         discord: "디스코드 봇 연결",
         guild: "디스코드 서버 선택",
         stt: "STT provider/model 선택",
-        ai: "Claude CLI/API 선택",
+        ai: "AI provider 선택",
         notionToken: "Notion token 입력",
         notionParent: "노션 DB 관리 페이지 URL 입력",
         notionManaged: "managed DB 생성",
@@ -1714,7 +1720,7 @@ export const ko = {
         saveStt: "STT 설정 저장",
         saveAndInstallStt: "저장하고 설치",
         saveAndTestOpenAi: "저장하고 연결 테스트",
-        saveClaude: "Claude 설정 저장",
+        saveClaude: "AI 설정 저장",
         saveNotionToken: "Notion token 저장",
         saveParentPage: "DB 관리 페이지 URL 저장",
         verifyAccess: "접근 확인",
@@ -1845,12 +1851,12 @@ export const ko = {
         },
       },
       ai: {
-        title: "Claude 사용 방식을 선택합니다",
+        title: "AI 회의록 provider를 선택합니다",
         description:
-          "현재 버전에서는 Claude만 실제 지원합니다. CLI 또는 API 중 하나를 선택합니다.",
+          "Claude, Codex, Gemini 터미널 provider를 사용할 수 있습니다. Claude는 API 모드도 지원합니다.",
         cli: {
-          title: "Claude CLI 사용",
-          description: "로컬 Claude command를 실행해 회의록을 만듭니다.",
+          title: "터미널 CLI 사용",
+          description: "로컬 Claude, Codex, Gemini command를 실행해 회의록을 만듭니다.",
         },
         api: {
           title: "Claude API 사용",
@@ -1859,7 +1865,14 @@ export const ko = {
         },
         apiKeyPlaceholder: "저장 후 화면에 다시 표시되지 않습니다",
         modelLabel: "Model (선택)",
+        providerLabel: "Provider",
+        providers: {
+          claude: "Claude",
+          codex: "Codex",
+          gemini: "Gemini",
+        },
         models: {
+          default: "default",
           haiku: "haiku",
           sonnet: "sonnet",
           opus: "opus",
@@ -2356,7 +2369,9 @@ export const ko = {
         ai: {
           title: "AI provider와 모델",
           providerClaude: "Claude",
-          modeCli: "Claude CLI",
+          providerCodex: "Codex",
+          providerGemini: "Gemini",
+          modeCli: "터미널 CLI",
           modeApi: "Claude API",
           apiKey: "Claude API key",
         },
@@ -2390,7 +2405,7 @@ export const ko = {
           title: "완전 초기화",
           button: "완전 초기화 실행",
           deletes:
-            "Discord application ID/token, 모든 프로젝트 서버/Notion 연결, Notion registry/cache/rules/roster, AI/Claude 설정과 OpenAI STT key",
+            "Discord application ID/token, 모든 프로젝트 서버/Notion 연결, Notion registry/cache/rules/roster, AI provider 설정과 OpenAI STT key",
           keeps:
             "local-whisper 모델/언어/timeout, 대시보드 언어/테마, retention, 로컬 세션/녹음/transcript/STT job/AI draft",
         },
@@ -2400,7 +2415,7 @@ export const ko = {
           deletes:
             "활성 프로젝트의 Discord 서버, Notion token/page/upload mode, registry/cache/custom rules/member roster",
           keeps:
-            "Discord application ID/token, STT/Whisper, AI/Claude 설정, 로컬 세션/녹음/transcript/draft",
+            "Discord application ID/token, STT/Whisper, AI provider 설정, 로컬 세션/녹음/transcript/draft",
         },
         conflict: {
           recording_active: "녹음 중에는 초기화할 수 없습니다.",
@@ -2646,9 +2661,9 @@ export const en = {
     },
     claude: {
       notConfigured: {
-        title: "Claude setup is not finished yet",
-        description: "The Claude CLI or API mode for meeting notes has not been saved yet.",
-        nextAction: "Choose CLI or API mode in Claude settings and check the connection.",
+        title: "AI provider setup is not finished yet",
+        description: "The AI provider mode for meeting notes has not been saved yet.",
+        nextAction: "Choose a provider and mode in AI settings and check the connection.",
       },
       apiKeyMissing: {
         title: "Claude API key is required",
@@ -2656,17 +2671,17 @@ export const en = {
         nextAction: "Enter the Claude API key again or switch to CLI mode.",
       },
       cliCommandMissing: {
-        title: "Claude CLI command is required",
-        description: "Claude CLI mode is selected, but no command is saved.",
-        nextAction: "Save the Claude CLI command, then run the connection test again.",
+        title: "AI CLI command is required",
+        description: "Terminal CLI mode is selected, but no command is saved.",
+        nextAction: "Save the AI CLI command, then run the connection test again.",
       },
       ready: {
-        title: "Claude setup is ready",
-        description: "The Claude provider settings for meeting notes are saved.",
+        title: "AI provider setup is ready",
+        description: "The AI provider settings for meeting notes are saved.",
       },
       preparing: {
-        title: "Checking Claude readiness",
-        description: "Dirong is checking the Claude runtime before creating meeting notes.",
+        title: "Checking AI provider readiness",
+        description: "Dirong is checking the AI runtime before creating meeting notes.",
       },
       loginRequired: {
         title: "Claude login is required",
@@ -2674,18 +2689,18 @@ export const en = {
         nextAction: "Complete Claude CLI login in a terminal, then check again.",
       },
       toolMissing: {
-        title: "Claude tool was not found",
-        description: "Dirong could not run the Claude CLI or local AI tool.",
+        title: "AI tool was not found",
+        description: "Dirong could not run the selected AI CLI or local AI tool.",
         nextAction: "Check that the selected AI tool is installed and runs in a terminal.",
       },
       failed: {
-        title: "Claude readiness check failed",
-        description: "Dirong could not verify Claude before meeting-note generation. Recording and STT results are preserved.",
-        nextAction: "Check Claude settings and provider state, then try again.",
+        title: "AI provider readiness check failed",
+        description: "Dirong could not verify the AI provider before meeting-note generation. Recording and STT results are preserved.",
+        nextAction: "Check AI settings and provider state, then try again.",
       },
       stopped: {
-        title: "Claude readiness check stopped",
-        description: "The Claude provider readiness check has stopped.",
+        title: "AI provider readiness check stopped",
+        description: "The AI provider readiness check has stopped.",
       },
     },
     aiCleanup: {
@@ -3066,16 +3081,16 @@ export const en = {
         "Could not claim the AI cleanup job. It is already processing or its retry time has not arrived yet.",
       writingPromptArtifacts: "Writing AI cleanup prompt artifacts",
       artifactWriteFailed: "Failed to write AI cleanup artifacts",
-      startingClaude: "Starting Claude stream-json request",
-      claudeRequestFailed: "Claude stream-json request failed",
-      writingRawArtifacts: "Writing Claude raw output artifacts",
-      emptyOutput: "Claude output is empty.",
+      startingClaude: "Starting AI provider request",
+      claudeRequestFailed: "AI provider request failed",
+      writingRawArtifacts: "Writing AI provider raw output artifacts",
+      emptyOutput: "AI provider output is empty.",
       parsingJson: "Parsing meeting-note JSON",
       parsingJsonFailed: "Failed to parse meeting-note JSON",
       validatingSchema: "Validating meeting-note schema",
       repairingSchema: "Requesting meeting-note schema repair",
       repairingSchemaFailed: "Meeting-note schema repair request failed",
-      writingRepairRawArtifacts: "Writing Claude repair raw output artifacts",
+      writingRepairRawArtifacts: "Writing AI provider repair raw output artifacts",
       repairFailed: "Meeting-note schema repair failed",
       validatingRepairSchema: "Validating repaired schema",
       repairValidationFailed: "Repaired schema validation failed",
@@ -3636,7 +3651,7 @@ export const en = {
       modelValueRequired: "--model value is required.",
       draftValueRequired: "--draft value is required.",
       sttProviderInvalid: "--provider must be local-whisper or openai.",
-      aiProviderInvalid: "--provider must be fake or claude-cli.",
+      aiProviderInvalid: "--provider must be settings, fake, claude-cli, claude-api, codex-cli, or gemini-cli.",
       smokeTestRequiresFake: "--smoke-test is only for explicit smoke tests with --provider fake.",
       includeFakeSttRequiresDryRun: "--include-fake-stt can only be used with dry-run diagnostics or --provider fake --smoke-test.",
       phase5SelectorRequired: "Exactly one of --session or --draft is required.",
@@ -3694,6 +3709,8 @@ export const en = {
     aiProvider: {
       claudeCliMissing: "Could not find Claude CLI. Check that {command} --version runs in a terminal. {error}",
       claudePreflightFailed: "Claude CLI preflight failed. Check {command} --version in a terminal. {detail}",
+      terminalCliMissing: "Could not find {provider}. Check that {command} --version runs in a terminal. {error}",
+      terminalPreflightFailed: "{provider} preflight failed. Check {command} --version in a terminal. {detail}",
       streamProcessStarted: "Claude stream-json process started",
       firstStreamEventWaiting: "Waiting for first Claude stream event",
       resultBoundaryReceived: "Claude result boundary received",
@@ -3984,7 +4001,7 @@ export const en = {
       status: {
         notConfigured: {
           message: "AI meeting-notes provider settings have not been saved yet.",
-          action: "Choose Claude CLI or Claude API in the setup wizard.",
+          action: "Choose Claude, Codex, or Gemini in the setup wizard.",
         },
         claudeApiKeyMissing: {
           message: "Claude API key has not been saved yet.",
@@ -3994,6 +4011,10 @@ export const en = {
           message: "Claude CLI command has not been saved yet.",
           action: "Save the command to use Claude CLI mode.",
         },
+        cliCommandMissing: {
+          message: "The AI provider CLI command has not been saved yet.",
+          action: "Save the command to use a terminal provider.",
+        },
         ready: {
           message: "AI meeting-notes provider settings are saved.",
         },
@@ -4001,40 +4022,40 @@ export const en = {
       claude: {
         save: {
           done: {
-            message: "Claude settings have been saved.",
+            message: "AI provider settings have been saved.",
           },
         },
         test: {
           done: {
-            message: "Claude connection test completed.",
+            message: "AI provider connection test completed.",
           },
           error: {
             notConfigured: {
-              message: "Claude connection test settings are missing.",
-              action: "Save the Claude CLI or API mode first.",
+              message: "AI provider connection test settings are missing.",
+              action: "Save the AI provider and mode first.",
             },
             failed: {
-              message: "Claude connection test failed.",
+              message: "AI provider connection test failed.",
               action: "Check that the CLI command runs or that the API key is valid.",
             },
           },
         },
         error: {
           invalidMode: {
-            message: "Unsupported Claude mode.",
-            action: "Choose either cli or api.",
+            message: "Unsupported AI provider mode.",
+            action: "Claude supports cli/api; Codex and Gemini support cli.",
           },
           apiKeyMissing: {
             message: "Claude API key is empty.",
             action: "Enter an API key to use Claude API mode.",
           },
           invalidCommand: {
-            message: "The Claude CLI command is not allowed.",
-            action: "The dashboard can only use the default Claude CLI profile.",
+            message: "The AI CLI command is not allowed.",
+            action: "The dashboard can only use the default Claude, Codex, or Gemini CLI profile.",
           },
           invalidModel: {
-            message: "Unsupported Claude model.",
-            action: "Choose one of haiku, sonnet, or opus.",
+            message: "Unsupported AI provider model.",
+            action: "For Claude, choose haiku, sonnet, or opus. For Codex/Gemini, use default or a safe model name.",
           },
         },
       },
@@ -4185,7 +4206,7 @@ export const en = {
       },
       ai: {
         restartRequired: {
-          message: "The value is saved, but the current Claude provider process will not reload automatically.",
+          message: "The value is saved, but the current AI provider process will not reload automatically.",
           action: "Restart the app to apply it while preserving active AI work.",
         },
       },
@@ -4279,14 +4300,14 @@ export const en = {
       loading: "Waiting for the setup status API.",
       fetchFailed: "Could not load setup status.",
       intro:
-        "Guides first-time users through tokens, server selection, STT, Claude, and Notion creation from the dashboard.",
+        "Guides first-time users through tokens, server selection, STT, AI provider, and Notion creation from the dashboard.",
       progress: "{completed} / {total}",
       steps: {
         language: "Language",
         discord: "Connect Discord Bot",
         guild: "Select Discord Server",
         stt: "Select STT Provider/Model",
-        ai: "Select Claude CLI/API",
+        ai: "Select AI provider",
         notionToken: "Enter Notion Token",
         notionParent: "Enter Notion DB Management Page URL",
         notionManaged: "Create Managed DBs",
@@ -4306,7 +4327,7 @@ export const en = {
         saveStt: "Save STT settings",
         saveAndInstallStt: "Save and install",
         saveAndTestOpenAi: "Save and test connection",
-        saveClaude: "Save Claude settings",
+        saveClaude: "Save AI settings",
         saveNotionToken: "Save Notion token",
         saveParentPage: "Save DB management page URL",
         verifyAccess: "Check access",
@@ -4437,12 +4458,12 @@ export const en = {
         },
       },
       ai: {
-        title: "Choose how to use Claude",
+        title: "Choose the AI meeting-notes provider",
         description:
-          "In this version, Claude is the only fully supported AI provider. Choose either CLI or API.",
+          "You can use Claude, Codex, or Gemini as a terminal provider. Claude also supports API mode.",
         cli: {
-          title: "Use Claude CLI",
-          description: "Runs a local Claude command to create meeting notes.",
+          title: "Use terminal CLI",
+          description: "Runs a local Claude, Codex, or Gemini command to create meeting notes.",
         },
         api: {
           title: "Use Claude API",
@@ -4451,7 +4472,14 @@ export const en = {
         },
         apiKeyPlaceholder: "This will not be shown again after saving",
         modelLabel: "Model (optional)",
+        providerLabel: "Provider",
+        providers: {
+          claude: "Claude",
+          codex: "Codex",
+          gemini: "Gemini",
+        },
         models: {
+          default: "default",
           haiku: "haiku",
           sonnet: "sonnet",
           opus: "opus",
@@ -4948,7 +4976,9 @@ export const en = {
         ai: {
           title: "AI provider and model",
           providerClaude: "Claude",
-          modeCli: "Claude CLI",
+          providerCodex: "Codex",
+          providerGemini: "Gemini",
+          modeCli: "Terminal CLI",
           modeApi: "Claude API",
           apiKey: "Claude API key",
         },
@@ -4982,7 +5012,7 @@ export const en = {
           title: "Full Reset",
           button: "Run Full Reset",
           deletes:
-            "Discord application ID/token, all project server/Notion connections, Notion registry/cache/rules/roster, AI/Claude settings, and OpenAI STT key",
+            "Discord application ID/token, all project server/Notion connections, Notion registry/cache/rules/roster, AI provider settings, and OpenAI STT key",
           keeps:
             "local-whisper model/language/timeout, dashboard language/theme, retention, local sessions/recordings/transcripts/STT jobs/AI drafts",
         },
@@ -4992,7 +5022,7 @@ export const en = {
           deletes:
             "The active project's Discord server, Notion token/page/upload mode, registry/cache/custom rules/member roster",
           keeps:
-            "Discord application ID/token, STT/Whisper, AI/Claude settings, local sessions/recordings/transcripts/drafts",
+            "Discord application ID/token, STT/Whisper, AI provider settings, local sessions/recordings/transcripts/drafts",
         },
         conflict: {
           recording_active: "Reset is unavailable while recording is active.",

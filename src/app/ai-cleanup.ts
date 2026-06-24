@@ -1,6 +1,6 @@
 import process from "node:process";
 import { FakeAiCleanupProvider } from "../ai/cleanup/fake-provider.js";
-import { ClaudeStreamJsonCliCleanupProvider } from "../ai/cleanup/claude-persistent-cli-provider.js";
+import { createAiCleanupProviderFromSettings } from "../ai/cleanup/provider-factory.js";
 import { runAiCleanupForSession } from "../ai/cleanup/runner.js";
 import type { AiCleanupProvider } from "../ai/cleanup/provider.js";
 import { printCliError, resolveCliLocale } from "../cli/error-output.js";
@@ -109,11 +109,75 @@ function createProvider(
   if (options.provider === "fake") {
     return new FakeAiCleanupProvider();
   }
+  const provider = providerNameToSettingsProvider(
+    options.provider,
+    aiCleanupSettings.provider,
+  );
 
-  return new ClaudeStreamJsonCliCleanupProvider({
-    command: aiCleanupSettings.claudeCommand,
-    model: options.model ?? aiCleanupSettings.claudeModel,
+  return createAiCleanupProviderFromSettings({
+    ...aiCleanupSettings,
+    provider,
+    mode: providerNameToSettingsMode(options.provider, aiCleanupSettings.mode),
+    command: resolveProviderCommand(provider, aiCleanupSettings),
+    claudeCommand:
+      provider === "claude"
+        ? resolveProviderCommand(provider, aiCleanupSettings)
+        : aiCleanupSettings.claudeCommand,
+    model: options.model ?? aiCleanupSettings.model,
+    claudeModel: options.model ?? aiCleanupSettings.claudeModel,
   });
+}
+
+function providerNameToSettingsProvider(
+  provider: Phase4AiCleanupCliOptions["provider"],
+  fallback: AiCleanupRuntimeSettings["provider"],
+): AiCleanupRuntimeSettings["provider"] {
+  if (provider === "codex-cli") {
+    return "codex";
+  }
+  if (provider === "gemini-cli") {
+    return "gemini";
+  }
+  if (provider === "claude-cli") {
+    return "claude";
+  }
+  if (provider === "claude-api") {
+    return "claude";
+  }
+  return fallback;
+}
+
+function providerNameToSettingsMode(
+  provider: Phase4AiCleanupCliOptions["provider"],
+  fallback: AiCleanupRuntimeSettings["mode"],
+): AiCleanupRuntimeSettings["mode"] {
+  if (
+    provider === "claude-cli" ||
+    provider === "codex-cli" ||
+    provider === "gemini-cli"
+  ) {
+    return "cli";
+  }
+  if (provider === "claude-api") {
+    return "api";
+  }
+  return fallback;
+}
+
+function resolveProviderCommand(
+  provider: AiCleanupRuntimeSettings["provider"],
+  settings: AiCleanupRuntimeSettings,
+): string {
+  if (provider === settings.provider) {
+    return settings.command;
+  }
+  if (provider === "codex") {
+    return "codex";
+  }
+  if (provider === "gemini") {
+    return "gemini";
+  }
+  return settings.claudeCommand;
 }
 
 function printResult(

@@ -471,6 +471,8 @@ function fullResetSettingsKeys(settings: DirongLocalSettings): string[] {
     settings.ai.provider ? "ai.provider" : null,
     settings.ai.mode ? "ai.mode" : null,
     settings.ai.model ? "ai.model" : null,
+    settings.ai.cliProfile ? "ai.cliProfile" : null,
+    settings.ai.cliCommand ? "ai.cliCommand" : null,
     settings.ai.claudeProfile ? "ai.claudeProfile" : null,
     settings.ai.claudeCommand ? "ai.claudeCommand" : null,
     settings.ai.apiKeySecretRef ? "ai.apiKeySecretRef" : null,

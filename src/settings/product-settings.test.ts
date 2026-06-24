@@ -127,6 +127,11 @@ test("loadProductRuntimeSettings resolves product settings and secrets instead o
     }
     assert.equal(runtime.appSettings.stt.openai.apiKey, "product-openai-key");
     assert.equal(runtime.appSettings.stt.openai.model, "product-stt-model");
+    assert.equal(runtime.appSettings.aiCleanup.provider, "claude");
+    assert.equal(runtime.appSettings.aiCleanup.mode, "cli");
+    assert.equal(runtime.appSettings.aiCleanup.command, "product-claude");
+    assert.equal(runtime.appSettings.aiCleanup.model, "product-ai-model");
+    assert.equal(runtime.appSettings.aiCleanup.apiKey, null);
     assert.equal(runtime.appSettings.aiCleanup.claudeCommand, "product-claude");
     assert.equal(runtime.appSettings.aiCleanup.claudeModel, "product-ai-model");
     assert.equal(runtime.appSettings.notion.enabled, true);
@@ -233,9 +238,88 @@ test("loadProductRuntimeSettings resolves safe tool profiles to command template
       runtime.appSettings.stt.localWhisper.model,
       path.join(paths.modelsDir, "faster-whisper-small"),
     );
+    assert.equal(runtime.appSettings.aiCleanup.provider, "claude");
+    assert.equal(runtime.appSettings.aiCleanup.mode, "cli");
+    assert.equal(runtime.appSettings.aiCleanup.command, "claude");
+    assert.equal(runtime.appSettings.aiCleanup.apiKey, null);
     assert.equal(runtime.appSettings.aiCleanup.claudeCommand, "claude");
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadProductRuntimeSettings resolves Claude API mode and secret for AI cleanup", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-product-"));
+  try {
+    const paths = getDirongUserDataPaths(dir);
+    const settingsStore = new LocalSettingsStore(paths.settingsFile);
+    const secretStore = new LocalSecretStore(paths.secretsFile);
+    settingsStore.write({
+      schemaVersion: 1,
+      app: { locale: "ko" },
+      discord: {},
+      stt: {},
+      ai: {
+        provider: "claude",
+        mode: "api",
+        model: "sonnet",
+        apiKeySecretRef: DEFAULT_SECRET_REFS.claudeApiKey,
+      },
+      notion: {},
+      recording: { aloneFinalizeEnabled: true, aloneFinalizeGraceMs: 90000 },
+      retention: { deleteAudioAfterNotionUpload: true, textDraftRetentionDays: 30 },
+    });
+    secretStore.set(DEFAULT_SECRET_REFS.claudeApiKey, "sk-ant-product");
+
+    const runtime = loadProductRuntimeSettings({ userDataDir: dir });
+    const status = runtime.setupStatus.getSnapshot();
+
+    assert.equal(runtime.appSettings.aiCleanup.provider, "claude");
+    assert.equal(runtime.appSettings.aiCleanup.mode, "api");
+    assert.equal(runtime.appSettings.aiCleanup.model, "sonnet");
+    assert.equal(runtime.appSettings.aiCleanup.apiKey, "sk-ant-product");
+    assert.equal(runtime.appSettings.aiCleanup.claudeModel, "sonnet");
+    assert.equal(status.features.ai.status, "ready");
+    assert.equal(status.features.ai.mode, "api");
+    assert.doesNotMatch(JSON.stringify(status), /sk-ant-product/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadProductRuntimeSettings resolves Codex and Gemini AI CLI profiles", () => {
+  for (const [provider, profile, command] of [
+    ["codex", "codex-cli-default", "codex"],
+    ["gemini", "gemini-cli-default", "gemini"],
+  ] as const) {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "dirong-product-"));
+    try {
+      const paths = getDirongUserDataPaths(dir);
+      const settingsStore = new LocalSettingsStore(paths.settingsFile);
+      settingsStore.write({
+        schemaVersion: 1,
+        app: { locale: "ko" },
+        discord: {},
+        stt: {},
+        ai: {
+          provider,
+          mode: "cli",
+          cliProfile: profile,
+          model: "default",
+        },
+        notion: {},
+        recording: { aloneFinalizeEnabled: true, aloneFinalizeGraceMs: 90000 },
+        retention: { deleteAudioAfterNotionUpload: true, textDraftRetentionDays: 30 },
+      });
+
+      const runtime = loadProductRuntimeSettings({ userDataDir: dir });
+
+      assert.equal(runtime.appSettings.aiCleanup.provider, provider);
+      assert.equal(runtime.appSettings.aiCleanup.command, command);
+      assert.equal(runtime.appSettings.aiCleanup.model, null);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 });
 

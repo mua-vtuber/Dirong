@@ -6,6 +6,13 @@ test("parsePhase4AiCleanupArgs requires a session id", () => {
   assert.throws(() => parsePhase4AiCleanupArgs([]), /--session/);
 });
 
+test("parsePhase4AiCleanupArgs defaults to settings provider", () => {
+  assert.equal(
+    parsePhase4AiCleanupArgs(["--session", "meeting_1"]).provider,
+    "settings",
+  );
+});
+
 test("parsePhase4AiCleanupArgs accepts dry-run and fake provider options", () => {
   assert.deepEqual(
     parsePhase4AiCleanupArgs([
@@ -70,7 +77,7 @@ test("parsePhase4AiCleanupArgs accepts explicit fake STT smoke test", () => {
   );
 });
 
-test("parsePhase4AiCleanupArgs accepts claude-cli model override", () => {
+test("parsePhase4AiCleanupArgs accepts Claude provider model overrides", () => {
   assert.equal(
     parsePhase4AiCleanupArgs([
       "--session",
@@ -81,6 +88,38 @@ test("parsePhase4AiCleanupArgs accepts claude-cli model override", () => {
       "sonnet",
     ]).model,
     "sonnet",
+  );
+  assert.equal(
+    parsePhase4AiCleanupArgs([
+      "--session",
+      "meeting_1",
+      "--provider",
+      "claude-api",
+      "--model",
+      "sonnet",
+    ]).provider,
+    "claude-api",
+  );
+});
+
+test("parsePhase4AiCleanupArgs accepts Codex and Gemini terminal providers", () => {
+  assert.equal(
+    parsePhase4AiCleanupArgs([
+      "--session",
+      "meeting_1",
+      "--provider",
+      "codex-cli",
+    ]).provider,
+    "codex-cli",
+  );
+  assert.equal(
+    parsePhase4AiCleanupArgs([
+      "--session",
+      "meeting_1",
+      "--provider",
+      "gemini-cli",
+    ]).provider,
+    "gemini-cli",
   );
 });
 
@@ -121,7 +160,7 @@ test("parsePhase4AiCleanupArgs rejects unknown providers", () => {
         "--provider",
         "bad",
       ]),
-    /fake 또는 claude-cli/,
+    /claude-api.*codex-cli.*gemini-cli/,
   );
 });
 
@@ -132,7 +171,7 @@ test("parsePhase4AiCleanupArgs rejects missing values", () => {
   );
   assert.throws(
     () => parsePhase4AiCleanupArgs(["--session", "meeting_1", "--provider"]),
-    /fake 또는 claude-cli/,
+    /claude-api.*codex-cli.*gemini-cli/,
   );
   assert.throws(() => parsePhase4AiCleanupArgs(["--session"]), /--session 값/);
 });

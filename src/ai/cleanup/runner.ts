@@ -428,7 +428,7 @@ async function runAiCleanupForSessionCore(
   }
 
   if (providerResult.rawText.trim().length === 0) {
-    const message = "Claude CLI returned empty output.";
+    const message = "AI cleanup provider returned empty output.";
     store.failProcessingAiCleanupJob({
       jobId: claimed.id,
       failureKind: "empty_output",
@@ -516,6 +516,7 @@ async function runAiCleanupForSessionCore(
         systemPrompt,
         userPrompt: repairPrompt,
         jsonSchema: MEETING_NOTES_DRAFT_JSON_SCHEMA,
+        signal: options.signal,
         progress: options.progress,
         progressContext: repairProgressContext,
       });

@@ -29,7 +29,10 @@ import {
 import { LocalSecretStore } from "../settings/local-secret-store.js";
 import { LocalSettingsStore } from "../settings/local-settings-store.js";
 import { SettingsResetService } from "../settings/reset-service.js";
-import { ClaudeStreamJsonCliCleanupProvider } from "../ai/cleanup/claude-persistent-cli-provider.js";
+import {
+  createAiCleanupProviderFromSettings,
+  type ManagedAiCleanupProvider,
+} from "../ai/cleanup/provider-factory.js";
 import {
   AiCleanupAutomationService,
   formatAiCleanupAutomationForStatus,
@@ -181,7 +184,7 @@ const aiCleanupProvider = createAiCleanupProvider();
 // no await allowed. Quiet on failure inside reapTrackedPids() per D-04;
 // the DB writer may already be torn down at this point.
 process.on("exit", () => {
-  aiCleanupProvider.reapTrackedPids();
+  aiCleanupProvider.reapTrackedPids?.();
 });
 const aiLifecycle = createAiLifecycleService(aiCleanupProvider);
 const aiCleanupAutomation = createAiCleanupAutomationService(
@@ -702,13 +705,11 @@ function createAloneFinalizeService(): AloneFinalizeService {
   });
 }
 
-function createAiCleanupProvider(): ClaudeStreamJsonCliCleanupProvider {
-  return new ClaudeStreamJsonCliCleanupProvider({
-    command: appSettings.aiCleanup.claudeCommand,
-    model: appSettings.aiCleanup.claudeModel,
+function createAiCleanupProvider(): ManagedAiCleanupProvider {
+  return createAiCleanupProviderFromSettings(appSettings.aiCleanup, {
     // RELY-01 / D-04: stop()-path orphan-reap failure surface. Structured
     // event so the operator sees a non-zero counter in the dashboard.
-    onOrphanKillFailed: ({ pid, errno }) => {
+    onClaudeOrphanKillFailed: ({ pid, errno }) => {
       ctx.writes.recordConnectionEvent({
         sessionId: null,
         eventType: "claude_orphan_kill_failed",

@@ -2,6 +2,7 @@ import type {
   AiCleanupRuntimeSettings,
   SttProviderName,
 } from "./app-settings.js";
+import type { AiProviderName } from "./ai-providers.js";
 import {
   DEFAULT_NOTION_API_VERSION,
   DEFAULT_NOTION_BASE_URL,
@@ -10,6 +11,7 @@ import {
   type NotionRuntimeSettings,
 } from "../notion/settings.js";
 import {
+  DEFAULT_AI_TOOL_PROFILES,
   DEFAULT_CLAUDE_TOOL_PROFILE,
   DEFAULT_LOCAL_WHISPER_TOOL_PROFILE,
 } from "./tool-profiles.js";
@@ -31,6 +33,11 @@ export type CreatableNotionSchemaLocale =
 export const SUPPORTED_CLAUDE_SETUP_MODELS = ["haiku", "sonnet", "opus"] as const;
 export type ClaudeSetupModel = (typeof SUPPORTED_CLAUDE_SETUP_MODELS)[number];
 export const DEFAULT_SETUP_CLAUDE_MODEL: ClaudeSetupModel = "haiku";
+export const DEFAULT_SETUP_AI_MODEL_BY_PROVIDER = {
+  claude: DEFAULT_SETUP_CLAUDE_MODEL,
+  codex: "default",
+  gemini: "default",
+} as const satisfies Record<AiProviderName, string>;
 
 export const DEFAULT_RECORDING_SETTINGS = {
   dataDir: "./data/sessions",
@@ -68,6 +75,11 @@ export const DEFAULT_STT_SETTINGS = {
 } as const;
 
 export const DEFAULT_AI_CLEANUP_SETTINGS = {
+  provider: "claude",
+  mode: "cli",
+  command: "claude",
+  model: null,
+  apiKey: null,
   claudeCommand: "claude",
   claudeModel: null,
   prepareTimeoutMs: 5000,
@@ -116,6 +128,8 @@ export const DEFAULT_DASHBOARD_SETTINGS = {
 export const DEFAULT_SETUP_AI_SETTINGS = {
   provider: "claude",
   mode: "cli",
+  cliProfile: DEFAULT_CLAUDE_TOOL_PROFILE,
   claudeProfile: DEFAULT_CLAUDE_TOOL_PROFILE,
+  providerProfiles: { ...DEFAULT_AI_TOOL_PROFILES },
   model: DEFAULT_SETUP_CLAUDE_MODEL,
 } as const;

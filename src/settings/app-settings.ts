@@ -1,4 +1,5 @@
 import type { NotionRuntimeSettings } from "../notion/settings.js";
+import type { AiProviderMode, AiProviderName } from "./ai-providers.js";
 
 export type SttProviderName = "local-whisper" | "openai";
 
@@ -28,6 +29,11 @@ export type OpenAiSttSettings = {
 export type SttSettings = LocalWhisperSettings | OpenAiSttSettings;
 
 export type AiCleanupRuntimeSettings = {
+  provider: AiProviderName;
+  mode: AiProviderMode;
+  command: string;
+  model: string | null;
+  apiKey: string | null;
   claudeCommand: string;
   claudeModel: string | null;
   prepareTimeoutMs: number;

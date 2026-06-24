@@ -51,6 +51,11 @@ test("product defaults snapshot matches the current effective defaults", () => {
     },
   });
   assert.deepEqual(DEFAULT_AI_CLEANUP_SETTINGS, {
+    provider: "claude",
+    mode: "cli",
+    command: "claude",
+    model: null,
+    apiKey: null,
     claudeCommand: "claude",
     claudeModel: null,
     prepareTimeoutMs: 5000,
@@ -113,7 +118,13 @@ test("policy defaults are named constants", () => {
   assert.deepEqual(DEFAULT_SETUP_AI_SETTINGS, {
     provider: "claude",
     mode: "cli",
+    cliProfile: "claude-cli-default",
     claudeProfile: "claude-cli-default",
+    providerProfiles: {
+      claude: "claude-cli-default",
+      codex: "codex-cli-default",
+      gemini: "gemini-cli-default",
+    },
     model: "haiku",
   });
   assert.deepEqual(SUPPORTED_CLAUDE_SETUP_MODELS, ["haiku", "sonnet", "opus"]);

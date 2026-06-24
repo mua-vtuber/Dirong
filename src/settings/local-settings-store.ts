@@ -9,6 +9,12 @@ import path from "node:path";
 import type { NotionUploadMode } from "../notion/settings.js";
 import type { SttProviderName } from "./app-settings.js";
 import {
+  isAiProviderMode,
+  isAiProviderName,
+  type AiProviderMode,
+  type AiProviderName,
+} from "./ai-providers.js";
+import {
   DEFAULT_DASHBOARD_SETTINGS,
   DEFAULT_RECORDING_SETTINGS,
   DEFAULT_RETENTION_SETTINGS,
@@ -18,20 +24,20 @@ import {
   type DirongLocale,
 } from "./defaults.js";
 import {
+  isAiToolProfile,
   isClaudeToolProfile,
   isLocalWhisperToolProfile,
+  type AiToolProfile,
   type ClaudeToolProfile,
   type LocalWhisperToolProfile,
 } from "./tool-profiles.js";
 
 export { DIRONG_DASHBOARD_THEMES, DIRONG_LOCALES };
 export type { DirongDashboardTheme, DirongLocale };
-export const DEFAULT_DIRONG_LOCALE: DirongLocale =
-  DEFAULT_DASHBOARD_SETTINGS.locale;
+export type { AiProviderMode, AiProviderName };
+export const DEFAULT_DIRONG_LOCALE: DirongLocale = DEFAULT_DASHBOARD_SETTINGS.locale;
 export const DEFAULT_DIRONG_DASHBOARD_THEME: DirongDashboardTheme =
   DEFAULT_DASHBOARD_SETTINGS.theme;
-export type AiProviderName = "claude";
-export type AiProviderMode = "cli" | "api";
 
 export type LocalWhisperLocalSettings = {
   profile?: LocalWhisperToolProfile;
@@ -55,6 +61,8 @@ export type AiLocalSettings = {
   provider?: AiProviderName;
   mode?: AiProviderMode;
   model?: string;
+  cliProfile?: AiToolProfile;
+  cliCommand?: string;
   claudeProfile?: ClaudeToolProfile;
   claudeCommand?: string;
   apiKeySecretRef?: string;
@@ -176,6 +184,8 @@ export function normalizeLocalSettings(value: unknown): DirongLocalSettings {
       provider: readAiProvider(ai.provider),
       mode: readAiMode(ai.mode),
       model: readString(ai.model),
+      cliProfile: isAiToolProfile(ai.cliProfile) ? ai.cliProfile : undefined,
+      cliCommand: readString(ai.cliCommand),
       claudeProfile: isClaudeToolProfile(ai.claudeProfile)
         ? ai.claudeProfile
         : undefined,
@@ -273,11 +283,11 @@ function readSttProvider(value: unknown): SttProviderName | undefined {
 }
 
 function readAiProvider(value: unknown): AiProviderName | undefined {
-  return value === "claude" ? value : undefined;
+  return isAiProviderName(value) ? value : undefined;
 }
 
 function readAiMode(value: unknown): AiProviderMode | undefined {
-  return value === "cli" || value === "api" ? value : undefined;
+  return isAiProviderMode(value) ? value : undefined;
 }
 
 function readNotionUploadMode(value: unknown): NotionUploadMode | undefined {

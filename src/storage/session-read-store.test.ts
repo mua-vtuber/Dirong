@@ -65,7 +65,9 @@ test("SessionReadStore.getSession + getLatestSession return inserted rows", () =
     seedTwoSessions(fixture.ctx);
     const newest = fixture.ctx.reads.getLatestSession();
     assert.ok(newest);
-    // started_at is set to ISO-now; newest will be sess-new given creation order
+    // started_at is ISO-now (ms precision); when both inserts land in the same
+    // millisecond the started_at values tie, so getLatest resolves the tie by
+    // rowid DESC -> the later-inserted row (sess-new) wins. Deterministic.
     assert.equal(newest.id, "sess-new");
     const fetched = fixture.ctx.reads.getSession("sess-old");
     assert.ok(fetched);

@@ -8,7 +8,13 @@ import {
 } from "../cli/arg-parser.js";
 import { formatLocaleText, t } from "../i18n/catalog.js";
 
-export type Phase4AiCleanupProviderName = "fake" | "claude-cli";
+export type Phase4AiCleanupProviderName =
+  | "settings"
+  | "fake"
+  | "claude-cli"
+  | "claude-api"
+  | "codex-cli"
+  | "gemini-cli";
 
 export type Phase4AiCleanupCliOptions = {
   sessionId: string;
@@ -34,7 +40,7 @@ export function parsePhase4AiCleanupArgs(
       sessionId: null,
       dryRun: false,
       backup: true,
-      provider: "claude-cli",
+      provider: "settings",
       model: null,
       leaseMs: null,
       timeoutMs: null,
@@ -114,7 +120,14 @@ const PHASE4_ARG_SPEC: Record<
 };
 
 function readProvider(value: string | undefined): Phase4AiCleanupProviderName {
-  if (value === "fake" || value === "claude-cli") {
+  if (
+    value === "fake" ||
+    value === "settings" ||
+    value === "claude-cli" ||
+    value === "claude-api" ||
+    value === "codex-cli" ||
+    value === "gemini-cli"
+  ) {
     return value;
   }
   throw new Error(t("ko", "runtimeCli.phaseCli.aiProviderInvalid"));

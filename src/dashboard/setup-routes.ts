@@ -312,12 +312,19 @@ export async function handleSetupWizardPost(
       sendWizardResult(response, setupWizard.startLocalWhisperInstall(body));
       return;
     }
-    if (pathname === "/api/setup/ai/claude") {
-      sendWizardResult(response, setupWizard.saveClaudeSettings(body));
+    if (pathname === "/api/setup/ai" || pathname === "/api/setup/ai/claude") {
+      const saveAiSettings =
+        setupWizard.saveAiSettings ?? setupWizard.saveClaudeSettings;
+      sendWizardResult(response, saveAiSettings.call(setupWizard, body));
       return;
     }
-    if (pathname === "/api/setup/ai/claude/test") {
-      sendWizardResult(response, await setupWizard.testClaudeConnection());
+    if (
+      pathname === "/api/setup/ai/test" ||
+      pathname === "/api/setup/ai/claude/test"
+    ) {
+      const testAiConnection =
+        setupWizard.testAiConnection ?? setupWizard.testClaudeConnection;
+      sendWizardResult(response, await testAiConnection.call(setupWizard));
       return;
     }
     if (pathname === "/api/setup/recording/alone-finalize") {

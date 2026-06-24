@@ -33,6 +33,7 @@ import {
 import {
   type AiLocalSettings,
   type AiProviderMode,
+  type AiProviderName,
   DEFAULT_DIRONG_DASHBOARD_THEME,
   DEFAULT_DIRONG_LOCALE,
   type DirongDashboardTheme,
@@ -49,6 +50,7 @@ import {
   DEFAULT_RETENTION_SETTINGS,
   DEFAULT_SETUP_AI_SETTINGS,
   DEFAULT_STT_SETTINGS,
+  DEFAULT_SETUP_AI_MODEL_BY_PROVIDER,
 } from "./defaults.js";
 import {
   DEFAULT_SECRET_REFS,
@@ -56,8 +58,10 @@ import {
   type SecretPresenceSnapshot,
 } from "./local-secret-store.js";
 import {
+  defaultAiToolProfile,
   DEFAULT_CLAUDE_TOOL_PROFILE,
   DEFAULT_LOCAL_WHISPER_TOOL_PROFILE,
+  resolveAiToolProfile,
   resolveClaudeToolProfile,
   resolveLocalWhisperToolProfile,
 } from "./tool-profiles.js";
@@ -164,7 +168,7 @@ export type ProductEditableSettingsSnapshot = {
     };
   };
   ai: {
-    provider: typeof DEFAULT_SETUP_AI_SETTINGS.provider;
+    provider: AiProviderName;
     mode: AiProviderMode;
     model: string;
   };
@@ -388,8 +392,16 @@ export function buildProductAppSettings(
   return {
     stt: buildProductSttSettings(settings.stt, secretStore, paths),
     aiCleanup: {
+      provider: settings.ai.provider ?? DEFAULT_AI_CLEANUP_SETTINGS.provider,
+      mode: settings.ai.mode ?? DEFAULT_AI_CLEANUP_SETTINGS.mode,
+      command: buildProductAiCommand(settings.ai),
+      model: buildProductAiModel(settings.ai),
+      apiKey: buildProductAiApiKey(settings.ai, secretStore),
       claudeCommand: buildProductClaudeCommand(settings.ai),
-      claudeModel: settings.ai.model ?? DEFAULT_AI_CLEANUP_SETTINGS.claudeModel,
+      claudeModel:
+        settings.ai.provider === "claude" || !settings.ai.provider
+          ? buildProductAiModel(settings.ai)
+          : DEFAULT_AI_CLEANUP_SETTINGS.claudeModel,
       prepareTimeoutMs: DEFAULT_AI_CLEANUP_SETTINGS.prepareTimeoutMs,
       autoCleanupEnabled: isAiConfigured(settings.ai, secretStore),
       autoCleanupPollMs: DEFAULT_AI_CLEANUP_SETTINGS.autoCleanupPollMs,
@@ -726,13 +738,16 @@ function isAiConfigured(
   settings: AiLocalSettings,
   secretStore: LocalSecretStore,
 ): boolean {
-  if (settings.provider !== "claude" || !settings.mode) {
+  if (!settings.provider || !settings.mode) {
+    return false;
+  }
+  if (settings.mode === "api" && settings.provider !== "claude") {
     return false;
   }
   if (settings.mode === "api") {
     return secretStore.has(settings.apiKeySecretRef ?? DEFAULT_SECRET_REFS.claudeApiKey);
   }
-  return Boolean(settings.claudeProfile || settings.claudeCommand?.trim());
+  return Boolean(buildProductAiCommand(settings));
 }
 
 function buildDiscordStatus(
@@ -818,7 +833,7 @@ function buildAiStatus(
   settings: DirongLocalSettings,
   claudeSecret: SecretPresenceSnapshot,
 ): ProductSetupStatusSnapshot["features"]["ai"] {
-  if (settings.ai.provider !== "claude" || !settings.ai.mode) {
+  if (!settings.ai.provider || !settings.ai.mode) {
     return withLocalizedText(locale, {
       status: "not_configured",
       messageKey: "setup.ai.status.notConfigured.message",
@@ -826,6 +841,19 @@ function buildAiStatus(
       missing: ["ai.provider", "ai.mode"],
       provider: settings.ai.provider ?? null,
       mode: settings.ai.mode ?? null,
+      model: settings.ai.model ?? null,
+      runtimeEffect: buildSettingsRuntimeEffect(locale, "ai"),
+    });
+  }
+
+  if (settings.ai.mode === "api" && settings.ai.provider !== "claude") {
+    return withLocalizedText(locale, {
+      status: "not_configured",
+      messageKey: "setup.ai.status.notConfigured.message",
+      userActionKey: "setup.ai.status.notConfigured.action",
+      missing: ["ai.mode"],
+      provider: settings.ai.provider,
+      mode: settings.ai.mode,
       model: settings.ai.model ?? null,
       runtimeEffect: buildSettingsRuntimeEffect(locale, "ai"),
     });
@@ -846,15 +874,14 @@ function buildAiStatus(
 
   if (
     settings.ai.mode === "cli" &&
-    !settings.ai.claudeProfile &&
-    !settings.ai.claudeCommand
+    !buildProductAiCommand(settings.ai)
   ) {
     return withLocalizedText(locale, {
       status: "not_configured",
-      messageKey: "setup.ai.status.claudeCliCommandMissing.message",
-      userActionKey: "setup.ai.status.claudeCliCommandMissing.action",
-      missing: ["ai.claudeCommand"],
-      provider: "claude",
+      messageKey: "setup.ai.status.cliCommandMissing.message",
+      userActionKey: "setup.ai.status.cliCommandMissing.action",
+      missing: ["ai.cliCommand"],
+      provider: settings.ai.provider,
       mode: "cli",
       model: settings.ai.model ?? null,
       runtimeEffect: buildSettingsRuntimeEffect(locale, "ai"),
@@ -866,7 +893,7 @@ function buildAiStatus(
     messageKey: "setup.ai.status.ready.message",
     userActionKey: null,
     missing: [],
-    provider: "claude",
+    provider: settings.ai.provider,
     mode: settings.ai.mode,
     model: settings.ai.model ?? null,
     runtimeEffect: buildSettingsRuntimeEffect(locale, "ai"),
@@ -961,6 +988,9 @@ function buildProductLocalWhisperCommand(
 }
 
 function buildProductClaudeCommand(settings: AiLocalSettings): string {
+  if (settings.provider && settings.provider !== "claude") {
+    return DEFAULT_AI_CLEANUP_SETTINGS.claudeCommand;
+  }
   if (settings.claudeProfile) {
     return resolveClaudeToolProfile(settings.claudeProfile).command;
   }
@@ -968,6 +998,37 @@ function buildProductClaudeCommand(settings: AiLocalSettings): string {
     return settings.claudeCommand;
   }
   return resolveClaudeToolProfile(DEFAULT_CLAUDE_TOOL_PROFILE).command;
+}
+
+function buildProductAiCommand(settings: AiLocalSettings): string {
+  if (settings.cliProfile) {
+    return resolveAiToolProfile(settings.cliProfile).command;
+  }
+  if (settings.cliCommand) {
+    return settings.cliCommand;
+  }
+  if (!settings.provider || settings.provider === "claude") {
+    return buildProductClaudeCommand(settings);
+  }
+  return resolveAiToolProfile(defaultAiToolProfile(settings.provider)).command;
+}
+
+function buildProductAiModel(settings: AiLocalSettings): string | null {
+  const model = settings.model?.trim();
+  if (!model || model === "default") {
+    return DEFAULT_AI_CLEANUP_SETTINGS.model;
+  }
+  return model;
+}
+
+function buildProductAiApiKey(
+  settings: AiLocalSettings,
+  secretStore: LocalSecretStore,
+): string | null {
+  if (settings.provider !== "claude" || settings.mode !== "api") {
+    return DEFAULT_AI_CLEANUP_SETTINGS.apiKey;
+  }
+  return secretStore.get(settings.apiKeySecretRef ?? DEFAULT_SECRET_REFS.claudeApiKey);
 }
 
 function buildNotionStatus(
@@ -1185,9 +1246,13 @@ function buildProductEditableSettings(
       },
     },
     ai: {
-      provider: DEFAULT_SETUP_AI_SETTINGS.provider,
+      provider: settings.ai.provider ?? DEFAULT_SETUP_AI_SETTINGS.provider,
       mode: settings.ai.mode ?? DEFAULT_SETUP_AI_SETTINGS.mode,
-      model: settings.ai.model ?? DEFAULT_SETUP_AI_SETTINGS.model,
+      model:
+        settings.ai.model ??
+        DEFAULT_SETUP_AI_MODEL_BY_PROVIDER[
+          settings.ai.provider ?? DEFAULT_SETUP_AI_SETTINGS.provider
+        ],
     },
     notion: {
       parentPageUrl: settings.notion.parentPageUrl ?? null,
@@ -1268,6 +1333,7 @@ function setupDisplayKeysForMessage(
         nextActionKey: "statusDisplay.claude.apiKeyMissing.nextAction",
       };
     case "setup.ai.status.claudeCliCommandMissing.message":
+    case "setup.ai.status.cliCommandMissing.message":
       return {
         titleKey: "statusDisplay.claude.cliCommandMissing.title",
         descriptionKey: "statusDisplay.claude.cliCommandMissing.description",

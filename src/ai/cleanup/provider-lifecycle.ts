@@ -281,7 +281,7 @@ function inferLegacyProviderCapabilities(
     supportsStreamingProgress: provider.supportsStreamingProgress ?? false,
     supportsJsonSchema: provider.supportsJsonSchema,
     supportsStructuredOutput: provider.supportsJsonSchema,
-    requiresApiKey: false,
+    requiresApiKey: readinessKind === "api-auth",
     requiresLocalServer: false,
     readinessKind,
   };
@@ -290,6 +290,9 @@ function inferLegacyProviderCapabilities(
 function inferReadinessKind(providerName: string): AiProviderReadinessKind {
   if (providerName === "fake") {
     return "none";
+  }
+  if (providerName.endsWith("-api") || providerName.includes("api")) {
+    return "api-auth";
   }
   if (providerName.endsWith("-cli") || providerName.includes("cli")) {
     return "cli-auth";

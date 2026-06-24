@@ -96,7 +96,7 @@ export class SessionRepository {
 
   getLatest(): SessionRow | null {
     return this.sql.get<SessionRow>(
-      "SELECT * FROM sessions ORDER BY started_at DESC LIMIT 1",
+      "SELECT * FROM sessions ORDER BY started_at DESC, rowid DESC LIMIT 1",
     );
   }
 

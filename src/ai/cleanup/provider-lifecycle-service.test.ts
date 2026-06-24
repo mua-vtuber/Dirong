@@ -45,7 +45,7 @@ test("AiProviderLifecycleService keeps a failed readiness snapshot without throw
   assert.equal(provider.preflightCalls, 1);
   assert.equal(snapshot.status, "not_installed");
   assert.equal(snapshot.message, "AI 도구를 찾지 못함");
-  assert.equal(snapshot.display?.title, "Claude 도구를 찾지 못했어요");
+  assert.equal(snapshot.display?.title, "AI 도구를 찾지 못했어요");
   assert.equal(service.getSnapshot().status, "not_installed");
 });
 
@@ -97,7 +97,7 @@ test("AiProviderLifecycleService localizes readiness snapshot with app locale", 
     snapshot.userAction,
     "Check that the selected AI CLI is installed and runs in a terminal.",
   );
-  assert.equal(snapshot.display?.title, "Claude tool was not found");
+  assert.equal(snapshot.display?.title, "AI tool was not found");
   assert.equal(snapshot.provider, "claude-cli");
 });
 

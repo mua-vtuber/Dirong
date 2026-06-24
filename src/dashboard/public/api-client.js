@@ -218,6 +218,7 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
       stepIndex: Number(window.localStorage.getItem('dirong.setup.stepIndex') ?? 0),
       sttProvider: window.localStorage.getItem('dirong.setup.sttProvider') || null,
       sttModel: window.localStorage.getItem('dirong.setup.sttModel') || null,
+      aiProvider: window.localStorage.getItem('dirong.setup.aiProvider') || null,
       aiMode: window.localStorage.getItem('dirong.setup.aiMode') || null,
       aiModel: window.localStorage.getItem('dirong.setup.aiModel') || null,
       selectedGuildId: window.localStorage.getItem('dirong.setup.guildId') ?? '',

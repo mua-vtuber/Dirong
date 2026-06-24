@@ -118,8 +118,10 @@ export type DashboardSetupWizardSource = {
   testAndSaveOpenAiSttSettings(
     body: unknown,
   ): Promise<SetupWizardActionResult>;
+  saveAiSettings?(body: unknown): SetupWizardActionResult;
   saveClaudeSettings(body: unknown): SetupWizardActionResult;
   saveRecordingSettings?(body: unknown): SetupWizardActionResult;
+  testAiConnection?(): Promise<SetupWizardActionResult>;
   testClaudeConnection(): Promise<SetupWizardActionResult>;
   saveNotionToken(body: unknown): SetupWizardActionResult;
   saveNotionParentPageUrl(body: unknown): SetupWizardActionResult;

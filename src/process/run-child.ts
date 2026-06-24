@@ -3,11 +3,13 @@ import { spawn, spawnSync } from "node:child_process";
 export type RunChildOptions = {
   stdin?: string | null;
   timeoutMs: number;
+  cwd?: string;
   maxStdoutBytes?: number;
   maxStderrBytes?: number;
   killSignal?: NodeJS.Signals;
   windowsResolveShellFalse?: boolean;
   redact?: (value: string) => string;
+  signal?: AbortSignal;
 };
 
 export type RunChildResult = {
@@ -32,21 +34,34 @@ export async function runChild(
     const child = spawn(resolved.command, resolved.args, {
       stdio: [options.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
       shell: false,
+      cwd: options.cwd,
       windowsHide: true,
     });
     let stdout = "";
     let stderr = "";
     let timedOut = false;
     let settled = false;
+    let abortListener: (() => void) | null = null;
 
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill(options.killSignal ?? "SIGTERM");
     }, options.timeoutMs);
+    abortListener = () => {
+      timedOut = true;
+      child.kill(options.killSignal ?? "SIGTERM");
+    };
+    options.signal?.addEventListener("abort", abortListener, { once: true });
+    if (options.signal?.aborted) {
+      abortListener();
+    }
 
     if (!child.stdout || !child.stderr) {
       settled = true;
       clearTimeout(timer);
+      if (abortListener) {
+        options.signal?.removeEventListener("abort", abortListener);
+      }
       reject(new Error("child process stdout/stderr pipes were not available"));
       return;
     }
@@ -63,6 +78,9 @@ export async function runChild(
       }
       settled = true;
       clearTimeout(timer);
+      if (abortListener) {
+        options.signal?.removeEventListener("abort", abortListener);
+      }
       reject(error);
     });
     child.on("close", (exitCode) => {
@@ -71,6 +89,9 @@ export async function runChild(
       }
       settled = true;
       clearTimeout(timer);
+      if (abortListener) {
+        options.signal?.removeEventListener("abort", abortListener);
+      }
       resolve({
         stdout: redact(stdout),
         stderr: redact(stderr),

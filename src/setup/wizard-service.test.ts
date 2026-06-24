@@ -467,6 +467,55 @@ test("SetupWizardService verifies a Notion parent page and creates managed DBs t
   }
 });
 
+test("SetupWizardService saves Codex and Gemini CLI settings", async () => {
+  const aiCalls: string[] = [];
+  const fixture = createFixture({
+    claudeTester: {
+      test: async (input) => {
+        aiCalls.push(`${input.provider}:${input.mode}`);
+        return {
+          provider: input.provider,
+          mode: input.mode,
+          model: input.model,
+          detail: "ok",
+        };
+      },
+    },
+  });
+  try {
+    const codex = fixture.service.saveAiSettings({
+      provider: "codex",
+      mode: "cli",
+      profile: "codex-cli-default",
+      model: "default",
+    });
+    assert.equal(codex.ok, true);
+    assert.equal(fixture.settings.read().ai.provider, "codex");
+    assert.equal(fixture.settings.read().ai.mode, "cli");
+    assert.equal(fixture.settings.read().ai.cliProfile, "codex-cli-default");
+    assert.equal(fixture.settings.read().ai.model, "default");
+
+    const testedCodex = await fixture.service.testAiConnection();
+    assert.equal(testedCodex.ok, true);
+
+    const gemini = fixture.service.saveAiSettings({
+      provider: "gemini",
+      mode: "cli",
+      profile: "gemini-cli-default",
+      model: "default",
+    });
+    assert.equal(gemini.ok, true);
+    assert.equal(fixture.settings.read().ai.provider, "gemini");
+    assert.equal(fixture.settings.read().ai.cliProfile, "gemini-cli-default");
+
+    const testedGemini = await fixture.service.testAiConnection();
+    assert.equal(testedGemini.ok, true);
+    assert.deepEqual(aiCalls, ["codex:cli", "gemini:cli"]);
+  } finally {
+    fixture.close();
+  }
+});
+
 test("SetupWizardService creates managed DBs with the English schema locale", async () => {
   const fixture = createFixture({
     notionClientFactory: () => ({

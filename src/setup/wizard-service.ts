@@ -31,6 +31,11 @@ import {
 } from "../projects/project-types.js";
 import { runChild } from "../process/run-child.js";
 import { validateDashboardCommandInput } from "../process/command-policy.js";
+import {
+  isAiProviderName,
+  supportsAiProviderMode,
+  type AiProviderName,
+} from "../settings/ai-providers.js";
 import type { DirongUserDataPaths } from "../settings/dirong-user-data.js";
 import {
   DEFAULT_DIRONG_LOCALE,
@@ -47,6 +52,7 @@ import {
   DEFAULT_MEETING_NOTES_LANGUAGE,
   DEFAULT_NOTION_SETTINGS,
   DEFAULT_RECORDING_SETTINGS,
+  DEFAULT_SETUP_AI_MODEL_BY_PROVIDER,
   DEFAULT_SETUP_AI_SETTINGS,
   DEFAULT_STT_SETTINGS,
   SUPPORTED_CLAUDE_SETUP_MODELS,
@@ -64,13 +70,18 @@ import {
   type ProductSetupStatusSnapshot,
 } from "../settings/product-settings.js";
 import {
+  defaultAiToolProfile,
   DEFAULT_CLAUDE_TOOL_PROFILE,
   DEFAULT_LOCAL_WHISPER_TOOL_PROFILE,
+  isAiToolProfileForProvider,
   isClaudeToolProfile,
   isLocalWhisperToolProfile,
+  matchesAiToolProfile,
   matchesClaudeToolProfile,
   matchesLocalWhisperToolProfile,
+  resolveAiToolProfile,
   resolveClaudeToolProfile,
+  type AiToolProfile,
   type ClaudeToolProfile,
   type LocalWhisperToolProfile,
 } from "../settings/tool-profiles.js";
@@ -152,26 +163,31 @@ export type DiscordSetupGateway = {
   listGuilds(input: { botToken: string }): Promise<SetupDiscordGuild[]>;
 };
 
-export type ClaudeSetupTestResult = {
-  provider: "claude";
+export type AiSetupTestResult = {
+  provider: AiProviderName;
   mode: AiProviderMode;
   model: string | null;
   detail: string | null;
 };
 
-export type ClaudeSetupTester = {
+export type AiSetupTester = {
   test(input:
     | {
+        provider: AiProviderName;
         mode: "cli";
         command: string;
         model: string | null;
       }
     | {
+        provider: "claude";
         mode: "api";
         apiKey: string;
         model: string | null;
-      }): Promise<ClaudeSetupTestResult>;
+      }): Promise<AiSetupTestResult>;
 };
+
+export type ClaudeSetupTestResult = AiSetupTestResult;
+export type ClaudeSetupTester = AiSetupTester;
 
 export type SetupWizardServiceOptions = {
   paths: DirongUserDataPaths;
@@ -180,7 +196,7 @@ export type SetupWizardServiceOptions = {
   registryStore?: NotionRegistryStore;
   projectStore?: ProjectStore;
   discordGateway?: DiscordSetupGateway;
-  claudeTester?: ClaudeSetupTester;
+  claudeTester?: AiSetupTester;
   localWhisperInstaller?: LocalWhisperInstaller;
   openAiSttTester?: OpenAiSttConnectionTester;
   notionClientFactory?: (apiKey: string) => NotionClient;
@@ -204,7 +220,7 @@ export function createProductSetupWizardService(input: {
 
 export class SetupWizardService {
   private readonly discordGateway: DiscordSetupGateway;
-  private readonly claudeTester: ClaudeSetupTester;
+  private readonly claudeTester: AiSetupTester;
   private readonly localWhisperInstaller: LocalWhisperInstaller;
   private readonly openAiSttTester: OpenAiSttConnectionTester;
   private readonly notionClientFactory: (apiKey: string) => NotionClient;
@@ -699,7 +715,8 @@ export class SetupWizardService {
     });
   }
 
-  saveClaudeSettings(body: unknown): SetupWizardActionResult {
+  saveAiSettings(body: unknown): SetupWizardActionResult {
+    const provider = readAiProviderInput(body);
     const mode = readCleanString(body, ["mode"]);
     if (mode !== "cli" && mode !== "api") {
       return this.result({
@@ -710,28 +727,41 @@ export class SetupWizardService {
         userActionKey: "setup.ai.claude.error.invalidMode.action",
       });
     }
+    if (!supportsAiProviderMode(provider, mode)) {
+      return this.result({
+        ok: false,
+        status: "failed",
+        httpStatus: 400,
+        messageKey: "setup.ai.claude.error.invalidMode.message",
+        userActionKey: "setup.ai.claude.error.invalidMode.action",
+      });
+    }
 
-    const claudeModel = readClaudeModelInput(body);
-    if (!claudeModel.ok) {
-      return this.result(claudeModel.error);
+    const aiModel = readAiModelInput(provider, body);
+    if (!aiModel.ok) {
+      return this.result(aiModel.error);
     }
     if (mode === "cli") {
-      const claudeProfile = readClaudeProfileInput(body);
-      if (!claudeProfile.ok) {
-        return this.result(claudeProfile.error);
+      const aiProfile = readAiProfileInput(provider, body);
+      if (!aiProfile.ok) {
+        return this.result(aiProfile.error);
       }
-      let savedModel: ClaudeSetupModel = DEFAULT_SETUP_AI_SETTINGS.model;
+      let savedModel: string = DEFAULT_SETUP_AI_MODEL_BY_PROVIDER[provider];
       this.options.settingsStore.update((settings) => ({
         ...settings,
         ai: (() => {
-          savedModel = resolveClaudeSetupModel(
-            claudeModel.model ?? settings.ai.model,
+          savedModel = resolveAiSetupModel(
+            provider,
+            aiModel.model ?? settings.ai.model,
           );
           return {
-            provider: "claude",
+            provider,
             mode,
             model: savedModel,
-            claudeProfile: claudeProfile.profile,
+            cliProfile: aiProfile.profile,
+            ...(provider === "claude"
+              ? { claudeProfile: aiProfile.profile as ClaudeToolProfile }
+              : {}),
             apiKeySecretRef: settings.ai.apiKeySecretRef,
           };
         })(),
@@ -744,10 +774,10 @@ export class SetupWizardService {
         userActionKey: null,
         runtimeEffectScope: "ai",
         ai: {
-          provider: "claude",
+          provider,
           mode,
           model: savedModel,
-          claudeProfile: claudeProfile.profile,
+          cliProfile: aiProfile.profile,
         },
       });
     }
@@ -768,12 +798,13 @@ export class SetupWizardService {
       this.options.secretStore.set(DEFAULT_SECRET_REFS.claudeApiKey, apiKey);
     }
 
-    let savedModel: ClaudeSetupModel = DEFAULT_SETUP_AI_SETTINGS.model;
+    let savedModel: string = DEFAULT_SETUP_AI_SETTINGS.model;
     this.options.settingsStore.update((settings) => ({
       ...settings,
       ai: (() => {
-        savedModel = resolveClaudeSetupModel(
-          claudeModel.model ?? settings.ai.model,
+        savedModel = resolveAiSetupModel(
+          "claude",
+          aiModel.model ?? settings.ai.model,
         );
         return {
           provider: "claude",
@@ -798,6 +829,10 @@ export class SetupWizardService {
         secret: this.options.secretStore.snapshot(DEFAULT_SECRET_REFS.claudeApiKey),
       },
     });
+  }
+
+  saveClaudeSettings(body: unknown): SetupWizardActionResult {
+    return this.saveAiSettings(body);
   }
 
   saveRecordingSettings(body: unknown): SetupWizardActionResult {
@@ -849,9 +884,9 @@ export class SetupWizardService {
     });
   }
 
-  async testClaudeConnection(): Promise<SetupWizardActionResult> {
+  async testAiConnection(): Promise<SetupWizardActionResult> {
     const settings = this.options.settingsStore.read();
-    if (settings.ai.provider !== "claude" || !settings.ai.mode) {
+    if (!settings.ai.provider || !settings.ai.mode) {
       return this.result({
         ok: false,
         status: "not_configured",
@@ -865,7 +900,7 @@ export class SetupWizardService {
       const testResult =
         settings.ai.mode === "api"
           ? await this.testClaudeApi(settings)
-          : await this.testClaudeCli(settings);
+          : await this.testAiCli(settings);
       return this.result({
         ok: true,
         status: "done",
@@ -883,6 +918,10 @@ export class SetupWizardService {
         technicalDetail: errorMessage(error),
       });
     }
+  }
+
+  async testClaudeConnection(): Promise<SetupWizardActionResult> {
+    return this.testAiConnection();
   }
 
   saveNotionToken(body: unknown): SetupWizardActionResult {
@@ -1175,14 +1214,16 @@ export class SetupWizardService {
     });
   }
 
-  private async testClaudeCli(
+  private async testAiCli(
     settings: DirongLocalSettings,
-  ): Promise<ClaudeSetupTestResult> {
-    const command = resolveClaudeCommand(settings.ai);
+  ): Promise<AiSetupTestResult> {
+    const provider = settings.ai.provider ?? DEFAULT_SETUP_AI_SETTINGS.provider;
+    const command = resolveAiCommand(settings.ai);
     if (!command) {
-      throw new Error("Claude CLI command is missing.");
+      throw new Error("AI CLI command is missing.");
     }
     return this.claudeTester.test({
+      provider,
       mode: "cli",
       command,
       model: settings.ai.model ?? null,
@@ -1191,7 +1232,7 @@ export class SetupWizardService {
 
   private async testClaudeApi(
     settings: DirongLocalSettings,
-  ): Promise<ClaudeSetupTestResult> {
+  ): Promise<AiSetupTestResult> {
     const apiKey = this.options.secretStore.get(
       settings.ai.apiKeySecretRef ?? DEFAULT_SECRET_REFS.claudeApiKey,
     );
@@ -1199,6 +1240,7 @@ export class SetupWizardService {
       throw new Error("Claude API key is missing.");
     }
     return this.claudeTester.test({
+      provider: "claude",
       mode: "api",
       apiKey,
       model: settings.ai.model ?? null,
@@ -1474,11 +1516,13 @@ class DiscordJsSetupGateway implements DiscordSetupGateway {
 class DefaultClaudeSetupTester implements ClaudeSetupTester {
   async test(input:
     | {
+        provider: AiProviderName;
         mode: "cli";
         command: string;
         model: string | null;
       }
     | {
+        provider: "claude";
         mode: "api";
         apiKey: string;
         model: string | null;
@@ -1495,7 +1539,7 @@ class DefaultClaudeSetupTester implements ClaudeSetupTester {
         );
       }
       return {
-        provider: "claude",
+        provider: input.provider,
         mode: "cli",
         model: input.model,
         detail: result.stdout.trim() || null,
@@ -1738,44 +1782,69 @@ function readLocalWhisperProfileInput(body: unknown):
   return { ok: true, profile };
 }
 
-function readClaudeProfileInput(body: unknown):
-  | { ok: true; profile: ClaudeToolProfile }
+function readAiProviderInput(body: unknown): AiProviderName {
+  const provider = readCleanString(body, ["provider", "aiProvider"]);
+  return isAiProviderName(provider) ? provider : DEFAULT_SETUP_AI_SETTINGS.provider;
+}
+
+function readAiProfileInput(
+  provider: AiProviderName,
+  body: unknown,
+):
+  | { ok: true; profile: AiToolProfile }
   | { ok: false; error: ResultInput } {
   const requestedProfile = readCleanString(body, [
     "profile",
     "toolProfile",
+    "aiProfile",
+    `${provider}Profile`,
     "claudeProfile",
   ]);
-  if (requestedProfile && !isClaudeToolProfile(requestedProfile)) {
+  if (
+    requestedProfile &&
+    !isAiToolProfileForProvider(requestedProfile, provider)
+  ) {
     return { ok: false, error: invalidClaudeCommandResult() };
   }
 
-  const command = readCleanString(body, ["claudeCommand", "cliCommand", "command"]);
+  const command = readCleanString(body, [
+    `${provider}Command`,
+    "aiCommand",
+    "cliCommand",
+    "claudeCommand",
+    "command",
+  ]);
   const policy = validateDashboardCommandInput({ command });
   if (!policy.ok) {
     return { ok: false, error: invalidClaudeCommandResult() };
   }
 
-  const profile = isClaudeToolProfile(requestedProfile)
+  const profile = isAiToolProfileForProvider(requestedProfile, provider)
     ? requestedProfile
-    : DEFAULT_CLAUDE_TOOL_PROFILE;
-  if (command && !matchesClaudeToolProfile({ command, profile })) {
+    : defaultAiToolProfile(provider);
+  if (command && !matchesAiToolProfile({ command, profile })) {
     return { ok: false, error: invalidClaudeCommandResult() };
   }
 
   return { ok: true, profile };
 }
 
-function readClaudeModelInput(body: unknown):
-  | { ok: true; model: ClaudeSetupModel | null }
+function readAiModelInput(
+  provider: AiProviderName,
+  body: unknown,
+):
+  | { ok: true; model: string | null }
   | { ok: false; error: ResultInput } {
   const model = readCleanString(body, ["model"]);
   if (!model) {
     return { ok: true, model: null };
   }
   const normalized = model.toLowerCase();
-  if (isClaudeSetupModel(normalized)) {
+  if (provider === "claude" && isClaudeSetupModel(normalized)) {
     return { ok: true, model: normalized };
+  }
+  if (provider !== "claude" && isSafeTerminalModelName(model)) {
+    return { ok: true, model };
   }
   return {
     ok: false,
@@ -1789,21 +1858,45 @@ function readClaudeModelInput(body: unknown):
   };
 }
 
-function resolveClaudeSetupModel(value: string | null | undefined): ClaudeSetupModel {
-  return value && isClaudeSetupModel(value)
+function resolveAiSetupModel(
+  provider: AiProviderName,
+  value: string | null | undefined,
+): string {
+  if (!value) {
+    return DEFAULT_SETUP_AI_MODEL_BY_PROVIDER[provider];
+  }
+  if (provider === "claude") {
+    return isClaudeSetupModel(value)
+      ? value
+      : DEFAULT_SETUP_AI_MODEL_BY_PROVIDER.claude;
+  }
+  return isSafeTerminalModelName(value)
     ? value
-    : DEFAULT_SETUP_AI_SETTINGS.model;
+    : DEFAULT_SETUP_AI_MODEL_BY_PROVIDER[provider];
 }
 
 function isClaudeSetupModel(value: string): value is ClaudeSetupModel {
   return SUPPORTED_CLAUDE_SETUP_MODELS.includes(value as ClaudeSetupModel);
 }
 
-function resolveClaudeCommand(settings: DirongLocalSettings["ai"]): string | null {
+function resolveAiCommand(settings: DirongLocalSettings["ai"]): string | null {
+  if (settings.cliProfile) {
+    return resolveAiToolProfile(settings.cliProfile).command;
+  }
+  if (settings.cliCommand) {
+    return settings.cliCommand;
+  }
+  if (settings.provider && settings.provider !== "claude") {
+    return resolveAiToolProfile(defaultAiToolProfile(settings.provider)).command;
+  }
   if (settings.claudeProfile) {
     return resolveClaudeToolProfile(settings.claudeProfile).command;
   }
   return settings.claudeCommand ?? null;
+}
+
+function isSafeTerminalModelName(value: string): boolean {
+  return value === "default" || (/^[A-Za-z0-9._:/-]+$/.test(value) && value.length <= 120);
 }
 
 function invalidSttCommandResult(): ResultInput {

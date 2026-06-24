@@ -1685,8 +1685,6 @@ export const ko = {
       settings: "설정",
     },
     quick: {
-      startRecording: "녹음 시작",
-      startRecordingHint: "/dirong start는 Discord에서 실행합니다.",
       refreshStatus: "상태 다시 확인",
     },
     projects: {
@@ -2403,7 +2401,7 @@ export const ko = {
         directorLabel: "감독",
         directorName: "Mua_VTuber",
         githubLabel: "GitHub",
-        githubUrl: "https://github.com/mua-vtuber/Agestra",
+        githubUrl: "https://github.com/mua-vtuber/Dirong",
         madeWith: "Claude Code로 제작",
       },
       secretsHidden: "Token/key 원문은 저장 후 화면에 표시하지 않습니다.",
@@ -4397,8 +4395,6 @@ export const en = {
       settings: "Settings",
     },
     quick: {
-      startRecording: "Start recording",
-      startRecordingHint: "Run /dirong start in Discord.",
       refreshStatus: "Check status again",
     },
     projects: {
@@ -5115,7 +5111,7 @@ export const en = {
         directorLabel: "Director",
         directorName: "Mua_VTuber",
         githubLabel: "GitHub",
-        githubUrl: "https://github.com/mua-vtuber/Agestra",
+        githubUrl: "https://github.com/mua-vtuber/Dirong",
         madeWith: "Built with Claude Code",
       },
       secretsHidden: "Token and key values are never shown after saving.",

@@ -64,7 +64,7 @@ test("dashboard settings exposes localized credit copy", () => {
   assert.equal(t("ko", "dashboard.settings.credits.directorLabel"), "감독");
   assert.equal(
     t("ko", "dashboard.settings.credits.githubUrl"),
-    "https://github.com/mua-vtuber/Agestra",
+    "https://github.com/mua-vtuber/Dirong",
   );
   assert.equal(t("en", "dashboard.settings.credits.title"), "About");
   assert.equal(t("en", "dashboard.settings.credits.madeWith"), "Built with Claude Code");

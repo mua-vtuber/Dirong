@@ -1212,10 +1212,47 @@
       color: var(--danger-ink);
     }
     #chunks table,
-    #transcripts table,
     #draftPreview pre,
     #dbPanel table {
       border: 1px solid var(--line);
+    }
+    .notes-doc {
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--paper-ink);
+      line-height: 1.6;
+      max-height: 360px;
+      overflow: auto;
+    }
+    .notes-doc h3 {
+      margin: 0 0 8px;
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+    .notes-doc h4 {
+      margin: 16px 0 6px;
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--paper-faint);
+    }
+    .notes-doc p {
+      margin: 6px 0;
+    }
+    .notes-doc ul {
+      padding-left: 20px;
+      margin: 6px 0;
+    }
+    .notes-doc li {
+      margin: 2px 0;
+    }
+    .notes-doc strong {
+      font-weight: 700;
+    }
+    #chunks table th:first-child,
+    #chunks table td:first-child {
+      width: 64px;
+      white-space: nowrap;
     }
     body :where(
       button,
@@ -1352,7 +1389,6 @@
           </div>
           <div id="metrics"></div>
           <div id="chunks"></div>
-          <div id="transcripts"></div>
         </section>
         <section class="content-band">
           <div class="section-heading">

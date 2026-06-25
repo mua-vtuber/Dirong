@@ -81,7 +81,6 @@
       setHtml('metrics', renderAudioSummary(state));
       setHtml('chunks', renderAudioRows(state), stableAudioRowsCacheKey);
       syncAudioControlSources(state);
-      setHtml('transcripts', renderTranscriptRows(state));
       setHtml('draftPreview', renderDraftPreview(state));
       setHtml('dbTabs', renderTabs([
         ['meeting', 'dashboard.db.tabs.meeting'],
@@ -559,37 +558,105 @@
         '<span class="stt-summary-box tone-danger">' + i18n('dashboard.audio.summary.sttFailed', { count: failed }) + '</span></span>';
     }
     function renderAudioRows(state) {
-      const rows = (state.recentChunks ?? []).map((c) => '<tr><td>' +
-        escapeHtml(formatMs(c.started_at_ms ?? c.startedAtMs ?? 0)) + '</td><td>' +
-        escapeHtml(c.display_name_snapshot) + '</td><td>' +
-        escapeHtml(c.status) + ' / ' + escapeHtml(c.transcode_status) + '</td><td>' +
-        renderAudioControls(c) + '</td><td><details><summary>' +
-        i18n('dashboard.audio.transcriptToggle') + '</summary><code>' +
-        escapeHtml(c.stt_job_status ?? '-') + '</code></details></td></tr>');
+      const segments = state.recentTranscriptSegments ?? [];
+      const rows = (state.recentChunks ?? []).map((c) => {
+        const chunkSegments = segments
+          .filter((t) => t.chunk_id === c.id)
+          .sort((a, b) => (a.start_ms ?? 0) - (b.start_ms ?? 0));
+        const transcriptBody = chunkSegments.length
+          ? chunkSegments.map((t) => '<code>' +
+              escapeHtml((t.speech_status === 'no_speech' && !t.text) ? '(no speech)' : t.text) +
+              '</code>').join('<br>')
+          : '<span class="muted">' + i18n('dashboard.common.none') + '</span>';
+        const mainRow = '<tr><td>' +
+          escapeHtml(formatMs(c.started_at_ms ?? c.startedAtMs ?? 0)) + '</td><td>' +
+          escapeHtml(c.display_name_snapshot) + '</td><td>' +
+          escapeHtml(c.status) + ' / ' + escapeHtml(c.transcode_status) + '</td><td>' +
+          renderAudioControls(c) + '</td></tr>';
+        const expansionRow = '<tr><td></td><td colspan="3"><details data-details-key="' +
+          escapeHtml(c.id) + '"><summary>' + i18n('dashboard.audio.transcriptToggle') +
+          '</summary>' + transcriptBody + '</details></td></tr>';
+        return mainRow + expansionRow;
+      });
       return table([
         tr('dashboard.table.time'),
         tr('dashboard.table.speaker'),
         tr('dashboard.table.status'),
-        tr('dashboard.table.playback'),
-        tr('dashboard.table.transcript')
+        tr('dashboard.table.playback')
       ], rows);
     }
-    function renderTranscriptRows(state) {
-      const rows = (state.recentTranscriptSegments ?? []).slice(0, 8).map((t) =>
-        '<tr><td>' + escapeHtml(formatMs(t.start_ms)) + '</td><td>' +
-        escapeHtml(t.display_name_snapshot) + '</td><td>' +
-        escapeHtml((t.speech_status === 'no_speech' && !t.text) ? '(no speech)' : t.text) +
-        '</td></tr>');
-      return rows.length ? table([
-        tr('dashboard.table.time'),
-        tr('dashboard.table.speaker'),
-        tr('dashboard.table.text')
-      ], rows) : '';
+    function renderMeetingNotesMarkdown(markdown) {
+      const inline = (escaped) => escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      const lines = String(markdown ?? '').split('\n');
+      const out = [];
+      // itemOpen holds one flag per currently-open <ul> level: itemOpen[i] is
+      // true when the <li> at <ul> level i+1 is started but not yet closed.
+      // A nested <ul> lives INSIDE its parent <li>, so the parent stays open
+      // (tracked at its own shallower level) while the child level is active.
+      const itemOpen = [];
+      const openDepth = () => itemOpen.length;
+      const closeDeepestItem = () => {
+        if (itemOpen.length > 0 && itemOpen[itemOpen.length - 1]) {
+          out.push('</li>');
+          itemOpen[itemOpen.length - 1] = false;
+        }
+      };
+      const closeListsTo = (depth) => {
+        while (itemOpen.length > depth) {
+          closeDeepestItem();
+          out.push('</ul>');
+          itemOpen.pop();
+        }
+      };
+      const closeAllLists = () => closeListsTo(0);
+      for (const rawLine of lines) {
+        const headingMatch = /^(#{1,2})\s+(.*)$/.exec(rawLine);
+        const listMatch = /^(\s*)-\s+(.*)$/.exec(rawLine);
+        if (rawLine.trim() === '') {
+          closeAllLists();
+          continue;
+        }
+        if (headingMatch) {
+          closeAllLists();
+          const tag = headingMatch[1].length === 1 ? 'h3' : 'h4';
+          out.push('<' + tag + '>' + inline(escapeHtml(headingMatch[2])) + '</' + tag + '>');
+          continue;
+        }
+        if (listMatch) {
+          const depth = Math.floor(listMatch[1].length / 2) + 1;
+          if (depth > openDepth()) {
+            // Opening a deeper list: its <ul> nests INSIDE the current <li>,
+            // so keep that <li> open while pushing the child <ul>(s).
+            while (openDepth() < depth) {
+              out.push('<ul>');
+              itemOpen.push(false);
+            }
+          } else {
+            // Same or shallower depth: close any deeper lists, then close the
+            // sibling <li> at this depth so the new item starts fresh.
+            closeListsTo(depth);
+            closeDeepestItem();
+          }
+          out.push('<li>' + inline(escapeHtml(listMatch[2])));
+          itemOpen[itemOpen.length - 1] = true;
+          continue;
+        }
+        if (openDepth() > 0 && itemOpen[itemOpen.length - 1] && /^\s/.test(rawLine)) {
+          // Indented, non-list, non-heading line under an open item: it is a
+          // continuation of that <li> (Owner:/Due:/Source:/wrapped text).
+          out.push('<br>' + inline(escapeHtml(rawLine.replace(/^\s+/, ''))));
+          continue;
+        }
+        closeAllLists();
+        out.push('<p>' + inline(escapeHtml(rawLine)) + '</p>');
+      }
+      closeAllLists();
+      return out.join('');
     }
     function renderDraftPreview(state) {
       const draft = state.latestMeetingNotesDraft;
       return draft
-        ? '<pre>' + escapeHtml(draft.markdown) + '</pre>'
+        ? '<div class="notes-doc">' + renderMeetingNotesMarkdown(draft.markdown) + '</div>'
         : '<div class="muted">' + i18n('dashboard.notes.empty') + '</div>';
     }
     function activeDatabaseRole() {

@@ -1,6 +1,11 @@
 import { DirongError, redactSensitiveText } from "../errors.js";
 import { t } from "../i18n/catalog.js";
 import { runProcess } from "../media.js";
+import {
+  buildLocalWhisperWorkerArgs,
+  LocalWhisperWorkerProcess,
+  type LocalWhisperWorkerSpawn,
+} from "./local-whisper-worker-process.js";
 import type {
   SttProvider,
   SttTranscriptionContext,
@@ -15,15 +20,21 @@ export type LocalWhisperProviderConfig = {
   device: string;
   computeType: string;
   defaultTimeoutMs: number;
+  workerSpawnProcess?: LocalWhisperWorkerSpawn;
 };
 
 export class LocalWhisperSttProvider implements SttProvider {
   readonly providerName = "local-whisper";
   readonly supportsPrompt = false;
   readonly modelName: string;
+  private readonly workerArgs: string[] | null;
+  private readonly trackedPids = new Set<number>();
+  private worker: LocalWhisperWorkerProcess | null = null;
+  private persistentWorkerPrepared = false;
 
   constructor(private readonly config: LocalWhisperProviderConfig) {
     this.modelName = config.model;
+    this.workerArgs = buildLocalWhisperWorkerArgs(config.args);
   }
 
   async preflight(): Promise<void> {
@@ -54,11 +65,38 @@ export class LocalWhisperSttProvider implements SttProvider {
     }
   }
 
+  async prepare(options?: SttTranscriptionOptions): Promise<void> {
+    if (!this.workerArgs) {
+      await this.preflight();
+      return;
+    }
+
+    await this.ensureWorker(
+      options?.timeoutMs ?? this.config.defaultTimeoutMs,
+      options?.signal,
+    );
+    this.persistentWorkerPrepared = true;
+  }
+
   async transcribe(
     inputAudioPath: string,
     context: SttTranscriptionContext,
     options?: SttTranscriptionOptions,
   ): Promise<SttTranscriptionResult> {
+    if (this.persistentWorkerPrepared) {
+      const worker = await this.ensureWorker(
+        options?.timeoutMs ?? this.config.defaultTimeoutMs,
+        options?.signal,
+      );
+      return await worker.request({
+        id: `${context.sessionId}:${context.chunkId}`,
+        inputAudioPath,
+        language: context.language,
+        timeoutMs: options?.timeoutMs ?? this.config.defaultTimeoutMs,
+        signal: options?.signal,
+      });
+    }
+
     const args = [
       ...this.config.args,
       "--input",
@@ -88,6 +126,68 @@ export class LocalWhisperSttProvider implements SttProvider {
     }
 
     return { text: parseLocalWhisperJson(result.stdout).text.trim() };
+  }
+
+  async stop(): Promise<void> {
+    const worker = this.worker;
+    const pid = worker?.pid ?? null;
+    this.worker = null;
+    this.persistentWorkerPrepared = false;
+    await worker?.stop();
+    if (pid !== null) {
+      this.trackedPids.delete(pid);
+    }
+    for (const trackedPid of [...this.trackedPids]) {
+      try {
+        process.kill(trackedPid, "SIGKILL");
+      } catch {
+        // Best effort cleanup; the worker may already have exited.
+      }
+      this.trackedPids.delete(trackedPid);
+    }
+  }
+
+  reapTrackedPids(): void {
+    for (const pid of this.trackedPids) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // Exit handlers must stay quiet.
+      }
+    }
+    this.trackedPids.clear();
+  }
+
+  private async ensureWorker(
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ): Promise<LocalWhisperWorkerProcess> {
+    if (!this.workerArgs) {
+      throw new Error(
+        `local-whisper persistent worker is unavailable for command: ${displayCommand(this.config.command, this.config.args)}`,
+      );
+    }
+
+    if (this.worker?.isAlive()) {
+      return this.worker;
+    }
+
+    const worker = new LocalWhisperWorkerProcess({
+      command: this.config.command,
+      args: this.workerArgs,
+      model: this.modelName,
+      device: this.config.device,
+      computeType: this.config.computeType,
+      readyTimeoutMs: timeoutMs,
+      spawnProcess: this.config.workerSpawnProcess,
+    });
+    this.worker = worker;
+    await worker.start({ timeoutMs, signal });
+    const pid = worker.pid;
+    if (pid !== null) {
+      this.trackedPids.add(pid);
+    }
+    return worker;
   }
 }
 

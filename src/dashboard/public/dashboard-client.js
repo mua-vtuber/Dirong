@@ -471,7 +471,7 @@
     }
     function renderRecordingFlowCard(state) {
       const runtime = state.runtime ?? {};
-      const sttCounts = countStatuses(state.recentSttJobs ?? []);
+      const sttCounts = sttCountsForState(state);
       const failed = (sttCounts.get('failed') ?? 0) + (sttCounts.get('failed_missing_file') ?? 0);
       const status = runtime.isRecording ? 'processing' : state.currentSession ? 'ready' : 'idle';
       const message = runtime.isRecording
@@ -481,7 +481,7 @@
           : tr('dashboard.card.recording.idle');
       return flowCard('dashboard.card.recording.title', status,
         escapeHtml(message) + '<br>' +
-        i18n('dashboard.card.recording.audioFiles', { count: (state.recentChunks ?? []).length }) + '<br>' +
+        i18n('dashboard.card.recording.audioFiles', { count: currentSessionChunkCount(state) }) + '<br>' +
         renderSttSummaryBoxes(sttCounts.get('done') ?? 0, failed)
       );
     }
@@ -543,7 +543,7 @@
     }
     function renderAudioSummary(state) {
       const speakers = (state.speakers ?? []).filter((s) => !s.is_bot);
-      const sttCounts = countStatuses(state.recentSttJobs ?? []);
+      const sttCounts = sttCountsForState(state);
       const failed = (sttCounts.get('failed') ?? 0) + (sttCounts.get('failed_missing_file') ?? 0);
       return '<div class="summary-list">' +
         speakers.map((s) => '<span class="summary-pill">' +
@@ -1268,7 +1268,7 @@
           '<div class="value">' + i18n('dashboard.pipeline.noRecentSession') + '</div><div class="muted">' +
           i18n('dashboard.pipeline.startsAfterRecording') + '</div></div>';
       }
-      const sttCounts = countStatuses(state.recentSttJobs ?? []);
+      const sttCounts = sttCountsForState(state);
       const latestAiJob = (state.recentAiCleanupJobs ?? [])[0];
       const draft = state.latestMeetingNotesDraft;
       const queuedOrProcessingStt =
@@ -1619,6 +1619,28 @@
       const counts = new Map();
       for (const row of rows) {
         counts.set(row.status, (counts.get(row.status) ?? 0) + 1);
+      }
+      return counts;
+    }
+    function sttCountsForState(state) {
+      if (Array.isArray(state.currentSessionQueueStats)) {
+        return countStatusStats(state.currentSessionQueueStats);
+      }
+      if (Array.isArray(state.queueStats)) {
+        return countStatusStats(state.queueStats);
+      }
+      return countStatuses(state.recentSttJobs ?? []);
+    }
+    function currentSessionChunkCount(state) {
+      const total = state.currentSessionChunkStats?.total;
+      return Number.isFinite(Number(total))
+        ? Number(total)
+        : (state.recentChunks ?? []).length;
+    }
+    function countStatusStats(rows) {
+      const counts = new Map();
+      for (const row of rows) {
+        counts.set(row.status, Number(row.count ?? 0));
       }
       return counts;
     }

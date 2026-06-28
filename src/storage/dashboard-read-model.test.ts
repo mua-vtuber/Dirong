@@ -33,7 +33,9 @@ test("SessionStore dashboard read model returns current session slices", () => {
       currentSession?: { id: string };
       speakers?: Array<{ user_id: string }>;
       recentChunks?: Array<{ id: string; stt_job_id: string }>;
+      currentSessionChunkStats?: { total: number };
       recentSttJobs?: Array<{ id: string; status: string }>;
+      currentSessionQueueStats?: Array<{ status: string; count: number }>;
       queueStats?: Array<{ status: string; count: number }>;
     };
 
@@ -41,8 +43,74 @@ test("SessionStore dashboard read model returns current session slices", () => {
     assert.equal(state.speakers?.[0]?.user_id, "speaker");
     assert.equal(state.recentChunks?.[0]?.id, fixture.chunkId);
     assert.equal(state.recentChunks?.[0]?.stt_job_id, `stt_${fixture.chunkId}`);
+    assert.deepEqual(state.currentSessionChunkStats, { total: 1 });
     assert.equal(state.recentSttJobs?.[0]?.status, "queued");
+    assert.deepEqual(state.currentSessionQueueStats, [
+      { status: "queued", count: 1 },
+    ]);
     assert.deepEqual(state.queueStats, [{ status: "queued", count: 1 }]);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("SessionStore dashboard read model counts all current-session chunks", () => {
+  const fixture = createFixture();
+  try {
+    seedDashboardSession(fixture);
+    for (let index = 2; index <= 75; index += 1) {
+      seedQueuedChunk(fixture, index);
+    }
+    const runtime: RecordingRuntimeState = {
+      isRecording: false,
+      sessionId: fixture.sessionId,
+      voiceChannelId: null,
+      voiceChannelName: null,
+      openChunks: 0,
+    };
+
+    const state = fixture.ctx.reads.getDashboardState(
+      runtime,
+      DASHBOARD_PROJECT_ID,
+    ) as {
+      recentChunks?: Array<{ id: string }>;
+      currentSessionChunkStats?: { total: number };
+    };
+
+    assert.equal(state.recentChunks?.length, 50);
+    assert.deepEqual(state.currentSessionChunkStats, { total: 75 });
+  } finally {
+    fixture.close();
+  }
+});
+
+test("SessionStore dashboard read model counts all current-session STT jobs", () => {
+  const fixture = createFixture();
+  try {
+    seedDashboardSession(fixture);
+    for (let index = 2; index <= 36; index += 1) {
+      seedQueuedChunk(fixture, index);
+    }
+    const runtime: RecordingRuntimeState = {
+      isRecording: false,
+      sessionId: fixture.sessionId,
+      voiceChannelId: null,
+      voiceChannelName: null,
+      openChunks: 0,
+    };
+
+    const state = fixture.ctx.reads.getDashboardState(
+      runtime,
+      DASHBOARD_PROJECT_ID,
+    ) as {
+      recentSttJobs?: Array<{ id: string; status: string }>;
+      currentSessionQueueStats?: Array<{ status: string; count: number }>;
+    };
+
+    assert.equal(state.recentSttJobs?.length, 30);
+    assert.deepEqual(state.currentSessionQueueStats, [
+      { status: "queued", count: 36 },
+    ]);
   } finally {
     fixture.close();
   }
@@ -163,6 +231,36 @@ function seedDashboardSession(fixture: DashboardFixture): void {
     sttAudioFormat: "webm",
     sttByteSize: 10,
     sttSha256: "stt-sha",
+    maxAttempts: 3,
+  });
+}
+
+function seedQueuedChunk(fixture: DashboardFixture, chunkIndex: number): void {
+  const chunkId = `${fixture.sessionId}_${String(chunkIndex).padStart(6, "0")}_speaker`;
+  fixture.ctx.writes.createChunkWriting({
+    chunkId,
+    sessionId: fixture.sessionId,
+    chunkIndex,
+    userId: "speaker",
+    displayNameSnapshot: "Taniar",
+    startedAtMs: chunkIndex * 1000,
+    rawAudioPath: path.join(fixture.dir, `${chunkId}.ogg`),
+  });
+  fixture.ctx.writes.finalizeRawChunk({
+    chunkId,
+    endedAtMs: chunkIndex * 1000 + 1000,
+    durationMs: 1000,
+    rawByteSize: 10,
+    rawSha256: `raw-sha-${chunkIndex}`,
+    closeReason: "test",
+    pipelineError: null,
+  });
+  fixture.ctx.writes.completeChunkTranscodeAndQueueJob({
+    chunkId,
+    sttAudioPath: path.join(fixture.dir, `${chunkId}.webm`),
+    sttAudioFormat: "webm",
+    sttByteSize: 10,
+    sttSha256: `stt-sha-${chunkIndex}`,
     maxAttempts: 3,
   });
 }
@@ -309,6 +407,8 @@ type ScopedDashboardState = {
   recentSttJobs: Array<{ id: string; session_id: string }>;
   recentRepairItems: Array<{ id: number; session_id: string | null }>;
   queueStats: Array<{ status: string; count: number }>;
+  currentSessionQueueStats: Array<{ status: string; count: number }>;
+  currentSessionChunkStats: { total: number };
   recentChunks: unknown[];
   recentConnectionEvents: Array<{
     session_id: string | null;
@@ -350,6 +450,10 @@ test("dashboard read model scopes panels to the active project only", () => {
 
     // queueStats counts only project A's one queued job (not 2 across A + B).
     assert.deepEqual(state.queueStats, [{ status: "queued", count: 1 }]);
+    assert.deepEqual(state.currentSessionQueueStats, [
+      { status: "queued", count: 1 },
+    ]);
+    assert.deepEqual(state.currentSessionChunkStats, { total: 1 });
   } finally {
     fixture.close();
   }
@@ -477,6 +581,8 @@ test("dashboard read model returns empty state when no active project", () => {
     assert.deepEqual(state.recentSttJobs, []);
     assert.deepEqual(state.recentRepairItems, []);
     assert.deepEqual(state.queueStats, []);
+    assert.deepEqual(state.currentSessionQueueStats, []);
+    assert.deepEqual(state.currentSessionChunkStats, { total: 0 });
     assert.deepEqual(state.recentChunks, []);
     assert.deepEqual(state.recentConnectionEvents, []);
     assert.deepEqual(state.speakers, []);

@@ -163,6 +163,7 @@ function assertBundleInputs(
     path.join(plan.projectRoot, "dist", "app", "main.js"),
     path.join(plan.projectRoot, "node_modules"),
     path.join(plan.projectRoot, "scripts", "local-whisper-json.py"),
+    path.join(plan.projectRoot, "scripts", "local-whisper-worker.py"),
     path.join(plan.projectRoot, "package.json"),
   ];
 

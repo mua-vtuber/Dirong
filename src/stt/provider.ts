@@ -9,6 +9,7 @@ export type SttTranscriptionContext = {
 
 export type SttTranscriptionOptions = {
   timeoutMs?: number;
+  signal?: AbortSignal;
 };
 
 export type SttTranscriptionResult = {
@@ -20,11 +21,14 @@ export interface SttProvider {
   readonly modelName: string;
   readonly supportsPrompt: boolean;
   preflight?(): Promise<void>;
+  prepare?(options?: SttTranscriptionOptions): Promise<void>;
   transcribe(
     inputAudioPath: string,
     context: SttTranscriptionContext,
     options?: SttTranscriptionOptions,
   ): Promise<SttTranscriptionResult>;
+  stop?(): Promise<void>;
+  reapTrackedPids?(): void;
 }
 
 export class FakeSttProvider implements SttProvider {

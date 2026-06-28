@@ -16,6 +16,7 @@ export type SttRunOptions = {
   language?: string | null;
   timeoutMs?: number;
   contextSegments?: number;
+  signal?: AbortSignal;
 };
 
 export type SttRunResult = {
@@ -89,6 +90,10 @@ export async function runSttBatch(
   result.expiredLeasesReleased = store.releaseExpiredProcessingLeases();
 
   for (let index = 0; index < options.limit; index += 1) {
+    if (options.signal?.aborted) {
+      break;
+    }
+
     const job = store.claimNextSttJob({
       workerId: options.workerId,
       leaseMs: options.leaseMs,
@@ -144,7 +149,7 @@ export async function runSttBatch(
           userId: job.user_id,
           displayName: job.display_name_snapshot,
         },
-        { timeoutMs: options.timeoutMs },
+        { timeoutMs: options.timeoutMs, signal: options.signal },
       );
 
       const segment = store.completeSttJob({

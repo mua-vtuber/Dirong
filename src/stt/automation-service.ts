@@ -76,7 +76,7 @@ export class SttAutomationService {
     this.loop = new EnabledPollingLoop({
       enabled: () => this.options.enabled,
       intervalMs: options.pollIntervalMs,
-      runTick: () => this.tick(),
+      runTick: (signal) => this.tick(signal),
       onScheduledError: (error) => this.handleScheduledError(error),
     });
   }
@@ -87,6 +87,7 @@ export class SttAutomationService {
 
   async stop(): Promise<void> {
     await this.loop.stop();
+    await this.options.provider.stop?.();
     this.markStopped();
   }
 
@@ -133,7 +134,43 @@ export class SttAutomationService {
     return await this.loop.runOnce();
   }
 
-  private async tick(): Promise<SttAutomationSnapshot> {
+  async prepare(): Promise<SttAutomationSnapshot> {
+    if (!this.options.enabled) {
+      return this.getSnapshot();
+    }
+    if (!this.options.provider.prepare) {
+      return this.getSnapshot();
+    }
+
+    this.snapshot = this.makeSnapshot({
+      ...this.snapshot,
+      status: "running",
+      checkedAt: new Date().toISOString(),
+      message: this.messageForStatus("running"),
+      userAction: null,
+      technicalDetail: null,
+    });
+
+    try {
+      await this.options.provider.prepare({
+        timeoutMs: this.options.runner.timeoutMs,
+      });
+      this.snapshot = this.makeSnapshot({
+        ...this.snapshot,
+        status: "idle",
+        checkedAt: new Date().toISOString(),
+        message: this.messageForStatus("idle"),
+        userAction: null,
+        technicalDetail: null,
+      });
+    } catch (error) {
+      this.handleScheduledError(error);
+    }
+
+    return this.getSnapshot();
+  }
+
+  private async tick(signal: AbortSignal): Promise<SttAutomationSnapshot> {
     this.snapshot = this.makeSnapshot({
       ...this.snapshot,
       status: "running",
@@ -153,6 +190,7 @@ export class SttAutomationService {
       language: this.options.runner.language,
       timeoutMs: this.options.runner.timeoutMs,
       contextSegments: this.options.runner.contextSegments,
+      signal,
     });
 
     const failed = result.failed + result.missingAudio;

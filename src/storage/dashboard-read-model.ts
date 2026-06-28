@@ -79,6 +79,14 @@ export function buildDashboardReadModel(input: {
            LIMIT 50`,
           sessionId,
         );
+  const currentSessionChunkStats =
+    sessionId === null
+      ? { total: 0 }
+      : database.db.prepare(
+          `SELECT COUNT(*) AS total
+           FROM chunks
+           WHERE session_id = ?`,
+        ).get(sessionId) as { total: number };
   // Project-scoped: only the active session's connection events. When there is
   // no session (empty state) we return [] rather than the global last-30, which
   // would leak other projects' events and session-less system events
@@ -116,6 +124,18 @@ export function buildDashboardReadModel(input: {
            WHERE j.session_id = ?
            ORDER BY j.created_at DESC
            LIMIT 30`,
+          sessionId,
+        );
+  const currentSessionQueueStats =
+    sessionId === null
+      ? []
+      : all(
+          database,
+          `SELECT status, COUNT(*) AS count
+           FROM stt_jobs
+           WHERE session_id = ?
+           GROUP BY status
+           ORDER BY status ASC`,
           sessionId,
         );
   // Project-scoped via INNER JOIN on sessions. repair_items.session_id is
@@ -176,7 +196,9 @@ export function buildDashboardReadModel(input: {
     currentSession,
     speakers,
     recentChunks,
+    currentSessionChunkStats,
     recentSttJobs,
+    currentSessionQueueStats,
     recentConnectionEvents,
     recentRepairItems,
     recentTranscriptSegments,

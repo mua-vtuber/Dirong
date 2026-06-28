@@ -192,6 +192,7 @@ const aiCleanupProvider = createAiCleanupProvider();
 // no await allowed. Quiet on failure inside reapTrackedPids() per D-04;
 // the DB writer may already be torn down at this point.
 process.on("exit", () => {
+  sttProviderSelection.provider.reapTrackedPids?.();
   aiCleanupProvider.reapTrackedPids?.();
 });
 const aiLifecycle = createAiLifecycleService(aiCleanupProvider);
@@ -320,7 +321,7 @@ if (config.openDashboard) {
 }
 
 if (canStartSttAutomation(initialSetupStatus)) {
-  startSttAutomation();
+  void startSttAutomation();
 } else {
   console.log(formatLocaleText(resolveAppLocale(), "runtimeCli.main.sttAutomationSkipped", {
     message: initialSetupStatus.features.stt.message,
@@ -963,10 +964,15 @@ function startAiPrepareInBackground(): void {
   });
 }
 
-function startSttAutomation(): void {
+async function startSttAutomation(): Promise<void> {
   const snapshot = sttAutomation.getSnapshot();
   if (!snapshot.enabled) {
     console.log(t(resolveAppLocale(), "runtimeCli.main.sttAutomationDisabled"));
+    return;
+  }
+  const readiness = await sttAutomation.prepare();
+  if (readiness.status === "failed") {
+    console.log(formatSttAutomationForStatus(readiness, resolveAppLocale()));
     return;
   }
   sttAutomation.start();

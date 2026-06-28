@@ -73,6 +73,7 @@ test("createPortableBundle creates a clean portable folder without source data s
     assert.ok(existsSync(path.join(plan.pythonDir, "Lib", "site.py")));
     assert.ok(existsSync(path.join(plan.pythonDir, "Lib", "site-packages", "pip")));
     assert.ok(existsSync(path.join(plan.scriptsDir, "local-whisper-json.py")));
+    assert.ok(existsSync(path.join(plan.scriptsDir, "local-whisper-worker.py")));
     assert.ok(existsSync(path.join(plan.dataDir, "settings")));
     assert.ok(existsSync(path.join(plan.dataDir, "secrets")));
     assert.ok(!existsSync(path.join(plan.dataDir, "secrets", "secrets.json")));
@@ -138,6 +139,7 @@ function createFakeProject(
     "module.exports = {};\n",
   );
   writeFileSync(path.join(projectRoot, "scripts", "local-whisper-json.py"), "");
+  writeFileSync(path.join(projectRoot, "scripts", "local-whisper-worker.py"), "");
   writeFileSync(path.join(projectRoot, "fake-node.exe"), "");
   if (options.includeProjectRuntimePython ?? true) {
     createFakePythonRuntime(path.join(projectRoot, "runtime", "python"));

@@ -14,7 +14,12 @@ import {
   SttAutomationService,
   type SttAutomationSnapshot,
 } from "./automation-service.js";
-import { FakeSttProvider } from "./provider.js";
+import {
+  FakeSttProvider,
+  type SttTranscriptionContext,
+  type SttTranscriptionOptions,
+  type SttTranscriptionResult,
+} from "./provider.js";
 
 test("SttAutomationService processes queued STT jobs", async () => {
   const fixture = createQueuedSttFixture();
@@ -67,6 +72,62 @@ test("SttAutomationService disabled mode does not process jobs", async () => {
 
     assert.equal(snapshot.status, "disabled");
     assert.equal(fixture.countQueuedSttJobs(), 1);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("SttAutomationService prepares and stops provider lifecycle", async () => {
+  const fixture = createQueuedSttFixture();
+  const provider = new LifecycleFakeSttProvider();
+  try {
+    const service = new SttAutomationService(fixture.store, {
+      enabled: true,
+      provider,
+      pollIntervalMs: 1000,
+      batchLimit: 1,
+      runner: {
+        workerId: "stt-auto-test",
+        leaseMs: 60000,
+        language: "ko",
+        timeoutMs: 1000,
+        contextSegments: 2,
+      },
+    });
+
+    const prepared = await service.prepare();
+    await service.stop();
+
+    assert.equal(prepared.status, "idle");
+    assert.equal(provider.prepareCalls, 1);
+    assert.equal(provider.stopCalls, 1);
+  } finally {
+    fixture.close();
+  }
+});
+
+test("SttAutomationService passes AbortSignal into STT provider calls", async () => {
+  const fixture = createQueuedSttFixture();
+  const provider = new SignalAwareFakeSttProvider();
+  try {
+    const service = new SttAutomationService(fixture.store, {
+      enabled: true,
+      provider,
+      pollIntervalMs: 1000,
+      batchLimit: 1,
+      runner: {
+        workerId: "stt-auto-test",
+        leaseMs: 60000,
+        language: "ko",
+        timeoutMs: 1000,
+        contextSegments: 2,
+      },
+    });
+
+    await service.runOnce();
+
+    assert.ok(provider.observedSignal instanceof AbortSignal);
+    assert.equal(provider.observedSignal.aborted, false);
   } finally {
     fixture.close();
   }
@@ -134,6 +195,32 @@ test("formatSttAutomationForStatus localizes text labels", () => {
   assert.match(formatSttAutomationForStatus(snapshot, "en"), /STT automation/);
   assert.match(formatSttAutomationForStatus(snapshot, "en"), /STT batch:/);
 });
+
+class LifecycleFakeSttProvider extends FakeSttProvider {
+  prepareCalls = 0;
+  stopCalls = 0;
+
+  async prepare(): Promise<void> {
+    this.prepareCalls += 1;
+  }
+
+  async stop(): Promise<void> {
+    this.stopCalls += 1;
+  }
+}
+
+class SignalAwareFakeSttProvider extends FakeSttProvider {
+  observedSignal: AbortSignal | null = null;
+
+  override async transcribe(
+    inputAudioPath: string,
+    context: SttTranscriptionContext,
+    options?: SttTranscriptionOptions,
+  ): Promise<SttTranscriptionResult> {
+    this.observedSignal = options?.signal ?? null;
+    return await super.transcribe(inputAudioPath, context);
+  }
+}
 
 function createQueuedSttFixture(): {
   store: FlatStorageStore;
